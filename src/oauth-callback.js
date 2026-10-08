@@ -1,3 +1,4 @@
+import { probeAllianceProfiles, renderAllianceProfiles } from "./profiles-test.js";
 import { probeInventory, renderInventoryProbe } from "./inventory-test.js";
 import { probeAllianceRoster, probeOwnRoster, renderAllianceProbe } from "./alliance-test.js";
 import { getPlayerCard, showEphemeralPlayerCard } from "./player-card.js";
@@ -94,6 +95,8 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     readCookie(cookies, "__Host-losp_oauth_roster_scope_test"), expectedState);
   const inventoryMode = equalStates(
     readCookie(cookies, "__Host-losp_oauth_inventory_test"), expectedState);
+  const profilesMode = equalStates(
+    readCookie(cookies, "__Host-losp_oauth_profiles_test"), expectedState);
 
   // Check CSRF even when Scopely returned a denied-consent error.
   if (!equalStates(expectedState, suppliedState) || !verifier) {
@@ -181,6 +184,9 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
 
     // A single authorized GET; never persist or return any OAuth token.
     // The token remains in this request's memory only.
+    if (profilesMode && !allianceMode && !rosterScopeMode && !inventoryMode) {
+      return renderAllianceProfiles(await probeAllianceProfiles(result.access_token, fetchImpl));
+    }
     if (inventoryMode && !allianceMode && !rosterScopeMode) {
       // Temporary inventory check; the response is reduced to a safe count.
       return renderInventoryProbe(await probeInventory(result.access_token, fetchImpl));
