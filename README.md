@@ -52,3 +52,17 @@ Ensuite, au plus un `GET /player/v1/roster/member/{memberId}?page=1&perPage=1` e
 L'OpenAPI associe la lecture des rosters des membres à `m3p.f.ar.ros`, **qui ne figure pas dans les scopes OAuth disponibles**. Un code `464 NO_ACCESS` reste donc possible même pour `rosterShare === true`; ce test est précisément destiné à le mesurer et ne contourne aucune restriction. Le `memberId` est éphémère et doit être redécouvert à chaque appel. Ne pas synchroniser 24 rosters en extrapolant à partir d'un seul test.
 
 `/login` continue de fonctionner comme avant. Ne pas utiliser ce test comme mécanisme de production ; aucune liaison durable Scopely ou R2 n'est activée.
+
+## Test comparatif des droits de consultation des rosters
+
+URL de diagnostic distincte : `GET /login/roster-scope-test`.
+
+Cette route ajoute **View Roster** (`m3p.f.pr.ros`) aux droits utilisés par le test d'alliance (`m3p.f.pr.pro m3p.f.ar.pro`) ; `/login` et `/login/alliance-test` restent inchangés. Après OAuth, le Worker vérifie successivement :
+
+1. La lecture d'une seule entrée du roster du compte connecté via `GET /player/v1/roster?page=1&perPage=1`.
+2. Les 24 membres de l'alliance du compte connecté, et leurs indicateurs `isSelf` / `rosterShare`.
+3. Au maximum une entrée du roster d'un autre membre ayant `rosterShare === true`, via l'endpoint d'alliance déjà utilisé.
+
+Le diagnostic affiche les succès et les refus HTTP des deux consultations **indépendamment**, sans exposer les tokens, les identifiants des membres ni les personnages. Les données ne sont ni stockées, ni mises en cache. Une lecture du roster personnel ne garantit pas l'autorisation `m3p.f.ar.ros` nécessaire à celui des coéquipiers. Si l'accès aux coéquipiers reste interdit, il faudra demander à Scopely comment obtenir ce droit officiellement, sans forger de scope OAuth non proposé.
+
+L'indicateur `isSelf: true` identifie le compte connecté. Le nombre de « coéquipiers partageant » exclut donc explicitement le compte connecté, même si son propre roster est partagé.
