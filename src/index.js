@@ -8,7 +8,7 @@ export default {
         {
           status: "ok",
           service: "losp-roster-service",
-          version: "0.1.1"
+          version: "0.1.2"
         },
         {
           headers: {
