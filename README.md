@@ -78,3 +78,18 @@ Il vérifie que l'API répond HTTP 200 et renvoie `data` sous forme de tableau. 
 La documentation officielle annonce aussi le filtre `itemType` (GEAR, ISOITEM, SHARD, RS, COSTUME, CONSUMABLE, ABILITY_MATERIAL). Ces catégories ne sont **pas** encore synchronisées par le test. L'endpoint est réservé au **joueur connecté** : il ne confère aucun accès aux inventaires des membres de l'alliance.
 
 Référence : https://developer.marvelstrikeforce.com/beta/msf-api.json
+
+## Test unique des profils de l'alliance
+
+Route volontaire `GET /login/profiles-test`. Elle demande uniquement les droits existants `openid m3p.f.pr.pro m3p.f.ar.pro` ; les autres routes OAuth demeurent inchangées.
+
+Après le consentement du compte responsable et l'échange OAuth côté Worker :
+
+1. Lecture de `GET /player/v1/alliance/card` pour vérifier la fiche complète de l'alliance du compte connecté.
+2. Lecture de `GET /player/v1/alliance/members` pour obtenir des identifiants de membres **temporaires**, jamais enregistrés.
+3. Lecture initiale de `GET /player/v1/card/member/{memberId}` sur **un autre membre**. Si le premier accès est refusé, le test s'arrête (pas de balayage inutile).
+4. Si ce premier accès réussit, audit des autres fiches avec **trois requêtes simultanées au plus**, maximum 24 fiches, arrêt des lots suivants sur HTTP 429 ou 401.
+
+Le résultat affiche les classements de saison de **guerre** (`warRank`) et **raid** (`raidRank`), quelques statistiques globales autorisées et le nombre de fiches accessibles par champ. L'ancien événement World Warrior est volontairement ignoré. Les fiches détaillées, identifiants, tokens, descriptions libres et données brutes ne sont ni sauvegardés ni renvoyés au navigateur. Le résultat est non mis en cache et expire au rechargement.
+
+Ceci est un **diagnostic ponctuel**, pas encore une synchronisation. Un premier succès n'est pas une garantie d'accès à toutes les fiches des alliances futures. La documentation officielle est disponible sur https://developer.marvelstrikeforce.com/beta/msf-api.json .
