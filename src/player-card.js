@@ -15,6 +15,7 @@ export async function getPlayerCard(accessToken, fetchImpl = fetch) {
       method: "GET",
       headers: {
         "x-api-key": API_KEY,
+        "User-Agent": "APIClient/1.0 (Server)",
         Authorization: "Bearer " + accessToken,
         Accept: "application/json"
       },
@@ -32,9 +33,9 @@ export async function getPlayerCard(accessToken, fetchImpl = fetch) {
   }
   if (!response.ok) {
     const status = response.status;
-    if (status === 401 || status === 403 || status === 464) {
-      return { ok: false, status: "profile-forbidden" };
-    }
+    if (status === 401) return { ok: false, status: "profile-unauthorized" };
+    if (status === 403) return { ok: false, status: "profile-forbidden" };
+    if (status === 464) return { ok: false, status: "profile-no-access" };
     if (status === 429) return { ok: false, status: "profile-rate-limit" };
     return { ok: false, status: "profile-unavailable" };
   }

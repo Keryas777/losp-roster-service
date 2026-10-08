@@ -205,9 +205,17 @@ export function handleOAuthStatus(request) {
       "Profil Scopely indisponible",
       "L’API n’a pas renvoyé le profil attendu. Aucun token n’a été conservé."
     ],
+    "profile-unauthorized": [
+      "Authentification API refusée (401)",
+      "Scopely n’a pas reconnu les informations d’authentification de l’appel au profil. Aucun token n’a été conservé."
+    ],
     "profile-forbidden": [
-      "Accès au profil refusé",
-      "L’autorisation obtenue ne permet pas la lecture du profil, ou Scopely a refusé la requête."
+      "Accès au profil interdit (403)",
+      "Scopely a refusé l’accès au profil malgré la connexion OAuth. Aucun token n’a été conservé."
+    ],
+    "profile-no-access": [
+      "Aucun accès au profil (464)",
+      "L’API Scopely a répondu NO_ACCESS. Aucun token n’a été conservé."
     ],
     "profile-rate-limit": [
       "Limite d’appels API atteinte",

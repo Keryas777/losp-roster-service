@@ -50,6 +50,7 @@ test("valid OAuth fetches the player card once without exposing tokens", async (
     assert.equal(url, "https://api.marvelstrikeforce.com/player/v1/card");
     assert.equal(init.method, "GET");
     assert.equal(init.headers.Authorization, "Bearer PRIVATE_ACCESS_TOKEN");
+    assert.equal(init.headers["User-Agent"], "APIClient/1.0 (Server)");
     assert.equal(init.redirect, "manual");
     assert.ok(init.headers["x-api-key"]);
     assert.equal(init.cache, "no-store");
@@ -174,6 +175,21 @@ test("redirect handling never follows or exposes target location", async () => {
   assert.equal(captured.redirect, "manual");
   checkRedirect(response, "exchange-redirect");
   assert.doesNotMatch(JSON.stringify([...response.headers]), /PRIVATE_SECRET_TOKEN_123|evil.example/);
+});
+
+test("profile authorization failure pages use fixed non-sensitive messages", async () => {
+  for (const [status, title] of [
+    ["profile-unauthorized", "401"],
+    ["profile-forbidden", "403"],
+    ["profile-no-access", "464"]
+  ]) {
+    const res = handleOAuthStatus(req("/oauth/status?result=" + status +
+      "&detail=PRIVATE_ACCESS_TOKEN"));
+    const html = await res.text();
+    assert.match(html, new RegExp(title));
+    assert.doesNotMatch(html, /PRIVATE_ACCESS_TOKEN/);
+    assert.match(res.headers.get("cache-control"), /no-store/);
+  }
 });
 
 test("OAuth status page shows only predefined diagnostic texts", async () => {

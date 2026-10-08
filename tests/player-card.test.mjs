@@ -12,6 +12,7 @@ test("GET player card uses the three official headers and no cache", async () =>
     assert.equal(options.redirect, "manual");
     assert.equal(options.headers.Authorization, "Bearer ONLY_IN_WORKER_TOKEN");
     assert.equal(options.headers["x-api-key"], "17wMKJLRxy3pYDCKG5ciP7VSU45OVumB2biCzzgw");
+    assert.equal(options.headers["User-Agent"], "APIClient/1.0 (Server)");
     assert.equal(options.headers.Accept, "application/json");
     return Response.json({ data: { name: "My Player", level: { completedTier: 110 }, tcp: 1000 } });
   });
@@ -30,7 +31,9 @@ test("invalid card format, provider errors and transports yield safe statuses", 
     [async () => Response.json({data:null}), "profile-invalid-response"],
     [async () => Response.json({data:{name:""}}), "profile-invalid-response"],
     [async () => new Response("not JSON", {status:200}), "profile-invalid-response"],
-    [async () => Response.json({error:"sensitive message"}, {status:401}), "profile-forbidden"],
+    [async () => Response.json({error:"sensitive message"}, {status:401}), "profile-unauthorized"],
+    [async () => Response.json({error:"sensitive message"}, {status:403}), "profile-forbidden"],
+    [async () => Response.json({error:"sensitive message"}, {status:464}), "profile-no-access"],
     [async () => Response.json({}, {status:429}), "profile-rate-limit"],
     [async () => Response.json({}, {status:503}), "profile-unavailable"],
     [async () => new Response(null,{status:302,headers:{Location:"https://bad.example"}}), "profile-unavailable"],
