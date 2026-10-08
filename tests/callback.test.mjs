@@ -25,36 +25,61 @@ function checkRedirect(res, result) {
   }
 }
 
-test("valid state and PKCE result in backend-only token exchange", async () => {
-  let count = 0;
+test("valid OAuth fetches the player card once without exposing tokens", async () => {
+  const requests = [];
   const spy = async (url, init) => {
-    count++;
-    assert.equal(url, "https://hydra-public.prod.m3.scopelypv.com/oauth2/token");
-    assert.equal(init.method, "POST");
+    requests.push({url, init});
+    if (requests.length === 1) {
+      assert.equal(url, "https://hydra-public.prod.m3.scopelypv.com/oauth2/token");
+      assert.equal(init.method, "POST");
+      assert.equal(init.redirect, "manual");
+      assert.equal(init.headers.Authorization,
+        "Basic " + Buffer.from("client-id-test:secret-test").toString("base64"));
+      const body = new URLSearchParams(init.body);
+      assert.equal(body.get("grant_type"), "authorization_code");
+      assert.equal(body.get("redirect_uri"), origin + "/oauth/callback");
+      assert.equal(body.get("code_verifier"), verifier);
+      assert.equal(body.get("code"), "sample-code");
+      return Response.json({
+        access_token: "PRIVATE_ACCESS_TOKEN",
+        refresh_token: "PRIVATE_REFRESH_TOKEN",
+        id_token: "PRIVATE_ID_TOKEN",
+        token_type: "Bearer", expires_in: 3600
+      });
+    }
+    assert.equal(url, "https://api.marvelstrikeforce.com/player/v1/card");
+    assert.equal(init.method, "GET");
+    assert.equal(init.headers.Authorization, "Bearer PRIVATE_ACCESS_TOKEN");
     assert.equal(init.redirect, "manual");
-    assert.equal(init.headers.Authorization,
-      "Basic " + Buffer.from("client-id-test:secret-test").toString("base64"));
-    assert.equal(init.headers["Content-Type"], "application/x-www-form-urlencoded");
-    const body = new URLSearchParams(init.body);
-    assert.equal(body.get("grant_type"), "authorization_code");
-    assert.equal(body.get("redirect_uri"), origin + "/oauth/callback");
-    assert.equal(body.get("code_verifier"), verifier);
-    assert.equal(body.get("code"), "sample-code");
-    assert.equal(body.has("client_secret"), false);
+    assert.ok(init.headers["x-api-key"]);
+    assert.equal(init.cache, "no-store");
     return Response.json({
-      access_token: "PRIVATE_ACCESS_TOKEN",
-      refresh_token: "PRIVATE_REFRESH_TOKEN",
-      id_token: "PRIVATE_ID_TOKEN",
-      token_type: "Bearer", expires_in: 3600
+      data: { name: "Capitaine MSF", level: { completedTier: 110 },
+        tcp: 123456789, stp: 222222, charactersCollected: 355, warMvp: 5 }
     });
   };
   const res = await handleCallback(cb("state=" + state + "&code=sample-code"), client, spy);
-  assert.equal(count, 1);
-  checkRedirect(res, "validated");
-  const responseBody = await res.text();
-  const responseString = JSON.stringify([...res.headers]) + responseBody;
-  assert.doesNotMatch(responseString, /PRIVATE_(ACCESS|REFRESH|ID)_TOKEN/);
-  assert.doesNotMatch(responseString, /sample-code/);
+  assert.equal(requests.length, 2);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type"), /text\/html/);
+  assert.match(res.headers.get("cache-control"), /no-store/);
+  assert.equal(res.headers.getSetCookie().length, 2);
+  assert.match(res.headers.get("content-security-policy"), /script-src 'nonce-/);
+  const page = await res.text();
+  assert.match(page, /Capitaine MSF/);
+  assert.match(page, /123.456.789|123[\u202f ]456[\u202f ]789/);
+  assert.match(page, /history.replaceState/);
+  assert.doesNotMatch(page + JSON.stringify([...res.headers]), /PRIVATE_(ACCESS|REFRESH|ID)_TOKEN/);
+  assert.doesNotMatch(page + JSON.stringify([...res.headers]), /sample-code|client-id-test|secret-test/);
+});
+
+test("profile API failure discards token and clears OAuth cookies", async () => {
+  const spy = async (url) => url.includes("/oauth2/token")
+    ? Response.json({ access_token: "PRIVATE_ACCESS_TOKEN", token_type: "Bearer" })
+    : Response.json({error:"PRIVATE_PROVIDER_MESSAGE"}, {status:403});
+  const res = await handleCallback(cb("state=" + state + "&code=sample-code"), client, spy);
+  checkRedirect(res, "profile-forbidden");
+  assert.doesNotMatch(JSON.stringify([...res.headers]), /PRIVATE_ACCESS_TOKEN|PRIVATE_PROVIDER_MESSAGE/);
 });
 
 test("missing, mismatched, malformed or duplicate cookie state prevents exchange", async () => {

@@ -8,7 +8,7 @@ Service indépendant de `Keryas777/msf` pour les rosters autorisés de Marvel St
 - `GET /health` : état du service (version 0.1.2 inchangée).
 - `/`, `/privacy.html` et `/tos.html` : pages publiques.
 - `GET /login` : **phase OAuth 1**. Construit une redirection officielle Scopely (`authorization_code`, `state` aléatoire et PKCE S256) en utilisant `SCOPELY_CLIENT_ID` au runtime.
-- `GET /oauth/callback` : **phase OAuth 2 — validation éphémère**. Vérifie `state` et PKCE, échange le code uniquement côté Worker (Client ID + Client Secret en HTTP Basic) puis supprime les cookies temporaires. **Les tokens ne sont ni enregistrés, ni renvoyés au navigateur.** Le compte n'est donc PAS encore connecté durablement.
+- `GET /oauth/callback` : **phase OAuth 3 — validation et lecture éphémère du profil**. Vérifie `state` et PKCE, échange le code uniquement côté Worker (Client ID + Client Secret en HTTP Basic) puis supprime les cookies temporaires. **Les tokens ne sont ni enregistrés, ni renvoyés au navigateur.** Le compte n'est donc PAS encore connecté durablement.
 - `GET /oauth/status` : confirme simplement le résultat du test sans afficher de jetons, codes ni détails d'erreur Scopely.
 
 ## OAuth — configuration
@@ -33,3 +33,9 @@ node --test tests/*.test.mjs
 ```
 
 Les tests simulent localement l'endpoint de tokens, sans appel réel à Scopely. La vérification live du fournisseur nécessite un test explicite dans le navigateur. Ne jamais committer de secret, de jeton ou de données privées Scopely.
+
+## Lecture temporaire du profil
+
+Après le succès de l'authentification, le Worker effectue un seul appel officiel à `/player/v1/card` avec le jeton en mémoire. Il affiche le pseudo, le niveau et quelques statistiques de la carte, sans enregistrer les données ni renvoyer le jeton au navigateur. La page est non mise en cache et n'est visible que jusqu'au rechargement. Aucun accès aux rosters n'est activé à ce stade.
+
+Les tests simulent les appels OAuth et profil sans utiliser de comptes réels.
