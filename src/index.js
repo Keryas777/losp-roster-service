@@ -3,6 +3,10 @@ export default {
   async fetch(request) {
     const url = new URL(request.url);
 
+    if (request.method === "GET" && url.pathname === "/") {
+      return Response.redirect(new URL("/index.html", url), 302);
+    }
+
     if (request.method === "GET" && url.pathname === "/health") {
       return Response.json(
         {
