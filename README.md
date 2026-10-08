@@ -66,3 +66,15 @@ Cette route ajoute **View Roster** (`m3p.f.pr.ros`) aux droits utilisés par le 
 Le diagnostic affiche les succès et les refus HTTP des deux consultations **indépendamment**, sans exposer les tokens, les identifiants des membres ni les personnages. Les données ne sont ni stockées, ni mises en cache. Une lecture du roster personnel ne garantit pas l'autorisation `m3p.f.ar.ros` nécessaire à celui des coéquipiers. Si l'accès aux coéquipiers reste interdit, il faudra demander à Scopely comment obtenir ce droit officiellement, sans forger de scope OAuth non proposé.
 
 L'indicateur `isSelf: true` identifie le compte connecté. Le nombre de « coéquipiers partageant » exclut donc explicitement le compte connecté, même si son propre roster est partagé.
+
+## Vérification ponctuelle de l'inventaire personnel
+
+URL de diagnostic indépendante : `GET /login/inventory-test`.
+
+Ce test demande uniquement les scopes OAuth `openid m3p.f.pr.pro m3p.f.pr.inv` (**View Inventory**). Il ne modifie ni `/login`, ni les tests de roster et d'alliance. Après échange du code OAuth, le Worker lance **un seul** `GET /player/v1/inventory?page=1&perPage=1` (sans filtre d'objets), avec les trois en-têtes officiels.
+
+Il vérifie que l'API répond HTTP 200 et renvoie `data` sous forme de tableau. La page affiche un statut et le nombre d'objets retournés sur la première page (au plus un), jamais les IDs, noms ou quantités des objets. Elle ne stocke ni token, ni inventaire, ni données dérivées ; son résultat est non mis en cache et expire au rechargement.
+
+La documentation officielle annonce aussi le filtre `itemType` (GEAR, ISOITEM, SHARD, RS, COSTUME, CONSUMABLE, ABILITY_MATERIAL). Ces catégories ne sont **pas** encore synchronisées par le test. L'endpoint est réservé au **joueur connecté** : il ne confère aucun accès aux inventaires des membres de l'alliance.
+
+Référence : https://developer.marvelstrikeforce.com/beta/msf-api.json
