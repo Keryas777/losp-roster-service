@@ -81,6 +81,7 @@ export async function deleteSession(bucket, id) {
 export async function readSession(bucket, keyHex, id, now = Date.now()) {
   if (!bucket?.get || !bucket?.delete) throw new Error("R2 is not configured");
   const objectKey = await sessionObjectKey(id);
+  const key = await importKey(keyHex);
   const stored = await bucket.get(objectKey);
   if (!stored) return null;
   try {
@@ -89,7 +90,6 @@ export async function readSession(bucket, keyHex, id, now = Date.now()) {
     const iv = fromBase64url(envelope.iv);
     if (iv.byteLength !== 12) throw new Error("Invalid IV");
     const ciphertext = fromBase64url(envelope.ciphertext);
-    const key = await importKey(keyHex);
     const plain = await crypto.subtle.decrypt({
       name: "AES-GCM", iv, additionalData: ENC.encode(objectKey)
     }, key, ciphertext);
@@ -117,7 +117,9 @@ export async function readSession(bucket, keyHex, id, now = Date.now()) {
 // Operational safeguard for eventual scheduled cleanup. Cloudflare R2 lifecycle
 // deletion is a backstop, not the sole enforcement of expiry.
 export async function purgeExpiredSessions(bucket, keyHex, now = Date.now(), maxPages = 10) {
-  if (!bucket?.list) throw new Error("R2 is not configured");
+  if (!bucket?.list || !bucket?.get || !bucket?.delete) throw new Error("R2 is not configured");
+  // Never purge with a missing or malformed encryption key.
+  const key = await importKey(keyHex);
   let cursor;
   let removed = 0;
   let scanned = 0;
@@ -134,7 +136,6 @@ export async function purgeExpiredSessions(bucket, keyHex, now = Date.now(), max
         const envelope = JSON.parse(await stored.text());
         const iv = fromBase64url(envelope.iv);
         if (envelope.version !== 1 || iv.length !== 12) throw new Error("Bad version");
-        const key = await importKey(keyHex);
         const plaintext = await crypto.subtle.decrypt({
           name: "AES-GCM", iv, additionalData: ENC.encode(obj.key)
         }, key, fromBase64url(envelope.ciphertext));
