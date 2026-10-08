@@ -77,7 +77,7 @@ export function renderInventoryProbe(report) {
   const title = success ? "Accès à l'inventaire confirmé" :
     (labels[report?.status] || labels["http-error"])[0];
   const message = success
-    ? "Scopely a répondu HTTP 200. " + report.returnedItems +
+    ? "Scopely a répondu HTTP 200. " + (Number.isInteger(report.returnedItems) && report.returnedItems >= 0 && report.returnedItems <= 1 ? report.returnedItems : "?") +
       " objet(s) renvoyé(s) sur la première page (maximum demandé : 1)."
     : (labels[report?.status] || labels["http-error"])[1];
   // title/message are fixed text or a validated count from our own code.
