@@ -130,7 +130,12 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
 
     if (!tokenResponse.ok) return backToStatus(await classifyTokenFailure(tokenResponse));
 
-    const result = await tokenResponse.json();
+    let result;
+    try {
+      result = await tokenResponse.json();
+    } catch {
+      return backToStatus("exchange-unexpected-response");
+    }
     if (!result || typeof result.access_token !== "string" ||
         !result.access_token || String(result.token_type).toLowerCase() !== "bearer") {
       return backToStatus("exchange-unexpected-response");
