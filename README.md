@@ -39,3 +39,16 @@ Les tests simulent localement l'endpoint de tokens, sans appel réel à Scopely.
 Après le succès de l'authentification, le Worker effectue un seul appel officiel à `/player/v1/card` avec le jeton en mémoire. Il affiche le pseudo, le niveau et quelques statistiques de la carte, sans enregistrer les données ni renvoyer le jeton au navigateur. La page est non mise en cache et n'est visible que jusqu'au rechargement. Aucun accès aux rosters n'est activé à ce stade.
 
 Les tests simulent les appels OAuth et profil sans utiliser de comptes réels.
+
+## Vérification ponctuelle d'accès au roster d'un coéquipier
+
+URL **volontairement distincte** de la connexion normale :
+`GET /login/alliance-test`.
+
+Cette route ajoute uniquement le scope OAuth documenté `m3p.f.ar.pro` (View Alliance Profile) aux permissions déjà utilisées. Après le callback, le Worker appelle `GET /player/v1/alliance/members`, vérifie le booléen `card.rosterShare === true` et sélectionne **un seul membre qui n'est pas le compte connecté**. Si aucun ne partage son roster, aucun appel de roster n'est effectué.
+
+Ensuite, au plus un `GET /player/v1/roster/member/{memberId}?page=1&perPage=1` est réalisé. Le roster complet, les IDs internes et les personnages ne sont jamais exposés : la page temporaire indique uniquement le nombre de membres, le nombre de coéquipiers partageant, le pseudonyme du membre testé et le statut d'accès. Elle ne conserve ni token, ni roster, ni identité durable. La page est non mise en cache et son URL est neutralisée dans l'historique du navigateur.
+
+L'OpenAPI associe la lecture des rosters des membres à `m3p.f.ar.ros`, **qui ne figure pas dans les scopes OAuth disponibles**. Un code `464 NO_ACCESS` reste donc possible même pour `rosterShare === true`; ce test est précisément destiné à le mesurer et ne contourne aucune restriction. Le `memberId` est éphémère et doit être redécouvert à chaque appel. Ne pas synchroniser 24 rosters en extrapolant à partir d'un seul test.
+
+`/login` continue de fonctionner comme avant. Ne pas utiliser ce test comme mécanisme de production ; aucune liaison durable Scopely ou R2 n'est activée.
