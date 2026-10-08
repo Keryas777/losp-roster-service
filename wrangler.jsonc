@@ -1,7 +1,9 @@
-
 {
   "name": "losp-roster-service",
   "main": "src/index.js",
   "compatibility_date": "2026-10-08",
-  "workers_dev": true
+  "workers_dev": true,
+  "assets": {
+    "directory": "./public"
+  }
 }
