@@ -107,9 +107,8 @@ export async function readSession(bucket, keyHex, id, now = Date.now()) {
     }
     return { accessToken: record.accessToken, expiresAt: record.expiresAt };
   } catch {
-    // Fail closed if encrypted content is altered or damaged. Keep no raw logs.
-    // Deleting avoids serving a damaged session on subsequent requests.
-    await bucket.delete(objectKey);
+    // Fail closed; do not delete blindly if an encryption key was rotated.
+    // The lifecycle rule and explicit revocation handle physical cleanup.
     return null;
   }
 }
@@ -145,7 +144,9 @@ export async function purgeExpiredSessions(bucket, keyHex, now = Date.now(), max
             !Number.isSafeInteger(row.createdAt) ||
             expiresAt - row.createdAt > MAX_AGE_MS) invalid = true;
       } catch {
-        invalid = true;
+        // An unreadable object may indicate a wrong encryption secret.
+        // Never erase everything because a secret was accidentally rotated.
+        continue;
       }
       if (invalid || expiresAt <= now) {
         await bucket.delete(obj.key);
