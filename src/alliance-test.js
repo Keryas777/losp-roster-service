@@ -90,6 +90,22 @@ export async function probeAllianceRoster(accessToken, fetchImpl = fetch) {
   };
 }
 
+// One page only: verify the explicit personal View Roster scope before
+// independently testing alliance roster access (never bulk-download data).
+export async function probeOwnRoster(accessToken, fetchImpl = fetch) {
+  if (typeof accessToken !== "string" || !accessToken) {
+    return { status: "missing-token" };
+  }
+  const result = await callApi("/player/v1/roster?page=1&perPage=1", accessToken, fetchImpl);
+  if (result.status !== "ok") {
+    return { status: result.status, httpCode: result.httpCode };
+  }
+  if (!Array.isArray(result.data?.data)) {
+    return { status: "invalid-roster" };
+  }
+  return { status: "accessible", returnedCharacters: result.data.data.length };
+}
+
 function esc(value) {
   return String(value).replace(/[&<>"']/g, c => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -145,6 +161,19 @@ export function renderAllianceProbe(report) {
     }
   }
 
+  if (report.ownRoster) {
+    const own = report.ownRoster;
+    const ownDetail = own.status === "accessible"
+      ? "Accès au roster personnel confirmé (HTTP 200). " +
+        safeCount(own.returnedCharacters) + " personnage(s) renvoyé(s) sur la page test."
+      : own.status === "invalid-roster"
+        ? "Le format du roster personnel n'a pas pu être reconnu."
+        : explanations[own.status] || "Le test de lecture du roster personnel n'a pas abouti.";
+    detail = "<h2>Test 1 — Ton propre roster</h2><p>" + esc(ownDetail) +
+      (Number.isInteger(own.httpCode) ? " (HTTP " + own.httpCode + ")" : "") +
+      "</p><h2>Test 2 — Roster partagé d’un coéquipier</h2>" + detail;
+  }
+
   const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<meta name="referrer" content="no-referrer"><title>Test alliance — LoSP</title>' +
@@ -169,5 +198,6 @@ export function renderAllianceProbe(report) {
   headers.append("Set-Cookie", "__Host-losp_oauth_state=" + remove);
   headers.append("Set-Cookie", "__Host-losp_oauth_verifier=" + remove);
   headers.append("Set-Cookie", "__Host-losp_oauth_alliance_test=" + remove);
+  headers.append("Set-Cookie", "__Host-losp_oauth_roster_scope_test=" + remove);
   return new Response(html, { status: 200, headers });
 }
