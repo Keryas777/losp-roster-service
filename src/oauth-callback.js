@@ -39,6 +39,31 @@ function backToStatus(result, status = 303) {
   return new Response(null, { status, headers });
 }
 
+// Only these OAuth protocol error identifiers can reach the status page.
+// Never reflect provider error descriptions, token payloads or arbitrary URLs.
+const SAFE_PROVIDER_ERRORS = new Set([
+  "invalid_client", "invalid_grant", "invalid_request", "unauthorized_client",
+  "unsupported_grant_type", "invalid_scope", "server_error",
+  "temporarily_unavailable"
+]);
+
+async function classifyTokenFailure(response) {
+  try {
+    const parsed = await response.json();
+    const error = parsed && parsed.error;
+    if (typeof error === "string" && SAFE_PROVIDER_ERRORS.has(error)) {
+      return "exchange-" + error.replaceAll("_", "-");
+    }
+  } catch {
+    // Provider's error body may not be JSON; never echo it.
+  }
+  if (response.status === 400) return "exchange-http-400";
+  if (response.status === 401 || response.status === 403) return "exchange-http-auth";
+  if (response.status === 429) return "exchange-rate-limit";
+  if (response.status >= 500) return "exchange-server";
+  return "exchange-rejected";
+}
+
 function toBasicAuth(clientId, clientSecret) {
   const raw = new TextEncoder().encode(clientId + ":" + clientSecret);
   return "Basic " + btoa(String.fromCharCode(...raw));
@@ -103,12 +128,17 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
       signal: AbortSignal.timeout(10000)
     });
 
-    if (!tokenResponse.ok) return backToStatus("exchange-failed");
+    if (!tokenResponse.ok) return backToStatus(await classifyTokenFailure(tokenResponse));
 
-    const result = await tokenResponse.json();
+    let result;
+    try {
+      result = await tokenResponse.json();
+    } catch {
+      return backToStatus("exchange-unexpected-response");
+    }
     if (!result || typeof result.access_token !== "string" ||
         !result.access_token || String(result.token_type).toLowerCase() !== "bearer") {
-      return backToStatus("exchange-failed");
+      return backToStatus("exchange-unexpected-response");
     }
 
     // No scopes involving offline access are requested. Do not store or return
@@ -116,7 +146,7 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     return backToStatus("validated");
   } catch {
     // No sensitive token response, authorization code or credentials in logs.
-    return backToStatus("exchange-failed");
+    return backToStatus("exchange-network");
   }
 }
 
@@ -146,6 +176,66 @@ export function handleOAuthStatus(request) {
     "exchange-failed": [
       "Échange OAuth non abouti",
       "Le service n'a conservé aucun token. Réessayez plus tard."
+    ],
+    "exchange-invalid-client": [
+      "Identifiants OAuth refusés",
+      "Scopely n'a pas authentifié notre application. Vérifier la configuration des secrets Client ID et Client Secret côté Cloudflare."
+    ],
+    "exchange-invalid-grant": [
+      "Code d'autorisation refusé",
+      "Le code est expiré, déjà utilisé ou ne correspond pas au callback ou au vérificateur PKCE. Recommencez depuis /login."
+    ],
+    "exchange-invalid-request": [
+      "Requête OAuth incorrecte",
+      "Scopely refuse un paramètre de notre demande d'échange. Aucun token n'a été conservé."
+    ],
+    "exchange-unauthorized-client": [
+      "Application non autorisée",
+      "L'application Scopely n'est pas autorisée à utiliser cet échange OAuth."
+    ],
+    "exchange-unsupported-grant-type": [
+      "Type d'autorisation refusé",
+      "Scopely ne reconnaît pas le mode authorization_code demandé."
+    ],
+    "exchange-invalid-scope": [
+      "Autorisation OAuth incompatible",
+      "Un scope demandé n'est pas accepté par Scopely."
+    ],
+    "exchange-server-error": [
+      "Erreur du serveur Scopely",
+      "L'échange n'a pas abouti à cause d'une erreur côté fournisseur."
+    ],
+    "exchange-temporarily-unavailable": [
+      "Scopely temporairement indisponible",
+      "Réessayez plus tard."
+    ],
+    "exchange-http-400": [
+      "Requête OAuth rejetée (HTTP 400)",
+      "Scopely a rejeté la demande sans code d'erreur OAuth exploitable."
+    ],
+    "exchange-http-auth": [
+      "Échange OAuth rejeté (HTTP 401/403)",
+      "Scopely a refusé l'échange ou l'identification de l'application."
+    ],
+    "exchange-rate-limit": [
+      "Limite d'appels atteinte",
+      "Scopely a temporairement limité les requêtes OAuth."
+    ],
+    "exchange-server": [
+      "Serveur OAuth indisponible",
+      "Scopely a retourné une erreur serveur."
+    ],
+    "exchange-rejected": [
+      "Échange OAuth rejeté",
+      "Scopely a refusé l'échange ; aucun token n'a été conservé."
+    ],
+    "exchange-unexpected-response": [
+      "Réponse OAuth inattendue",
+      "Le serveur a répondu, mais le format du token n'a pas pu être validé."
+    ],
+    "exchange-network": [
+      "Erreur réseau OAuth",
+      "Le Worker n'a pas pu terminer la requête vers Scopely."
     ]
   };
   const [title, message] = messages[url.searchParams.get("result")] || messages.invalid;

@@ -98,16 +98,48 @@ test("missing runtime credentials fail closed before exchange", async () => {
   assert.equal(res.headers.getSetCookie().length, 2);
 });
 
-test("failed, malformed and thrown token responses do not reveal server details", async () => {
-  for (const fake of [
-    async () => new Response(JSON.stringify({ error: "secret-data" }), { status: 401 }),
-    async () => Response.json({ token_type: "Bearer" }),
-    async () => { throw Error("secret-network-error"); }
+test("known OAuth failures are classified without exposing provider details", async () => {
+  for (const [oauthError, expected] of [
+    ["invalid_client", "exchange-invalid-client"],
+    ["invalid_grant", "exchange-invalid-grant"],
+    ["invalid_request", "exchange-invalid-request"],
+    ["unauthorized_client", "exchange-unauthorized-client"]
   ]) {
-    const res = await handleCallback(cb("state=" + state + "&code=hello"), client, fake);
-    checkRedirect(res, "exchange-failed");
-    assert.doesNotMatch(JSON.stringify([...res.headers]), /secret-data|secret-network-error/);
+    const response = await handleCallback(
+      cb("state=" + state + "&code=hello"), client,
+      async () => Response.json({
+        error: oauthError,
+        error_description: "PRIVATE_SECRET_TOKEN_123"
+      }, { status: 400 })
+    );
+    checkRedirect(response, expected);
+    assert.doesNotMatch(response.headers.get("location"), /PRIVATE_SECRET|error_description|hello/);
   }
+});
+
+test("unexpected and non-JSON failures produce bounded categories", async () => {
+  for (const [fake, expected] of [
+    [async () => new Response("<html>PRIVATE_SECRET_TOKEN_123</html>", { status: 401 }), "exchange-http-auth"],
+    [async () => new Response("unavailable", { status: 503 }), "exchange-server"],
+    [async () => Response.json({error: "PRIVATE_SECRET_TOKEN_123"}, { status: 400 }), "exchange-http-400"],
+    [async () => Response.json({ token_type: "Bearer" }), "exchange-unexpected-response"],
+    [async () => { throw Error("PRIVATE_SECRET_TOKEN_123"); }, "exchange-network"]
+  ]) {
+    const response = await handleCallback(cb("state=" + state + "&code=hello"), client, fake);
+    checkRedirect(response, expected);
+    assert.doesNotMatch(JSON.stringify([...response.headers]), /PRIVATE_SECRET|hello/);
+  }
+});
+
+test("OAuth status page shows only predefined diagnostic texts", async () => {
+  const invalidClient = await handleOAuthStatus(req("/oauth/status?result=exchange-invalid-client")).text();
+  assert.match(invalidClient, /Identifiants OAuth refusés/);
+  const grant = await handleOAuthStatus(req("/oauth/status?result=exchange-invalid-grant")).text();
+  assert.match(grant, /Code d'autorisation refusé/);
+  const sanitized = await handleOAuthStatus(
+    req("/oauth/status?result=exchange-invalid-client&error_description=PRIVATE_SECRET")
+  ).text();
+  assert.doesNotMatch(sanitized, /PRIVATE_SECRET/);
 });
 
 test("callback requires GET and correct origin", async () => {
