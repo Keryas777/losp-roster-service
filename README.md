@@ -8,7 +8,7 @@ Service indépendant de `Keryas777/msf` pour les rosters autorisés de Marvel St
 - `GET /health` : état du service (version 0.1.2 inchangée).
 - `/`, `/privacy.html` et `/tos.html` : pages publiques.
 - `GET /login` : **phase OAuth 1**. Construit une redirection officielle Scopely (`authorization_code`, `state` aléatoire et PKCE S256) en utilisant `SCOPELY_CLIENT_ID` au runtime.
-- `GET /oauth/callback` : **phase OAuth 2 — validation éphémère**. Vérifie `state` et PKCE, échange le code uniquement côté Worker (Client ID + Client Secret en HTTP Basic) puis supprime les cookies temporaires. **Les tokens ne sont ni enregistrés, ni renvoyés au navigateur.** Le compte n'est donc PAS encore connecté durablement.
+- `GET /oauth/callback` : **phase OAuth 3 — validation et lecture éphémère du profil**. Vérifie `state` et PKCE, échange le code uniquement côté Worker (Client ID + Client Secret en HTTP Basic) puis supprime les cookies temporaires. **Les tokens ne sont ni enregistrés, ni renvoyés au navigateur.** Le compte n'est donc PAS encore connecté durablement.
 - `GET /oauth/status` : confirme simplement le résultat du test sans afficher de jetons, codes ni détails d'erreur Scopely.
 
 ## OAuth — configuration
