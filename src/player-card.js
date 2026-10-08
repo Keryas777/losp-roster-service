@@ -1,7 +1,7 @@
 // Scopely's published OpenAPI beta 0.2.1 requires this public x-api-key.
 // This is NOT the OAuth Client Secret; update it only when official docs change.
 // https://developer.marvelstrikeforce.com/beta/msf-api.json
-const API_KEY = "17wMKJLRxy3pYDCKG5ciP7VSU45OVumB2biCzzgw";
+export const API_KEY = "17wMKJLRxy3pYDCKG5ciP7VSU45OVumB2biCzzgw";
 const PLAYER_CARD_URL = "https://api.marvelstrikeforce.com/player/v1/card";
 
 export async function getPlayerCard(accessToken, fetchImpl = fetch) {

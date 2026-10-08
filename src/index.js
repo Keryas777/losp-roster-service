@@ -53,7 +53,8 @@ async function startLogin(request, env, url) {
   authorize.searchParams.set("response_type", "code");
   authorize.searchParams.set("client_id", clientId.trim());
   authorize.searchParams.set("redirect_uri", REDIRECT_URI);
-  authorize.searchParams.set("scope", LOGIN_SCOPES);
+  const allianceProbe = url.pathname === "/login/alliance-test";
+  authorize.searchParams.set("scope", allianceProbe ? LOGIN_SCOPES + " m3p.f.ar.pro" : LOGIN_SCOPES);
   authorize.searchParams.set("state", state);
   authorize.searchParams.set("code_challenge", codeChallenge);
   authorize.searchParams.set("code_challenge_method", "S256");
@@ -70,6 +71,7 @@ async function startLogin(request, env, url) {
     "; Path=/; Secure; HttpOnly; SameSite=Lax";
   headers.append("Set-Cookie", "__Host-losp_oauth_state=" + state + "; " + attributes);
   headers.append("Set-Cookie", "__Host-losp_oauth_verifier=" + codeVerifier + "; " + attributes);
+  if (allianceProbe) headers.append("Set-Cookie", "__Host-losp_oauth_alliance_test=" + state + "; " + attributes);
   return new Response(null, { status: 302, headers });
 }
 
@@ -77,7 +79,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    if (url.pathname === "/login") {
+    if (url.pathname === "/login" || url.pathname === "/login/alliance-test") {
       return startLogin(request, env, url);
     }
 
