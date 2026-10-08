@@ -1,3 +1,5 @@
+import { getPlayerCard, showEphemeralPlayerCard } from "./player-card.js";
+
 // First OAuth callback validation: tokens are deliberately not persisted.
 // This allows an end-to-end authorization test without a token database.
 const APP_ORIGIN = "https://losp-roster-service.deliriousfan7.workers.dev";
@@ -169,9 +171,11 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
       return backToStatus("exchange-unexpected-response");
     }
 
-    // No scopes involving offline access are requested. Do not store or return
-    // access_token, id_token or refresh_token, even if supplied by the server.
-    return backToStatus("validated");
+    // A single authorized GET; never persist or return any OAuth token.
+    // The token remains in this request's memory only.
+    const profile = await getPlayerCard(result.access_token, fetchImpl);
+    if (!profile.ok) return backToStatus(profile.status);
+    return showEphemeralPlayerCard(profile.card);
   } catch {
     // No provider response data is ever reflected.
     return backToStatus("exchange-processing-error");
@@ -192,6 +196,30 @@ export function handleOAuthStatus(request) {
     validated: [
       "Autorisation Scopely vérifiée",
       "Le code OAuth a été échangé avec succès. Pour ce premier test, aucun token n'a été conservé et votre compte n'est pas encore lié durablement."
+    ],
+    "profile-expired": [
+      "Page temporaire expirée",
+      "Le profil n’est pas enregistré. Pour le consulter à nouveau, recommencez depuis /login."
+    ],
+    "profile-unavailable": [
+      "Profil Scopely indisponible",
+      "L’API n’a pas renvoyé le profil attendu. Aucun token n’a été conservé."
+    ],
+    "profile-forbidden": [
+      "Accès au profil refusé",
+      "L’autorisation obtenue ne permet pas la lecture du profil, ou Scopely a refusé la requête."
+    ],
+    "profile-rate-limit": [
+      "Limite d’appels API atteinte",
+      "Scopely limite temporairement les accès au profil. Réessayez plus tard."
+    ],
+    "profile-network": [
+      "Erreur de communication avec l’API",
+      "Le Worker n’a pas pu récupérer la carte joueur. Aucun token n’a été conservé."
+    ],
+    "profile-invalid-response": [
+      "Réponse profil inattendue",
+      "Scopely a répondu, mais les données n’ont pas le format attendu."
     ],
     denied: [
       "Autorisation refusée ou annulée",
