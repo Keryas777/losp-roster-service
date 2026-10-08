@@ -199,7 +199,7 @@ test("personal roster comparison uses one page and never exposes the payload", a
   assert.match(html,/Test 1 — Ton propre roster/);
   assert.match(html,/Accès au roster personnel confirmé/);
   assert.match(html,/Test 2 — Roster partagé/);
-  assert.match(html,/L'API a interdit l'accès \(403\)/);
+  assert.match(html,/interdit l&#39;accès \(403\)/);
   assert.doesNotMatch(html,/VERY_PRIVATE_CHARACTER|PRIVATE_ACCESS_TOKEN/);
 });
 
