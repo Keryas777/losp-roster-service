@@ -1,3 +1,5 @@
+import { handleCallback, handleOAuthStatus } from "./oauth-callback.js";
+
 const SCOPELY_AUTH_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/auth";
 const APP_ORIGIN = "https://losp-roster-service.deliriousfan7.workers.dev";
 const REDIRECT_URI = APP_ORIGIN + "/oauth/callback";
@@ -77,6 +79,14 @@ export default {
 
     if (url.pathname === "/login") {
       return startLogin(request, env, url);
+    }
+
+    if (url.pathname === "/oauth/callback") {
+      return handleCallback(request, env);
+    }
+
+    if (url.pathname === "/oauth/status") {
+      return handleOAuthStatus(request);
     }
 
     if (request.method === "GET" && url.pathname === "/") {
