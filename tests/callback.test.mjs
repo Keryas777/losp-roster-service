@@ -31,7 +31,7 @@ test("valid state and PKCE result in backend-only token exchange", async () => {
     count++;
     assert.equal(url, "https://hydra-public.prod.m3.scopelypv.com/oauth2/token");
     assert.equal(init.method, "POST");
-    assert.equal(init.redirect, "error");
+    assert.equal(init.redirect, "manual");
     assert.equal(init.headers.Authorization,
       "Basic " + Buffer.from("client-id-test:secret-test").toString("base64"));
     assert.equal(init.headers["Content-Type"], "application/x-www-form-urlencoded");
@@ -123,12 +123,32 @@ test("unexpected and non-JSON failures produce bounded categories", async () => 
     [async () => new Response("unavailable", { status: 503 }), "exchange-server"],
     [async () => Response.json({error: "PRIVATE_SECRET_TOKEN_123"}, { status: 400 }), "exchange-http-400"],
     [async () => Response.json({ token_type: "Bearer" }), "exchange-unexpected-response"],
-    [async () => { throw Error("PRIVATE_SECRET_TOKEN_123"); }, "exchange-network"]
+    [async () => { throw Error("PRIVATE_SECRET_TOKEN_123"); }, "exchange-fetch-error"],
+    [async () => { throw new TypeError("PRIVATE_SECRET_TOKEN_123"); }, "exchange-fetch-type-error"],
+    [async () => { throw new DOMException("PRIVATE_SECRET_TOKEN_123", "TimeoutError"); }, "exchange-timeout"],
+    [async () => new Response(null, { status: 302, headers: { Location: "https://evil.example/PRIVATE_SECRET_TOKEN_123" } }), "exchange-redirect"]
   ]) {
     const response = await handleCallback(cb("state=" + state + "&code=hello"), client, fake);
     checkRedirect(response, expected);
     assert.doesNotMatch(JSON.stringify([...response.headers]), /PRIVATE_SECRET|hello/);
   }
+});
+
+test("redirect handling never follows or exposes target location", async () => {
+  let captured;
+  const response = await handleCallback(
+    cb("state=" + state + "&code=hello"), client,
+    async (_url, requestInit) => {
+      captured = requestInit;
+      return new Response(null, {
+        status: 307,
+        headers: { Location: "https://PRIVATE_SECRET_TOKEN_123.evil.example/" }
+      });
+    }
+  );
+  assert.equal(captured.redirect, "manual");
+  checkRedirect(response, "exchange-redirect");
+  assert.doesNotMatch(JSON.stringify([...response.headers]), /PRIVATE_SECRET_TOKEN_123|evil.example/);
 });
 
 test("OAuth status page shows only predefined diagnostic texts", async () => {

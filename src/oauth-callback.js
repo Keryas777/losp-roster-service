@@ -109,6 +109,9 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     });
   }
 
+  // Separate local request construction errors from outbound fetch failures.
+  // Return only fixed categories: no secrets, codes, URLs or raw exceptions.
+  let tokenRequest;
   try {
     const body = new URLSearchParams({
       grant_type: "authorization_code",
@@ -116,7 +119,7 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
       redirect_uri: REDIRECT_URI,
       code_verifier: verifier
     });
-    const tokenResponse = await fetchImpl(TOKEN_URL, {
+    tokenRequest = {
       method: "POST",
       headers: {
         Authorization: toBasicAuth(clientId, clientSecret),
@@ -124,10 +127,35 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
         Accept: "application/json"
       },
       body: body.toString(),
-      redirect: "error",
+      // Do not follow a redirect with Basic credentials or the OAuth code.
+      // Inspecting 3xx separately also avoids misclassifying it as a fetch failure.
+      redirect: "manual",
       signal: AbortSignal.timeout(10000)
-    });
+    };
+  } catch {
+    return backToStatus("exchange-local-error");
+  }
 
+  let tokenResponse;
+  try {
+    tokenResponse = await fetchImpl(TOKEN_URL, tokenRequest);
+  } catch (error) {
+    if (error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      return backToStatus("exchange-timeout");
+    }
+    if (error instanceof TypeError || (error && error.name === "TypeError")) {
+      return backToStatus("exchange-fetch-type-error");
+    }
+    return backToStatus("exchange-fetch-error");
+  }
+
+  try {
+    // A redirect from a token endpoint is not an OAuth success.
+    // Do not follow it and do not display any Location header.
+    if ((tokenResponse.status >= 300 && tokenResponse.status < 400) ||
+        tokenResponse.type === "opaqueredirect") {
+      return backToStatus("exchange-redirect");
+    }
     if (!tokenResponse.ok) return backToStatus(await classifyTokenFailure(tokenResponse));
 
     let result;
@@ -145,8 +173,8 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     // access_token, id_token or refresh_token, even if supplied by the server.
     return backToStatus("validated");
   } catch {
-    // No sensitive token response, authorization code or credentials in logs.
-    return backToStatus("exchange-network");
+    // No provider response data is ever reflected.
+    return backToStatus("exchange-processing-error");
   }
 }
 
@@ -236,6 +264,30 @@ export function handleOAuthStatus(request) {
     "exchange-network": [
       "Erreur réseau OAuth",
       "Le Worker n'a pas pu terminer la requête vers Scopely."
+    ],
+    "exchange-local-error": [
+      "Préparation OAuth impossible",
+      "Une exception est survenue avant l'envoi de la requête vers Scopely."
+    ],
+    "exchange-timeout": [
+      "Délai OAuth dépassé",
+      "La requête vers Scopely n'a pas abouti dans le délai imparti."
+    ],
+    "exchange-fetch-type-error": [
+      "Échec technique du fetch OAuth",
+      "Le Worker a rencontré une erreur de requête ou de transport avant de recevoir une réponse HTTP."
+    ],
+    "exchange-fetch-error": [
+      "Requête OAuth interrompue",
+      "Le Worker n'a pas reçu de réponse HTTP exploitable de Scopely."
+    ],
+    "exchange-redirect": [
+      "Redirection inattendue de Scopely",
+      "L'endpoint de tokens a tenté une redirection. Le Worker ne l'a pas suivie pour protéger les identifiants."
+    ],
+    "exchange-processing-error": [
+      "Traitement de la réponse OAuth impossible",
+      "Une erreur est survenue après l'envoi de la requête. Aucune donnée OAuth n'a été conservée."
     ]
   };
   const [title, message] = messages[url.searchParams.get("result")] || messages.invalid;
