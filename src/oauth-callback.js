@@ -1,4 +1,4 @@
-import { probeAllianceRoster, renderAllianceProbe } from "./alliance-test.js";
+import { probeAllianceRoster, probeOwnRoster, renderAllianceProbe } from "./alliance-test.js";
 import { getPlayerCard, showEphemeralPlayerCard } from "./player-card.js";
 
 // First OAuth callback validation: tokens are deliberately not persisted.
@@ -89,6 +89,8 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
   const suppliedState = url.searchParams.get("state");
   const allianceMode = equalStates(
     readCookie(cookies, "__Host-losp_oauth_alliance_test"), expectedState);
+  const rosterScopeMode = equalStates(
+    readCookie(cookies, "__Host-losp_oauth_roster_scope_test"), expectedState);
 
   // Check CSRF even when Scopely returned a denied-consent error.
   if (!equalStates(expectedState, suppliedState) || !verifier) {
@@ -177,8 +179,11 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     // A single authorized GET; never persist or return any OAuth token.
     // The token remains in this request's memory only.
     if (allianceMode) {
+      // This extra request occurs only for the explicit roster-scope test.
+      const ownRoster = rosterScopeMode
+        ? await probeOwnRoster(result.access_token, fetchImpl) : null;
       const report = await probeAllianceRoster(result.access_token, fetchImpl);
-      return renderAllianceProbe(report);
+      return renderAllianceProbe(ownRoster ? { ...report, ownRoster } : report);
     }
     const profile = await getPlayerCard(result.access_token, fetchImpl);
     if (!profile.ok) return backToStatus(profile.status);
