@@ -53,10 +53,12 @@ async function startLogin(request, env, url) {
   authorize.searchParams.set("response_type", "code");
   authorize.searchParams.set("client_id", clientId.trim());
   authorize.searchParams.set("redirect_uri", REDIRECT_URI);
+  const inventoryProbe = url.pathname === "/login/inventory-test";
   const rosterScopeProbe = url.pathname === "/login/roster-scope-test";
   const allianceProbe = url.pathname === "/login/alliance-test" || rosterScopeProbe;
   const scopes = allianceProbe ? LOGIN_SCOPES + " m3p.f.ar.pro" : LOGIN_SCOPES;
-  authorize.searchParams.set("scope", rosterScopeProbe ? scopes + " m3p.f.pr.ros" : scopes);
+  authorize.searchParams.set("scope", inventoryProbe ? LOGIN_SCOPES + " m3p.f.pr.inv" :
+    rosterScopeProbe ? scopes + " m3p.f.pr.ros" : scopes);
   authorize.searchParams.set("state", state);
   authorize.searchParams.set("code_challenge", codeChallenge);
   authorize.searchParams.set("code_challenge_method", "S256");
@@ -75,6 +77,7 @@ async function startLogin(request, env, url) {
   headers.append("Set-Cookie", "__Host-losp_oauth_verifier=" + codeVerifier + "; " + attributes);
   if (allianceProbe) headers.append("Set-Cookie", "__Host-losp_oauth_alliance_test=" + state + "; " + attributes);
   if (rosterScopeProbe) headers.append("Set-Cookie", "__Host-losp_oauth_roster_scope_test=" + state + "; " + attributes);
+  if (inventoryProbe) headers.append("Set-Cookie", "__Host-losp_oauth_inventory_test=" + state + "; " + attributes);
   return new Response(null, { status: 302, headers });
 }
 
@@ -83,7 +86,8 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/login" || url.pathname === "/login/alliance-test" ||
-        url.pathname === "/login/roster-scope-test") {
+        url.pathname === "/login/roster-scope-test" ||
+        url.pathname === "/login/inventory-test") {
       return startLogin(request, env, url);
     }
 
