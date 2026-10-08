@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { probeAllianceRoster, renderAllianceProbe } from "../src/alliance-test.js";
+import { probeAllianceRoster, probeOwnRoster, renderAllianceProbe } from "../src/alliance-test.js";
 import { handleCallback } from "../src/oauth-callback.js";
 import worker from "../src/index.js";
 
@@ -54,7 +54,7 @@ test("one consent allows exactly one other shared member roster probe",async()=>
     candidateName:"Test <script>PRIVATE_XSS</script>",returnedCharacters:1});
   const rendered=renderAllianceProbe(result);
   assert.equal(rendered.status,200);
-  assert.equal(rendered.headers.getSetCookie().length,3);
+  assert.equal(rendered.headers.getSetCookie().length,4);
   assert.match(rendered.headers.get("cache-control"),/no-store/);
   assert.match(rendered.headers.get("content-security-policy"),/script-src 'nonce-/);
   const body=await rendered.text();
@@ -154,5 +154,120 @@ test("callback only executes probe with state-bound mode cookie",async()=>{
     if(expected==="alliance") assert.match(page,/Test d’accès aux rosters/);
     else assert.match(page,/Own profile/);
     assert.doesNotMatch(page,/PRIVATE_ACCESS_TOKEN|code=code/);
+  }
+});
+
+test("roster-scope test asks for View Roster while normal logins stay unchanged", async () => {
+  const env={SCOPELY_CLIENT_ID:"client-test"};
+  const routes=[
+    ["/login", "openid m3p.f.pr.pro", 2],
+    ["/login/alliance-test", "openid m3p.f.pr.pro m3p.f.ar.pro", 3],
+    ["/login/roster-scope-test", "openid m3p.f.pr.pro m3p.f.ar.pro m3p.f.pr.ros", 4]
+  ];
+  for(const [route, expected, cookieCount] of routes){
+    const response=await worker.fetch(new Request(origin+route),env);
+    assert.equal(response.status,302);
+    assert.equal(new URL(response.headers.get("location")).searchParams.get("scope"),expected);
+    assert.equal(response.headers.getSetCookie().length,cookieCount);
+    assert.equal(response.headers.get("cache-control"),"no-store");
+    if(route==="/login/roster-scope-test"){
+      const marker=response.headers.getSetCookie().find(c=>c.startsWith("__Host-losp_oauth_roster_scope_test="));
+      assert.ok(marker);
+      assert.match(marker,/Max-Age=600; Path=\/; Secure; HttpOnly; SameSite=Lax/);
+      const state=new URL(response.headers.get("location")).searchParams.get("state");
+      assert.ok(marker.includes("="+state+";"));
+    }
+  }
+});
+
+test("personal roster comparison uses one page and never exposes the payload", async()=>{
+  const urls=[];
+  const own=await probeOwnRoster(token,async(url,opts)=>{
+    urls.push(url);
+    assert.equal(opts.headers.Authorization,"Bearer "+token);
+    assert.equal(opts.headers["User-Agent"],"APIClient/1.0 (Server)");
+    assert.equal(opts.redirect,"manual");
+    assert.equal(opts.cache,"no-store");
+    return json({data:[{characterId:"VERY_PRIVATE_CHARACTER"}]});
+  });
+  assert.deepEqual(urls,["https://api.marvelstrikeforce.com/player/v1/roster?page=1&perPage=1"]);
+  assert.deepEqual(own,{status:"accessible",returnedCharacters:1});
+  const html=await renderAllianceProbe({
+    status:"roster-failed",memberCount:24,sharedCount:23,
+    candidateName:"Unhappy Miky",reason:"forbidden",ownRoster:own
+  }).text();
+  assert.match(html,/Test 1 — Ton propre roster/);
+  assert.match(html,/Accès au roster personnel confirmé/);
+  assert.match(html,/Test 2 — Roster partagé/);
+  assert.match(html,/L'API a interdit l'accès \(403\)/);
+  assert.doesNotMatch(html,/VERY_PRIVATE_CHARACTER|PRIVATE_ACCESS_TOKEN/);
+});
+
+test("403 on own roster still allows shared roster permission comparison",async()=>{
+  const state="a".repeat(43),verifier="b".repeat(43);
+  const cookies="__Host-losp_oauth_state="+state+
+    "; __Host-losp_oauth_verifier="+verifier+
+    "; __Host-losp_oauth_alliance_test="+state+
+    "; __Host-losp_oauth_roster_scope_test="+state;
+  const env={SCOPELY_CLIENT_ID:"client-test",SCOPELY_CLIENT_SECRET:"secret-test"};
+  const seen=[];
+  const response=await handleCallback(new Request(origin+"/oauth/callback?state="+state+"&code=onlyonce",{
+    headers:{Cookie:cookies}
+  }),env,async url=>{
+    seen.push(url);
+    if(url.includes("/oauth2/token"))return json({access_token:token,token_type:"Bearer"});
+    if(url.endsWith("/roster?page=1&perPage=1"))return new Response("PRIVATE_BODY",{status:403});
+    if(url.endsWith("/alliance/members"))return json({data:members});
+    if(url.includes("/roster/member/"))return new Response("PRIVATE_BODY",{status:403});
+    throw Error("unexpected fetch");
+  });
+  assert.equal(response.status,200);
+  assert.deepEqual(seen,[
+    "https://hydra-public.prod.m3.scopelypv.com/oauth2/token",
+    "https://api.marvelstrikeforce.com/player/v1/roster?page=1&perPage=1",
+    "https://api.marvelstrikeforce.com/player/v1/alliance/members",
+    "https://api.marvelstrikeforce.com/player/v1/roster/member/other-id?page=1&perPage=1"
+  ]);
+  assert.equal(response.headers.getSetCookie().length,4);
+  const html=await response.text();
+  assert.match(html,/Test 1 — Ton propre roster/);
+  assert.match(html,/Test 2 — Roster partagé/);
+  assert.match(html,/403/);
+  assert.doesNotMatch(html,/onlyonce|PRIVATE_ACCESS_TOKEN|PRIVATE_BODY|other-id/);
+});
+
+test("scope probe cannot run with a stale or unmatched state marker", async()=>{
+  const state="a".repeat(43),verifier="b".repeat(43);
+  const cookies="__Host-losp_oauth_state="+state+
+    "; __Host-losp_oauth_verifier="+verifier+
+    "; __Host-losp_oauth_alliance_test="+state+
+    "; __Host-losp_oauth_roster_scope_test="+"z".repeat(43);
+  const urls=[];
+  const response=await handleCallback(new Request(origin+"/oauth/callback?state="+state+"&code=sample",{
+    headers:{Cookie:cookies}
+  }),{SCOPELY_CLIENT_ID:"id",SCOPELY_CLIENT_SECRET:"secret"},async url=>{
+    urls.push(url);
+    if(url.includes("/oauth2/token"))return json({access_token:token,token_type:"Bearer"});
+    if(url.endsWith("/alliance/members"))return json({data:members});
+    if(url.includes("/roster/member/"))return json({data:[]});
+    throw Error("unexpected fetch "+url);
+  });
+  assert.equal(response.status,200);
+  assert.equal(urls.length,3);
+  assert.equal(urls.some(url=>url.endsWith("/roster?page=1&perPage=1")),false);
+  assert.doesNotMatch(await response.text(),/Test 1 — Ton propre roster/);
+});
+
+test("personal roster failure is safe and never shows raw data",async()=>{
+  const cases=[[401,"unauthorized"],[403,"forbidden"],[464,"no-access"],[429,"rate-limited"]];
+  for(const [status,reason] of cases){
+    let count=0;
+    const result=await probeOwnRoster(token,async()=>{
+      count++;
+      return new Response("PRIVATE_ROSTER_CONTENT",{status});
+    });
+    assert.equal(count,1);
+    assert.equal(result.status,reason);
+    assert.doesNotMatch(JSON.stringify(result),/PRIVATE_ROSTER_CONTENT|PRIVATE_ACCESS_TOKEN/);
   }
 });
