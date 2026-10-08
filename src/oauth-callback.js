@@ -149,7 +149,7 @@ export function handleOAuthStatus(request) {
     ]
   };
   const [title, message] = messages[url.searchParams.get("result")] || messages.invalid;
-  const html = \`<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>LoSP Roster Service — OAuth</title><style>body{font:16px/1.6 system-ui,-apple-system,sans-serif;background:#0b1220;color:#f0f5ff;margin:0}main{max-width:600px;margin:12vh auto;padding:24px}a{color:#83c5ff}p{color:#b8c5d9}</style></head><body><main><h1>\${title}</h1><p>\${message}</p><p><a href="/">Retour à l'accueil</a></p></main></body></html>\`;
+  const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>LoSP Roster Service — OAuth</title><style>body{font:16px/1.6 system-ui,-apple-system,sans-serif;background:#0b1220;color:#f0f5ff;margin:0}main{max-width:600px;margin:12vh auto;padding:24px}a{color:#83c5ff}p{color:#b8c5d9}</style></head><body><main><h1>${title}</h1><p>${message}</p><p><a href="/">Retour à l'accueil</a></p></main></body></html>`;
   return new Response(html, {
     status: 200,
     headers: {
