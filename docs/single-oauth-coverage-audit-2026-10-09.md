@@ -65,6 +65,36 @@ Source : capture d'écran fournie après authentification OAuth et test ponctuel
 
 **Ce qui reste à vérifier avant exploitation métier :** signification de la chaîne `rosterShare`, format exploitable de `aid`, cohérence temporelle et métier de `tcp`, `stp`, `warMvp`, `daysInAlliance`, `latestArena` et `latestBlitz`. Aucun nouveau GET Scopely n'a été effectué pour cette mise à jour de documentation.
 
+
+## Audit sémantique des statistiques — 9 octobre 2026
+
+**Source de définitions** : [OpenAPI beta 0.2.1](https://developer.marvelstrikeforce.com/beta/msf-api.json), schémas `PlayerCard`, `AllianceMemberCard`, `AllianceCard` et `SimpleProgress`. Ces descriptions indiquent le sens *annoncé* par Scopely, pas l'exactitude indépendante des valeurs à un instant donné.
+
+| Champ | Signification documentée | Couverture constatée | Validation métier |
+|---|---|---|---|
+| `tcp` | Total collection power | Champs réels membres, joueur et alliance | Compare somme de la liste et TCP de l'alliance, puis TCP de l'auto-carte |
+| `stp` | Strongest team power | Liste et PlayerCard présents | Compare uniquement la propre fiche, vérifie STP <= TCP à titre indicatif |
+| `warMvp` | Nombre historique de distinctions MVP de guerre | Liste et PlayerCard présents | Comparaison des deux cartes du compte connecté ; **non limité à la saison** |
+| `daysInAlliance` | Nombre de jours dans l'alliance | `AllianceMemberCard` présent, type entier | Valeur individuelle de la seule ligne `isSelf` à confronter au jeu ; pas date d'entrée calculable |
+| `charactersCollected` | Total de personnages débloqués | Liste et PlayerCard présents | Comparaison de la carte du compte connecté |
+| `latestArena` | Dernier rang Arène | PlayerCard présent | À comparer avec la valeur affichée dans MSF ; aucune borne universelle inventée |
+| `latestBlitz` | Dernier rang Blitz | PlayerCard présent | À comparer au classement du dernier Blitz pertinent ; aucune hypothèse sur l'événement |
+| `blitzWins` | Nombre cumulé de victoires Blitz | PlayerCard présent | À confronter au profil MSF |
+| `bestArena` | Meilleur rang historique en arène | Absent sur les 24 cartes de Zeus lors du test précédent | **Non exploitable à ce stade**, absence ≠ zéro |
+| `level.completedTier` | Dernier palier atteint | Présent | Niveau de commandant du compte connecté, comparaison cartes |
+| `level.goalTier` | Prochain palier en cours | Présent | Peut être testé sans assimiler à un niveau déjà atteint |
+
+**Important — correction documentaire de l'ancien diagnostic :** le schéma officiel `SimpleProgress` prévoit `completedTier`, `goalTier`, `points`, `goal`. Le champ `level.progress` utilisé par `coverage-test.js` **n'appartient pas à ce schéma** : son absence relevée précédemment n'est pas une anomalie Scopely et ne donne aucune information sur `level.points`/`level.goal`. Le Worker de la campagne ancienne n'a pas été retouché par cet audit.
+
+**Important — limites OpenAPI :** certains champs de puissance sont déclarés `int32`, malgré le TCP total de Zeus observé à **10 381 253 767**, supérieur au maximum `int32`. L'application doit accepter les entiers JSON non négatifs dans la plage sûre JavaScript, sans tronquer à 32 bits. Les types décrits ne garantissent ni la mise à jour atomique ni l'absence de champs facultatifs.
+
+**Premier recoupement déjà possible sans requête :** sur la fiche réelle précédente de Zeus, `avgTcp = 432 552 240` et `count = 24`, d'où `avgTcp × count = 10 381 253 760`, à **7 points** du `tcp = 10 381 253 767`. La cohérence est compatible avec l'arrondi d'une moyenne entière, mais ne vérifie pas à elle seule les 24 TCP.
+
+**Vérification minimale préparée, non encore testée en production :** `/login/metrics-test` effectue au plus trois lectures séquentielles de **la même alliance et du compte connecté** (alliance/card, alliance/members, card personnelle). Il compare les agrégats et les champs communs sans divulguer les données individuelles d'autres joueurs. Les valeurs affichées pour le compte connecté doivent être confrontées volontairement aux valeurs visibles dans MSF avant de qualifier une statistique de métier « vérifiée ». Une comparaison `identique` entre deux réponses API n'est **pas** une confirmation indépendante de la valeur.
+
+**Limites non résolues** : la fraîcheur des données Scopely n'est pas garantie ; `daysInAlliance` ne révèle pas la date d'entrée historique et peut réinitialiser après un retour dans l'alliance ; la définition du « dernier » rang Arena/Blitz ne précise pas explicitement la fenêtre d'actualisation. Ne pas en déduire une période ou une saison absente de la documentation.
+
+
 ## Matrice des routes pertinentes
 
 | GET endpoint | Scope documenté | Paramètres, réponse, pagination et coût | Statut |

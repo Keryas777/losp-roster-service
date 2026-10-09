@@ -110,3 +110,21 @@ La page affiche uniquement les types JSON de `rosterShare` et `aid`, le type du 
 Le résultat est éphémère, `no-store`, CSP à nonce et neutralisation des paramètres OAuth dans l'historique. Aucune donnée persistée, aucune intégration R2, aucun accès au roster ni à l'inventaire. Les erreurs 401/403/429/464 sont affichées sans réponses API brutes et n'entraînent aucune nouvelle requête.
 
 Tests : `tests/card-types-test.test.mjs`. La CI ne remplace pas un essai réel avec le consentement de Scopely.
+
+## Vérification ponctuelle de la cohérence métier des statistiques
+
+Route opt-in indépendante : `GET /login/metrics-test`. Elle réutilise exclusivement les scopes déjà employés par les tests d'alliance : `openid m3p.f.pr.pro m3p.f.ar.pro`.
+
+Ce diagnostic ne cherche **pas** à certifier les statistiques uniquement à partir de leur type JSON. Après le consentement OAuth, il effectue **au plus trois GET Scopely successifs** :
+
+1. `/player/v1/alliance/card` : TCP total, moyenne et effectif ;
+2. `/player/v1/alliance/members` : cartes des membres et repérage de la ligne `isSelf` ;
+3. `/player/v1/card` : fiche **personnelle du seul compte connecté**.
+
+Le Worker calcule en mémoire la cohérence de l'effectif et du TCP total avec la liste, compare la moyenne avec l'effectif en acceptant uniquement le petit écart d'arrondi inhérent à une moyenne entière, puis compare les statistiques communes de **la propre carte** avec celles de sa fiche personnelle. Aucun profil détaillé des 23 autres joueurs n'est appelé.
+
+La page temporaire affiche des verdicts de cohérence et, uniquement pour le compte connecté, une **liste fermée** de valeurs personnelles (`level`, `tcp`, `stp`, `warMvp`, `charactersCollected`, `daysInAlliance`, `latestArena`, `bestArena`, `latestBlitz`, `blitzWins`) afin que le responsable puisse les confronter à son profil MSF. Elle n'affiche ni pseudonyme, ni statistiques individuelles des coéquipiers, ni identifiant, ni token, ni JSON brut. Aucune valeur n'est persistée.
+
+**Interprétation prudente** : `identique` prouve seulement la cohérence interne de deux réponses API. Un écart peut provenir de données mises à jour à des instants légèrement différents. La validité métier complète exige une comparaison volontaire avec les valeurs actuellement visibles dans MSF. Aucun critère métier arbitraire n'est inventé pour les classements Arène/Blitz, ni pour `warMvp`.
+
+Le diagnostic conserve les protections CSRF state, PKCE, cookies `Secure; HttpOnly; SameSite=Lax`, CSP avec nonce, `no-store` et expiration au rechargement. Aucun stockage R2, refresh token ou nouvelle permission. Tests automatisés : `tests/metrics-test.test.mjs`. La CI ne vaut pas autorisation ni validation réelle de l'API.
