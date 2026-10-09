@@ -93,3 +93,20 @@ Après le consentement du compte responsable et l'échange OAuth côté Worker :
 Le résultat affiche les classements de saison de **guerre** (`warRank`) et **raid** (`raidRank`), quelques statistiques globales autorisées et le nombre de fiches accessibles par champ. L'ancien événement World Warrior est volontairement ignoré. Les fiches détaillées, identifiants, tokens, descriptions libres et données brutes ne sont ni sauvegardés ni renvoyés au navigateur. Le résultat est non mis en cache et expire au rechargement.
 
 Ceci est un **diagnostic ponctuel**, pas encore une synchronisation. Un premier succès n'est pas une garantie d'accès à toutes les fiches des alliances futures. La documentation officielle est disponible sur https://developer.marvelstrikeforce.com/beta/msf-api.json .
+
+## Diagnostic ponctuel des types de champs PlayerCard
+
+URL opt-in : `GET /login/card-types-test`.
+
+Le diagnostic prolonge `/login/coverage-test` sans le relancer. OAuth serveur, PKCE S256, CSRF state et scopes déjà validés `openid m3p.f.pr.pro m3p.f.ar.pro` sont conservés.
+
+Après le consentement, **deux GET Scopely maximum** :
+
+1. `/player/v1/alliance/members` pour un identifiant temporaire valide dans l'alliance connectée.
+2. `/player/v1/card/member/{memberId}` pour un seul coéquipier non-self ayant `card.rosterShare === true`.
+
+La page affiche uniquement les types JSON de `rosterShare` et `aid`, le type du champ historique officiellement documenté `wwPoints` (exclu du périmètre LoSP), et un compteur de clés inconnues dont les noms restent masqués. Aucun pseudo, ID, token, nom de clé inconnue, valeur privée ou JSON brut ne passe dans le navigateur.
+
+Le résultat est éphémère, `no-store`, CSP à nonce et neutralisation des paramètres OAuth dans l'historique. Aucune donnée persistée, aucune intégration R2, aucun accès au roster ni à l'inventaire. Les erreurs 401/403/429/464 sont affichées sans réponses API brutes et n'entraînent aucune nouvelle requête.
+
+Tests : `tests/card-types-test.test.mjs`. La CI ne remplace pas un essai réel avec le consentement de Scopely.
