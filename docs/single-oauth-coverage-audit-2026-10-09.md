@@ -14,6 +14,40 @@ Source officielle : https://developer.marvelstrikeforce.com/beta/msf-api.json (O
 - Les IDs de membres et d'alliance sont temporaires et changent lors d'une entrée/sortie de membre.
 - m3p.{any} signifie un token joueur valide, pas un droit universel sur tous les joueurs.
 
+## Retour réel iPhone du 9 octobre 2026 — `/login/coverage-test`
+
+**Source de preuve : six captures de la page temporaire du Worker transmise par le responsable d'alliance après OAuth réel.** Statut de la page : `complete`. Les cinq GET du diagnostic ont répondu **HTTP 200**. Ce sont des succès live et non des simulations CI.
+
+| Rubrique | Observation | Portée de la preuve |
+|---|---|---|
+| alliance | 200, 0 propriété de premier niveau non reconnue | Un AllianceCard réel, types vérifiés, pas validation métier de toutes les valeurs |
+| members | 200, tableau de 24 entrées, 0 propriété additionnelle sur l'entrée examinée | Un AllianceMemberInfo examiné en détail, pas 24 structures inspectées |
+| player | 200, 1 propriété de premier niveau non reconnue par le diagnostic | Un PlayerCard d'un coéquipier, valeur du champ supplémentaire non révélée |
+| applications | 200, tableau vide (0 entrée) | **Accès confirmé**, structure d'une candidature non testable sur liste vide |
+| recruits | 200, première page demandée `page=1&perPage=1` vide (0 entrée) | **Accès confirmé**, structure d'un RecruitInfo non testable |
+
+**Détails AllianceCard observés :**
+
+- Type conforme : id, name, icon, frame, level, level.completedTier, level.goalTier, description, type, demoteDays, kickDays, warZone, warLeague, warLeague.id, warLeague.name, warTrophies, warRank, raidRank, style, tcp, avgTcp, count.
+- Absent : level.progress, managementRank, discordUrl, qualifications.tcp, qualifications.lang.
+- `ad` : null (distinct d'absent).
+- `qualifications` : objet conforme ; `qualifications.custom` et `qualifications.raids` : tableaux conformes. Ceci ne confirme pas qu'ils contiennent des entrées.
+
+**Détails AllianceMemberInfo / première carte dans la liste :**
+
+- Type conforme : id, rank, isSelf, card, card.name, card.icon, card.frame, card.level, card.level.completedTier, card.level.goalTier, card.tcp, card.stp, card.warMvp, card.charactersCollected, card.rosterShare, **card.daysInAlliance**.
+- Absent : card.level.progress.
+
+**Détails PlayerCard d'un seul coéquipier :**
+
+- Types conformes : name, icon, frame, level, level.completedTier, level.goalTier, tcp, stp, warMvp, charactersCollected, charactersAtMaxStarRank, latestArena, latestBlitz, blitzWins, qualifications, qualifications.lang, qualifications.style.
+- Absents : level.progress, bestArena, application, qualifications.avgTcp, qualifications.warZone, qualifications.warLeague, qualifications.raids.
+- Null : ad.
+- **À élucider avant exploitation** : `rosterShare` et `aid` sont marqués `type-invalid` par le validateur local (qui attend respectivement booléen et chaîne) ; le diagnostic ne montre **pas** le type JSON réellement renvoyé, donc ne permet pas de conclure à une anomalie Scopely. OpenAPI PlayerCard prévoit `rosterShare` comme union booléen / `RosterShareState`, même si pour les cartes d'autrui le booléen est documenté ; `aid` référence l'identifiant d'alliance décrit comme chaîne.
+- La propriété supplémentaire comptabilisée (1) **n'est pas identifiée** ; ne pas supposer qu'il s'agit de `wwPoints`. Ne pas réactiver World Warrior.
+
+**Économie d'appels :** aucune raison de refaire 24 fiches. Ne pas relancer l'audit de cinq requêtes pour confirmer les cinq HTTP 200. Si un besoin concret justifie de résoudre `rosterShare`, `aid` et le champ supplémentaire, privilégier une unique lecture supplémentaire d'une carte membre, après actualisation de son ID via `alliance/members` (2 requêtes GET maximum) ; afficher seulement le type JSON exact, et éventuellement un nom de propriété non sensible, jamais une valeur ou un ID.
+
 ## Matrice des routes pertinentes
 
 | GET endpoint | Scope documenté | Paramètres, réponse, pagination et coût | Statut |
@@ -23,8 +57,8 @@ Source officielle : https://developer.marvelstrikeforce.com/beta/msf-api.json (O
 | /player/v1/card/member/{memberId} | m3p.{any} | PlayerCard ; membre issu de la liste actualisée ; 1 requête/membre | CONFIRMÉ, 24/24 accessibles |
 | /player/v1/alliance/{allianceId}/card | m3p.f.ar.pro | AllianceCard, allianceId temporaire obligatoire ; 1 requête | DOCUMENTÉ — NON TESTÉ ; doublon probable |
 | /player/v1/alliance/{allianceId}/members | m3p.f.ar.pro | AllianceMemberInfo[], allianceId temporaire obligatoire ; 1 requête | DOCUMENTÉ — NON TESTÉ ; doublon probable |
-| /player/v1/alliance/recruiting/applications | m3p.f.ar.pro | PlayerCard[] avec application conditionnel ; pagination absente ; 1 requête | DOCUMENTÉ — NON TESTÉ |
-| /player/v1/recruiting/recruits | m3p.{any} | RecruitInfo[], minTcp/maxTcp/page/perPage facultatifs ; max 100 résultats annoncés ; 1 requête par page | DOCUMENTÉ — NON TESTÉ |
+| /player/v1/alliance/recruiting/applications | m3p.f.ar.pro | PlayerCard[] avec application conditionnel ; pagination absente ; 1 requête | CONFIRMÉ HTTP 200, 0 candidature ; contenu non validé |
+| /player/v1/recruiting/recruits | m3p.{any} | RecruitInfo[], minTcp/maxTcp/page/perPage facultatifs ; max 100 résultats annoncés ; 1 requête par page | CONFIRMÉ HTTP 200, 0 sur page 1 ; contenu non validé |
 | /player/v1/recruiting/recruits/{recruitId} | m3p.{any} | RecruitInfo, identifiant temporaire obligatoire ; 1 requête | DOCUMENTÉ — NON TESTÉ |
 | /player/v1/alliance/recruiting/recruiters | scope non précisé | AllianceCard[], filtres langs/raids/search ; pagination à vérifier | DOCUMENTÉ — NON TESTÉ, autres alliances hors audit |
 | /player/v1/card/applicant/{applicantId} | m3p.{any} | PlayerCard pour candidat connu ; 1 requête | DOCUMENTÉ — NON TESTÉ |
