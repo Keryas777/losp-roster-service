@@ -1,5 +1,6 @@
 import { probeAllianceProfiles, renderAllianceProfiles } from "./profiles-test.js";
 import { probeCoverage, renderCoverage } from "./coverage-test.js";
+import { probeCardTypes, renderCardTypes } from "./card-types-test.js";
 import { probeInventory, renderInventoryProbe } from "./inventory-test.js";
 import { probeAllianceRoster, probeOwnRoster, renderAllianceProbe } from "./alliance-test.js";
 import { getPlayerCard, showEphemeralPlayerCard } from "./player-card.js";
@@ -100,6 +101,8 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     readCookie(cookies, "__Host-losp_oauth_profiles_test"), expectedState);
   const coverageMode = equalStates(
     readCookie(cookies, "__Host-losp_oauth_coverage_test"), expectedState);
+  const cardTypesMode = equalStates(
+    readCookie(cookies, "__Host-losp_oauth_card_types_test"), expectedState);
 
   // Check CSRF even when Scopely returned a denied-consent error.
   if (!equalStates(expectedState, suppliedState) || !verifier) {
@@ -187,6 +190,10 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
 
     // A single authorized GET; never persist or return any OAuth token.
     // The token remains in this request's memory only.
+    if (cardTypesMode && !coverageMode && !profilesMode && !allianceMode &&
+        !rosterScopeMode && !inventoryMode) {
+      return renderCardTypes(await probeCardTypes(result.access_token, fetchImpl));
+    }
     if (coverageMode && !profilesMode && !allianceMode && !rosterScopeMode && !inventoryMode) {
       return renderCoverage(await probeCoverage(result.access_token, fetchImpl));
     }

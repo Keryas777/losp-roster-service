@@ -55,10 +55,12 @@ async function startLogin(request, env, url) {
   authorize.searchParams.set("redirect_uri", REDIRECT_URI);
   const profilesProbe = url.pathname === "/login/profiles-test";
   const coverageProbe = url.pathname === "/login/coverage-test";
+  const cardTypesProbe = url.pathname === "/login/card-types-test";
   const inventoryProbe = url.pathname === "/login/inventory-test";
   const rosterScopeProbe = url.pathname === "/login/roster-scope-test";
   const allianceProbe = url.pathname === "/login/alliance-test" || rosterScopeProbe;
-  const scopes = allianceProbe || profilesProbe || coverageProbe ? LOGIN_SCOPES + " m3p.f.ar.pro" : LOGIN_SCOPES;
+  const scopes = allianceProbe || profilesProbe || coverageProbe || cardTypesProbe
+    ? LOGIN_SCOPES + " m3p.f.ar.pro" : LOGIN_SCOPES;
   authorize.searchParams.set("scope", inventoryProbe ? LOGIN_SCOPES + " m3p.f.pr.inv" :
     rosterScopeProbe ? scopes + " m3p.f.pr.ros" : scopes);
   authorize.searchParams.set("state", state);
@@ -82,6 +84,7 @@ async function startLogin(request, env, url) {
   if (inventoryProbe) headers.append("Set-Cookie", "__Host-losp_oauth_inventory_test=" + state + "; " + attributes);
   if (profilesProbe) headers.append("Set-Cookie", "__Host-losp_oauth_profiles_test=" + state + "; " + attributes);
   if (coverageProbe) headers.append("Set-Cookie", "__Host-losp_oauth_coverage_test=" + state + "; " + attributes);
+  if (cardTypesProbe) headers.append("Set-Cookie", "__Host-losp_oauth_card_types_test=" + state + "; " + attributes);
   return new Response(null, { status: 302, headers });
 }
 
@@ -93,7 +96,8 @@ export default {
         url.pathname === "/login/roster-scope-test" ||
         url.pathname === "/login/inventory-test" ||
         url.pathname === "/login/profiles-test" ||
-        url.pathname === "/login/coverage-test") {
+        url.pathname === "/login/coverage-test" ||
+        url.pathname === "/login/card-types-test") {
       return startLogin(request, env, url);
     }
 
