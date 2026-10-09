@@ -43,10 +43,27 @@ Source officielle : https://developer.marvelstrikeforce.com/beta/msf-api.json (O
 - Types conformes : name, icon, frame, level, level.completedTier, level.goalTier, tcp, stp, warMvp, charactersCollected, charactersAtMaxStarRank, latestArena, latestBlitz, blitzWins, qualifications, qualifications.lang, qualifications.style.
 - Absents : level.progress, bestArena, application, qualifications.avgTcp, qualifications.warZone, qualifications.warLeague, qualifications.raids.
 - Null : ad.
-- **À élucider avant exploitation** : `rosterShare` et `aid` sont marqués `type-invalid` par le validateur local (qui attend respectivement booléen et chaîne) ; le diagnostic ne montre **pas** le type JSON réellement renvoyé, donc ne permet pas de conclure à une anomalie Scopely. OpenAPI PlayerCard prévoit `rosterShare` comme union booléen / `RosterShareState`, même si pour les cartes d'autrui le booléen est documenté ; `aid` référence l'identifiant d'alliance décrit comme chaîne.
-- La propriété supplémentaire comptabilisée (1) **n'est pas identifiée** ; ne pas supposer qu'il s'agit de `wwPoints`. Ne pas réactiver World Warrior.
+- **Élucidé quant au type, mais pas à la valeur métier** : un second diagnostic réel confirme `rosterShare` de type `string` et `aid` de type `number` sur un `PlayerCard` de coéquipier ; l'ancien `type-invalid` venait des types attendus par le validateur (respectivement booléen et chaîne). OpenAPI PlayerCard prévoit `rosterShare` comme union booléen / `RosterShareState`, même si pour les cartes d'autrui le booléen est documenté ; `aid` référence l'identifiant d'alliance décrit comme chaîne.
+- La propriété supplémentaire comptabilisée (1) **n'est pas identifiée** ; le diagnostic complémentaire montre explicitement que `wwPoints` est absent de l'échantillon. Ne pas réactiver World Warrior.
 
 **Économie d'appels :** aucune raison de refaire 24 fiches. Ne pas relancer l'audit de cinq requêtes pour confirmer les cinq HTTP 200. Si un besoin concret justifie de résoudre `rosterShare`, `aid` et le champ supplémentaire, privilégier une unique lecture supplémentaire d'une carte membre, après actualisation de son ID via `alliance/members` (2 requêtes GET maximum) ; afficher seulement le type JSON exact, et éventuellement un nom de propriété non sensible, jamais une valeur ou un ID.
+
+## Retour réel iPhone du 9 octobre 2026 — `/login/card-types-test`
+
+Source : capture d'écran fournie après authentification OAuth et test ponctuel exécuté depuis l'iPhone. `Statut : ok` ; le code de la route correspond à une lecture réussie de la liste des membres puis d'un seul `PlayerCard` pour un autre membre partageant. Le résultat ne présente pas les codes HTTP exacts des deux réponses : **ne pas inventer HTTP 200 pour ce nouveau test**. Les précédentes campagnes avaient déjà confirmé les deux endpoints en HTTP 200.
+
+| Champ `PlayerCard` | Type JSON réel | Portée de la confirmation |
+|---|---|---|
+| `rosterShare` | `string` | Observé sur une fiche de coéquipier, **pas** un booléen ; la chaîne exacte et sa signification métier restent inconnues |
+| `aid` | `number` | Observé sur une fiche de coéquipier, contrairement au type `string` attendu par l'ancien validateur ; valeur et format métier non contrôlés |
+| `wwPoints` | absent | Champ historique non renvoyé sur cette fiche ; World Warrior reste **hors périmètre** |
+| Propriétés supplémentaires inconnues | 1 | Une propriété non reconnue demeure ; son nom et sa valeur ont volontairement été masqués, donc **aucune identification possible** depuis la capture |
+
+**Conséquence technique :** `AllianceMemberCard.card.rosterShare` a été observé comme booléen, mais `PlayerCard.rosterShare` est ici une chaîne. Ne pas fusionner ces représentations ni convertir aveuglément la chaîne en booléen. `aid` peut être un nombre : ne pas supposer une chaîne ni utiliser un identifiant entier non validé. Les contrôles de `coverage-test.js` sont des attentes documentaires strictes ; leurs `type-invalid` précédents résultaient de cette différence, et **ne prouvaient pas un refus API**.
+
+**Propriété inconnue :** le champ restant n'est pas `wwPoints` sur cette fiche. Un nouvel appel n'est pas justifié tant que son intérêt fonctionnel pour LoSP n'est pas démontré ; si une investigation devient nécessaire, filtrer strictement les noms que l'on accepte de rendre visibles et ne jamais afficher de valeurs, d'identifiants ou de clés arbitraires.
+
+**Ce qui reste à vérifier avant exploitation métier :** signification de la chaîne `rosterShare`, format exploitable de `aid`, cohérence temporelle et métier de `tcp`, `stp`, `warMvp`, `daysInAlliance`, `latestArena` et `latestBlitz`. Aucun nouveau GET Scopely n'a été effectué pour cette mise à jour de documentation.
 
 ## Matrice des routes pertinentes
 
