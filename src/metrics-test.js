@@ -5,7 +5,6 @@ import { API_KEY } from "./player-card.js";
 const ORIGIN = "https://api.marvelstrikeforce.com";
 const isObject = value => value !== null && typeof value === "object" && !Array.isArray(value);
 const integer = value => Number.isSafeInteger(value) && value >= 0;
-const countable = value => value === 0 || integer(value);
 
 async function call(path, token, fetchImpl) {
   let response;
@@ -113,7 +112,10 @@ export async function probeMetricConsistency(token, fetchImpl = fetch) {
     return { status: "members-failed", reason: members.status, http: members.http || null };
   }
   if (!Array.isArray(members.data) || members.data.length < 1 ||
-      members.data.length > 30 || !members.data.every(row => isObject(row) && isObject(row.card)) ||
+      members.data.length > 30 || !members.data.every(row => isObject(row) &&
+        isObject(row.card) && typeof row.id === "string" && row.id.length > 0 &&
+        row.id.length <= 256) ||
+      new Set(members.data.map(row => row.id)).size !== members.data.length ||
       members.data.filter(row => row.isSelf === true).length !== 1) {
     return { status: "invalid-members" };
   }
