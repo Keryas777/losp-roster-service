@@ -57,6 +57,7 @@ async function startLogin(request, env, url) {
   const coverageProbe = url.pathname === "/login/coverage-test";
   const cardTypesProbe = url.pathname === "/login/card-types-test";
   const metricsProbe = url.pathname === "/login/metrics-test";
+  const isoIconsProbe = url.pathname === "/login/iso-icons-test";
   const inventoryProbe = url.pathname === "/login/inventory-test";
   const rosterScopeProbe = url.pathname === "/login/roster-scope-test";
   const allianceProbe = url.pathname === "/login/alliance-test" || rosterScopeProbe;
@@ -87,6 +88,7 @@ async function startLogin(request, env, url) {
   if (coverageProbe) headers.append("Set-Cookie", "__Host-losp_oauth_coverage_test=" + state + "; " + attributes);
   if (cardTypesProbe) headers.append("Set-Cookie", "__Host-losp_oauth_card_types_test=" + state + "; " + attributes);
   if (metricsProbe) headers.append("Set-Cookie", "__Host-losp_oauth_metrics_test=" + state + "; " + attributes);
+  if (isoIconsProbe) headers.append("Set-Cookie", "__Host-losp_oauth_iso_icons_test=" + state + "; " + attributes);
   return new Response(null, { status: 302, headers });
 }
 
@@ -100,7 +102,8 @@ export default {
         url.pathname === "/login/profiles-test" ||
         url.pathname === "/login/coverage-test" ||
         url.pathname === "/login/card-types-test" ||
-        url.pathname === "/login/metrics-test") {
+        url.pathname === "/login/metrics-test" ||
+        url.pathname === "/login/iso-icons-test") {
       return startLogin(request, env, url);
     }
 
