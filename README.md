@@ -128,3 +128,17 @@ La page temporaire affiche des verdicts de cohérence et, uniquement pour le com
 **Interprétation prudente** : `identique` prouve seulement la cohérence interne de deux réponses API. Un écart peut provenir de données mises à jour à des instants légèrement différents. La validité métier complète exige une comparaison volontaire avec les valeurs actuellement visibles dans MSF. Aucun critère métier arbitraire n'est inventé pour les classements Arène/Blitz, ni pour `warMvp`.
 
 Le diagnostic conserve les protections CSRF state, PKCE, cookies `Secure; HttpOnly; SameSite=Lax`, CSP avec nonce, `no-store` et expiration au rechargement. Aucun stockage R2, refresh token ou nouvelle permission. Tests automatisés : `tests/metrics-test.test.mjs`. La CI ne vaut pas autorisation ni validation réelle de l'API.
+
+## Audit ponctuel des icônes ISO-8 officielles
+
+URL volontaire : `GET /login/iso-icons-test`.
+
+Le diagnostic réutilise **le flux OAuth serveur actuel**, avec PKCE S256, CSRF `state` et uniquement les scopes déjà validés `openid m3p.f.pr.pro`. Après authentification, le Worker appelle **une seule fois** `GET https://api.marvelstrikeforce.com/game/v1/iso8Abilities` avec le token en mémoire. Il ne contacte aucun endpoint de roster, d'inventaire ou d'alliance.
+
+Selon l'OpenAPI beta 0.2.1, la réponse contient les objets `data.striker`, `data.raider`, `data.skirmisher`, `data.healer` et `data.fortifier`. Chaque objet est de type `Ability`, dont `icons` est un tableau d'URL : **indice 0 = icône de classe, indices 1/2/3/4 = tier 1/2/3/4**, si ces indices existent réellement. L'API peut ne pas renvoyer le quatrième tier. Une image au tier 4 doit encore être comparée visuellement au visuel orange du jeu avant toute intégration.
+
+Le rendu éphémère présente les aperçus et les URL uniquement si leur domaine est exactement `assets.marvelstrikeforce.com`, en HTTPS, sous `/imgs/` avec une extension d'image autorisée, sans query string, fragment ni identifiants. Tout autre lien est compté mais **n'est jamais reflété vers le navigateur**. Les aperçus chargent directement des images publiques depuis le CDN Scopely. Aucun token, profil, personnage, identifiant joueur ou contenu brut du payload n'est affiché ou stocké.
+
+Maintien de `no-store`, `Referrer-Policy: no-referrer`, CSP avec nonce et `img-src` limité au CDN public, cookies `Secure; HttpOnly; SameSite=Lax` supprimés et neutralisation `state/code` après callback. Tests : `tests/iso-icons-test.test.mjs`. Aucune modification de `Keryas777/msf`, de `docs/data/iso-icons.json` ni de l'architecture R2 à ce stade.
+
+**Validation en deux temps :** CI GitHub Actions avec réponses simulées, puis test OAuth volontaire depuis l'iPhone. HTTP 200 et existence de `icons[4]` ne suffisent pas à confirmer la couleur orange sans voir les icônes.
