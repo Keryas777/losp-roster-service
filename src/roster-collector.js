@@ -64,7 +64,7 @@ async function request(path, token, budget, fetchImpl) {
   return object(payload) ? { status: "ok", payload } : { status: "invalid-data" };
 }
 
-async function collectMember(memberId, token, budget, fetchImpl) {
+async function collectMember(memberId, token, budget, fetchImpl, withInfo = false) {
   let perPage = DEFAULT_PAGE_SIZE;
   let records = [];
   let seenIds = new Set();
@@ -75,7 +75,8 @@ async function collectMember(memberId, token, budget, fetchImpl) {
 
   for (let page = 1; page <= MAX_PAGES_PER_MEMBER; page++) {
     const path = "/player/v1/roster/member/" + encodeURIComponent(memberId) +
-      "?page=" + page + "&perPage=" + perPage + "&statsFormat=csv";
+      "?page=" + page + "&perPage=" + perPage + "&statsFormat=csv" +
+      (withInfo ? "&lang=fr&charInfo=full" : "");
     const response = await request(path, token, budget, fetchImpl);
     if (response.status === "response-too-large" && downsizes < 3 && perPage > 10) {
       perPage = Math.max(10, Math.floor(perPage / 2));
@@ -143,6 +144,7 @@ async function collectMember(memberId, token, budget, fetchImpl) {
 export async function collectAllianceRosterSample(token, fetchImpl = fetch, options = {}) {
   if (typeof token !== "string" || !token) return { status: "missing-token" };
   const maxMembers = options.maxMembers === undefined ? MAX_PILOT_MEMBERS : options.maxMembers;
+  const withInfo = options.charInfo === true;
   if (!Number.isInteger(maxMembers) || maxMembers < 1 || maxMembers > MAX_ALLIANCE_MEMBERS) {
     return { status: "invalid-configuration" };
   }
@@ -173,7 +175,7 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
     pages: 0
   };
   for (const candidate of selected) {
-    const result = await collectMember(candidate.id, token, budget, fetchImpl);
+    const result = await collectMember(candidate.id, token, budget, fetchImpl, withInfo);
     if (result.status !== "ok") {
       // Fail closed: discard all partial rosters and never return their contents.
       return { status: result.status, ...summary, requests: budget.used };
