@@ -61,6 +61,22 @@ export function renderLiveRosterViewer(report) {
     '<div class="characters">' + row.chars.map(portraitCard).join("") +
     '</div></section>').join("");
 
+  const scopeAudit = report.captainScopeAudit;
+  const scopeBanner = scopeAudit ? '<section class="permissions" aria-label="Autorisations Scopely">' +
+    '<h2>Autorisations accordées : ' + scopeAudit.granted + ' / ' +
+    scopeAudit.total + '</h2>' +
+    (scopeAudit.state === "unreported" ?
+      '<p>Scopely ne précise pas les permissions dans sa réponse OAuth : vérification impossible.</p>' :
+      scopeAudit.state === "partial" ?
+        '<p>Certaines permissions manquent. Ne pas inviter les autres capitaines avant confirmation.</p>' :
+        '<p>Les neuf autorisations demandées figurent dans la réponse OAuth.</p>') +
+    '<ul>' + scopeAudit.scopes.map(row => '<li>' +
+      (row.granted ? '✓ ' : '— ') + escape(row.label) +
+      (row.granted ? ' : accordé' : ' : non confirmé') + '</li>').join("") +
+    '</ul><p class="scope-note">La permission « maintien de l’accès » n’active pas encore de session durable : ' +
+    'les jetons sont détruits après cette visite. Attendre la configuration du stockage privé avant ' +
+    'de connecter les capitaines.</p></section>' : "";
+
   const body = ok
     ? '<div class="summary"><div><strong>' + number(report.completedCount) +
       '</strong><span>Rosters affichés</span></div><div><strong>' +
@@ -135,6 +151,9 @@ export function renderLiveRosterViewer(report) {
     '.stats,.iso{display:block;color:#b1c3dc;font-size:12px}.iso{color:#9cbbf0}',
     '.power{text-align:right;min-width:76px;font-variant-numeric:tabular-nums}.power strong{font-size:13px}.power small{display:block;font-size:10px;color:#8198b9}',
     '[hidden]{display:none!important}.failure{background:#172339;border-radius:12px;padding:22px}',
+    '.permissions{background:#132339;border:1px solid #39506d;border-radius:12px;padding:16px;margin:18px 0}',
+    '.permissions p{color:#b1c5df;font-size:13px}.permissions ul{padding-left:18px;font-size:13px;columns:1}',
+    '.scope-note{font-size:12px;color:#efc98f!important}',
     'footer{margin-top:24px;color:#91a4c2;font-size:12px}',
     '@media(min-width:660px){.controls{grid-template-columns:2fr 1fr}.characters{grid-template-columns:repeat(2,minmax(0,1fr))}}'
   ].join("");
@@ -145,7 +164,7 @@ export function renderLiveRosterViewer(report) {
     '<style nonce="' + nonce + '">' + css + '</style></head><body>' +
     '<main><header><span class="eyebrow">LoSP · Marvel Strike Force</span>' +
     '<h1>Rosters de l’alliance</h1><p class="intro">Les vrais personnages de vos coéquipiers, directement issus de l’API officielle.</p>' +
-    '</header>' + body + '<footer>Lecture privée et temporaire · Aucun roster stocké dans GitHub Pages.</footer>' +
+    '</header>' + scopeBanner + body + '<footer>Lecture privée et temporaire · Aucun roster stocké dans GitHub Pages.</footer>' +
     '</main><script nonce="' + nonce + '">' + js + '</script></body></html>';
   const headers = new Headers({
     "Content-Type": "text/html; charset=utf-8",
@@ -162,7 +181,7 @@ export function renderLiveRosterViewer(report) {
   const remove = "; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax";
   for (const name of [
     "__Host-losp_oauth_state", "__Host-losp_oauth_verifier",
-    "__Host-losp_oauth_roster_viewer"
+    "__Host-losp_oauth_roster_viewer", "__Host-losp_oauth_captain"
   ]) headers.append("Set-Cookie", name + "=" + remove);
   return new Response(html, { status: 200, headers });
 }
