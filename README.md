@@ -169,3 +169,15 @@ Cette étape vérifie la lecture intégrale de plusieurs rosters partagés, **pa
 La route `GET /login/rosters` est un parcours OAuth séparé, utilisant les scopes officiels pour les rosters d'alliance, avec PKCE et contrôle state. Après autorisation, le Worker récupère jusqu'à trois rosters de membres ayant activé le partage et les affiche dans une interface mobile-first : portraits officiels validés sur le domaine CDN Scopely, recherche, tri par puissance / niveau / nom, onglets de joueurs, niveau, équipement et étoiles. Les requêtes ajoutent `lang=fr&charInfo=full` pour obtenir noms et portraits.
 
 Ce document contient les informations visibles des personnages et est transmis uniquement au navigateur ayant passé l'OAuth. Il n'est jamais publié en JSON public, ni sauvegardé dans R2 ou localStorage. Les cookies OAuth sont supprimés et l'URL du callback est neutralisée. Il ne faut pas confondre cette première interface avec une connexion persistante : le coffre R2 chiffré `src/session-vault.js` existe mais ne dispose pas du bucket privé et du secret runtime nécessaires. Le renouvellement du token exige en outre une procédure sûre de rotation du refresh token.
+
+## Autorisations complètes pour les futurs capitaines
+
+La route `GET /login/captain` utilise un manifeste central dans `src/captain-scopes.js`. Elle demande les six permissions de consultation déclarées dans l’OpenAPI OAuth de Scopely, plus `m3p.f.ar.ros` (autorisation des rosters d’alliance prouvée en live le 16 octobre 2026), `openid` et `offline`. Il s'agit de **neuf scopes**, dont **sept permissions de consultation**.
+
+Cette route est distincte des diagnostics précédents. Elle reprend PKCE/state, cookies `Secure/HttpOnly/SameSite=Lax` et le callback déjà approuvé. Le résultat affiche **uniquement** les permissions présentes ou absentes dans le champ `scope` de la réponse OAuth, à côté de l'interface de rosters partagés déjà existante si `m3p.f.ar.ros` est confirmé. Aucune nouvelle donnée personnelle (inventaire, offres, activité) n’est téléchargée simplement parce que ces cases sont cochées.
+
+Ne pas demander les scopes hypothétiques `m3p.f.ar.inv`, `m3p.f.ar.raid`, `m3p.f.ar.war` et `m3p.f.ar.act` : ils apparaissent dans les étiquettes OpenAPI mais n'ont ni endpoints exploitables associés ni déclarations OAuth. Les endpoints publics game/v1 ne requièrent pas un consentement par fonctionnalité.
+
+**Limite bloquante :** `offline` ne crée pas de session durable tout seul. Les refresh tokens sont jetés et jamais stockés. Il faut **activer R2 privé et le coffre chiffré, gérer la rotation sérialisée des refresh tokens ainsi que la déconnexion, la révocation et l’effacement** avant de présenter ce parcours comme une connexion unique aux autres capitaines. Ne pas les inviter tant que ces étapes ne sont pas terminées. Un scope initialement accordé peut aussi être refusé/révoqué ultérieurement ; aucune promesse d'accès perpétuel.
+
+Sources : https://developer.marvelstrikeforce.com/beta/msf-api.json, `docs/oauth-session-architecture.md`, audit réel PR #22.
