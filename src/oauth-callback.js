@@ -6,6 +6,7 @@ import { probeIsoIcons, renderIsoIcons } from "./iso-icons-test.js";
 import { probeInventory, renderInventoryProbe } from "./inventory-test.js";
 import { probeAllianceRoster, probeOwnRoster, renderAllianceProbe } from "./alliance-test.js";
 import { collectAllianceRosterSample, renderRosterCollectionSample } from "./roster-collector.js";
+import { renderLiveRosterViewer } from "./roster-viewer.js";
 import { getPlayerCard, showEphemeralPlayerCard } from "./player-card.js";
 
 // First OAuth callback validation: tokens are deliberately not persisted.
@@ -102,6 +103,8 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     readCookie(cookies, "__Host-losp_oauth_alliance_scope_test"), expectedState);
   const collectionMode = equalStates(
     readCookie(cookies, "__Host-losp_oauth_collection_test"), expectedState);
+  const rosterViewerMode = equalStates(
+    readCookie(cookies, "__Host-losp_oauth_roster_viewer"), expectedState);
   const inventoryMode = equalStates(
     readCookie(cookies, "__Host-losp_oauth_inventory_test"), expectedState);
   const profilesMode = equalStates(
@@ -197,6 +200,17 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     if (!result || typeof result.access_token !== "string" ||
         !result.access_token || String(result.token_type).toLowerCase() !== "bearer") {
       return backToStatus("exchange-unexpected-response");
+    }
+
+    // Private roster viewer, never saved: render only after a valid OAuth consent.
+    if (rosterViewerMode) {
+      const scope = typeof result.scope === "string" ? result.scope : "";
+      if (!scope.trim().split(/\s+/).includes("m3p.f.ar.ros")) {
+        return renderLiveRosterViewer({ status: "scope-not-granted" });
+      }
+      return renderLiveRosterViewer(await collectAllianceRosterSample(result.access_token, fetchImpl, {
+        maxMembers: 3, charInfo: true
+      }));
     }
 
     // The bounded collector is opt-in and requires an explicitly granted alliance roster scope.
