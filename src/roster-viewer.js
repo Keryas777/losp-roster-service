@@ -179,9 +179,11 @@ export function renderLiveRosterViewer(report) {
       "'; img-src https://assets.marvelstrikeforce.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
   });
   const remove = "; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax";
-  for (const name of [
+  const cookiesToClear = [
     "__Host-losp_oauth_state", "__Host-losp_oauth_verifier",
-    "__Host-losp_oauth_roster_viewer", "__Host-losp_oauth_captain"
-  ]) headers.append("Set-Cookie", name + "=" + remove);
+    "__Host-losp_oauth_roster_viewer"
+  ];
+  if (scopeAudit) cookiesToClear.push("__Host-losp_oauth_captain");
+  for (const name of cookiesToClear) headers.append("Set-Cookie", name + "=" + remove);
   return new Response(html, { status: 200, headers });
 }
