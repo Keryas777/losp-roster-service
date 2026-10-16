@@ -7,6 +7,7 @@ import { probeInventory, renderInventoryProbe } from "./inventory-test.js";
 import { probeAllianceRoster, probeOwnRoster, renderAllianceProbe } from "./alliance-test.js";
 import { collectAllianceRosterSample, renderRosterCollectionSample } from "./roster-collector.js";
 import { renderLiveRosterViewer } from "./roster-viewer.js";
+import { auditCaptainScopes } from "./captain-scopes.js";
 import { getPlayerCard, showEphemeralPlayerCard } from "./player-card.js";
 
 // First OAuth callback validation: tokens are deliberately not persisted.
@@ -105,6 +106,8 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     readCookie(cookies, "__Host-losp_oauth_collection_test"), expectedState);
   const rosterViewerMode = equalStates(
     readCookie(cookies, "__Host-losp_oauth_roster_viewer"), expectedState);
+  const captainMode = equalStates(
+    readCookie(cookies, "__Host-losp_oauth_captain"), expectedState);
   const inventoryMode = equalStates(
     readCookie(cookies, "__Host-losp_oauth_inventory_test"), expectedState);
   const profilesMode = equalStates(
@@ -200,6 +203,20 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     if (!result || typeof result.access_token !== "string" ||
         !result.access_token || String(result.token_type).toLowerCase() !== "bearer") {
       return backToStatus("exchange-unexpected-response");
+    }
+
+    // Full captain consent: inspect only the scope identifiers returned by Scopely.
+    // Never persist or expose refresh tokens. The durable session is a separate phase.
+    if (captainMode) {
+      const scopeAudit = auditCaptainScopes(result.scope);
+      const rosterAllowed = scopeAudit.scopes.find(row =>
+        row.scope === "m3p.f.ar.ros")?.granted === true;
+      const report = rosterAllowed
+        ? await collectAllianceRosterSample(result.access_token, fetchImpl, {
+            maxMembers: 3, charInfo: true
+          })
+        : { status: "scope-not-granted" };
+      return renderLiveRosterViewer({ ...report, captainScopeAudit: scopeAudit });
     }
 
     // Private roster viewer, never saved: render only after a valid OAuth consent.
