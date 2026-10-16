@@ -130,7 +130,11 @@ const explanations = {
 export function renderAllianceProbe(report) {
   const cspNonce = nonce();
   let detail;
-  if (report.status === "members-failed") {
+  if (report.status === "scope-check") {
+    detail = report.scopeCheck === "unreported"
+      ? "<h2>Permission non vérifiable</h2><p>Scopely n’a pas indiqué les scopes accordés dans sa réponse OAuth. Aucun roster n’a été interrogé.</p>"
+      : "<h2>Permission non accordée</h2><p>Le scope m3p.f.ar.ros est absent des permissions OAuth accordées. Aucun roster n’a été interrogé.</p>";
+  } else if (report.status === "members-failed") {
     detail = "<h2>Liste des membres inaccessible</h2><p>" +
       esc(explanations[report.reason] || "Erreur API.") +
       (Number.isInteger(report.httpCode) ? " (HTTP " + report.httpCode + ")" : "") +
@@ -159,6 +163,10 @@ export function renderAllianceProbe(report) {
     } else {
       detail += "<h2>Réponse roster inattendue</h2><p>Le format de réponse n'est pas reconnu.</p>";
     }
+  }
+
+  if (report.scopeCheck === "granted") {
+    detail = "<h2>Permission OAuth accordée</h2><p>Le scope m3p.f.ar.ros figure dans la réponse du serveur OAuth Scopely. Test d’accès à un seul roster partagé :</p>" + detail;
   }
 
   if (report.ownRoster) {
@@ -199,5 +207,6 @@ export function renderAllianceProbe(report) {
   headers.append("Set-Cookie", "__Host-losp_oauth_verifier=" + remove);
   headers.append("Set-Cookie", "__Host-losp_oauth_alliance_test=" + remove);
   headers.append("Set-Cookie", "__Host-losp_oauth_roster_scope_test=" + remove);
+  if (report.scopeCheck) headers.append("Set-Cookie", "__Host-losp_oauth_alliance_scope_test=" + remove);
   return new Response(html, { status: 200, headers });
 }

@@ -142,3 +142,13 @@ Le rendu éphémère présente les aperçus et les URL uniquement si leur domain
 Maintien de `no-store`, `Referrer-Policy: no-referrer`, CSP avec nonce et `img-src` limité au CDN public, cookies `Secure; HttpOnly; SameSite=Lax` supprimés et neutralisation `state/code` après callback. Tests : `tests/iso-icons-test.test.mjs`. Aucune modification de `Keryas777/msf`, de `docs/data/iso-icons.json` ni de l'architecture R2 à ce stade.
 
 **Validation en deux temps :** CI GitHub Actions avec réponses simulées, puis test OAuth volontaire depuis l'iPhone. HTTP 200 et existence de `icons[4]` ne suffisent pas à confirmer la couleur orange sans voir les icônes.
+
+## Diagnostic facultatif du scope des rosters d’alliance
+
+Route isolée : `GET /login/alliance-scope-test`.
+
+Ce test demande `openid m3p.f.pr.pro m3p.f.ar.pro m3p.f.ar.ros`, comme MSF2CSV (sans `offline`, inutile ici). Les routes OAuth existantes sont inchangées. La route utilise le même callback sécurisé par PKCE S256, le contrôle `state` et un cookie `Secure; HttpOnly; SameSite=Lax` de 10 minutes.
+
+Après consentement, le Worker examine uniquement le champ `scope` de la réponse OAuth. Si le scope est refusé (`invalid_scope`), l’erreur bornée est affichée. Si `scope` est absent ou ne contient pas exactement `m3p.f.ar.ros`, aucun appel de roster n’est effectué : l’affichage distingue permission non accordée et permission non vérifiable. Si le droit est confirmé, le Worker réutilise le test existant, avec au plus un GET `alliance/members` puis une seule page d’un personnage chez un seul coéquipier non connecté dont `rosterShare === true`.
+
+La page affiche le verdict et le statut d’accès, sans exposer le token, la liste des scopes ou des données de personnage. Aucun token ni roster n’est stocké. La réponse utilise `no-store` et neutralise l’URL OAuth dans l’historique. Un droit accordé n’implique pas qu’un roster soit accessible avant une véritable réponse HTTP 200.

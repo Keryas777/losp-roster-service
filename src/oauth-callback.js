@@ -97,6 +97,8 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     readCookie(cookies, "__Host-losp_oauth_alliance_test"), expectedState);
   const rosterScopeMode = equalStates(
     readCookie(cookies, "__Host-losp_oauth_roster_scope_test"), expectedState);
+  const allianceScopeMode = equalStates(
+    readCookie(cookies, "__Host-losp_oauth_alliance_scope_test"), expectedState);
   const inventoryMode = equalStates(
     readCookie(cookies, "__Host-losp_oauth_inventory_test"), expectedState);
   const profilesMode = equalStates(
@@ -192,6 +194,21 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     if (!result || typeof result.access_token !== "string" ||
         !result.access_token || String(result.token_type).toLowerCase() !== "bearer") {
       return backToStatus("exchange-unexpected-response");
+    }
+
+    // Independent consent test: only read a shared roster when the OAuth response confirms its scope.
+    if (allianceScopeMode) {
+      const issuedScope = typeof result.scope === "string" ? result.scope : null;
+      const granted = issuedScope !== null &&
+        issuedScope.trim().split(/\s+/).includes("m3p.f.ar.ros");
+      if (!granted) {
+        return renderAllianceProbe({
+          status: "scope-check",
+          scopeCheck: issuedScope === null ? "unreported" : "missing"
+        });
+      }
+      const report = await probeAllianceRoster(result.access_token, fetchImpl);
+      return renderAllianceProbe({ ...report, scopeCheck: "granted" });
     }
 
     // A single authorized GET; never persist or return any OAuth token.

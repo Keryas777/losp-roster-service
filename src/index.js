@@ -60,10 +60,12 @@ async function startLogin(request, env, url) {
   const isoIconsProbe = url.pathname === "/login/iso-icons-test";
   const inventoryProbe = url.pathname === "/login/inventory-test";
   const rosterScopeProbe = url.pathname === "/login/roster-scope-test";
+  const allianceScopeProbe = url.pathname === "/login/alliance-scope-test";
   const allianceProbe = url.pathname === "/login/alliance-test" || rosterScopeProbe;
-  const scopes = allianceProbe || profilesProbe || coverageProbe || cardTypesProbe || metricsProbe
+  const scopes = allianceProbe || allianceScopeProbe || profilesProbe || coverageProbe || cardTypesProbe || metricsProbe
     ? LOGIN_SCOPES + " m3p.f.ar.pro" : LOGIN_SCOPES;
   authorize.searchParams.set("scope", inventoryProbe ? LOGIN_SCOPES + " m3p.f.pr.inv" :
+    allianceScopeProbe ? scopes + " m3p.f.ar.ros" :
     rosterScopeProbe ? scopes + " m3p.f.pr.ros" : scopes);
   authorize.searchParams.set("state", state);
   authorize.searchParams.set("code_challenge", codeChallenge);
@@ -83,6 +85,7 @@ async function startLogin(request, env, url) {
   headers.append("Set-Cookie", "__Host-losp_oauth_verifier=" + codeVerifier + "; " + attributes);
   if (allianceProbe) headers.append("Set-Cookie", "__Host-losp_oauth_alliance_test=" + state + "; " + attributes);
   if (rosterScopeProbe) headers.append("Set-Cookie", "__Host-losp_oauth_roster_scope_test=" + state + "; " + attributes);
+  if (allianceScopeProbe) headers.append("Set-Cookie", "__Host-losp_oauth_alliance_scope_test=" + state + "; " + attributes);
   if (inventoryProbe) headers.append("Set-Cookie", "__Host-losp_oauth_inventory_test=" + state + "; " + attributes);
   if (profilesProbe) headers.append("Set-Cookie", "__Host-losp_oauth_profiles_test=" + state + "; " + attributes);
   if (coverageProbe) headers.append("Set-Cookie", "__Host-losp_oauth_coverage_test=" + state + "; " + attributes);
@@ -98,6 +101,7 @@ export default {
 
     if (url.pathname === "/login" || url.pathname === "/login/alliance-test" ||
         url.pathname === "/login/roster-scope-test" ||
+        url.pathname === "/login/alliance-scope-test" ||
         url.pathname === "/login/inventory-test" ||
         url.pathname === "/login/profiles-test" ||
         url.pathname === "/login/coverage-test" ||
