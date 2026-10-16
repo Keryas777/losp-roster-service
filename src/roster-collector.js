@@ -193,6 +193,8 @@ function escapeHtml(x) {
 }
 
 export function renderRosterCollectionSample(report) {
+  const nonceBytes = crypto.getRandomValues(new Uint8Array(18));
+  const nonce = btoa(String.fromCharCode(...nonceBytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
   const ok = report.status === "complete";
   const details = ok
     ? "<h2>Collecte paginée terminée</h2><p>Rosters lus entièrement : <strong>" +
@@ -208,6 +210,7 @@ export function renderRosterCollectionSample(report) {
   const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="referrer" content="no-referrer"><title>Collecte roster — LoSP</title>' +
+    '<script nonce="' + nonce + '">try{history.replaceState(null,"","/oauth/status?result=profile-expired")}catch{}</script>' +
     '<style>body{background:#0b1220;color:#f0f5ff;margin:0;font:16px/1.6 system-ui,sans-serif}' +
     'main{max-width:640px;margin:5vh auto;padding:24px}section{border:1px solid #33435e;' +
     'background:#172236;padding:20px;border-radius:14px}p{color:#b8c5d9}' +
@@ -217,13 +220,19 @@ export function renderRosterCollectionSample(report) {
     ' Aucune donnée n’est envoyée à la Web-app ou à GitHub.</p>' +
     '<p>Requêtes officielles effectuées : ' + (report.requests || 0) +
     '.</p></section><p><a href="/">Retour à l’accueil</a></p></main></body></html>';
-  return new Response(html, { status: 200, headers: {
+  const headers = new Headers({
     "Content-Type": "text/html; charset=utf-8",
     "Cache-Control": "no-store, no-cache, max-age=0, must-revalidate",
     "Referrer-Policy": "no-referrer",
     "X-Robots-Tag": "noindex, nofollow, noarchive",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
-    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
-  } });
+    "Content-Security-Policy": "default-src 'none'; script-src 'nonce-" + nonce + "'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+  });
+  const remove = "; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax";
+  for (const name of [
+    "__Host-losp_oauth_state", "__Host-losp_oauth_verifier",
+    "__Host-losp_oauth_collection_test"
+  ]) headers.append("Set-Cookie", name + "=" + remove);
+  return new Response(html, { status: 200, headers });
 }
