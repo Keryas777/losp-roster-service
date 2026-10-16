@@ -8,6 +8,7 @@ import { probeAllianceRoster, probeOwnRoster, renderAllianceProbe } from "./alli
 import { collectAllianceRosterSample, renderRosterCollectionSample } from "./roster-collector.js";
 import { renderLiveRosterViewer } from "./roster-viewer.js";
 import { auditCaptainScopes } from "./captain-scopes.js";
+import { ALLIANCE_SCOPE_PROBES, auditAllianceScopeProbe, renderAllianceScopeProbe } from "./alliance-scope-probes.js";
 import { getPlayerCard, showEphemeralPlayerCard } from "./player-card.js";
 
 // First OAuth callback validation: tokens are deliberately not persisted.
@@ -108,6 +109,8 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     readCookie(cookies, "__Host-losp_oauth_roster_viewer"), expectedState);
   const captainMode = equalStates(
     readCookie(cookies, "__Host-losp_oauth_captain"), expectedState);
+  const scopeProbe = ALLIANCE_SCOPE_PROBES.find(probe =>
+    equalStates(readCookie(cookies, probe.cookie), expectedState)) || null;
   const inventoryMode = equalStates(
     readCookie(cookies, "__Host-losp_oauth_inventory_test"), expectedState);
   const profilesMode = equalStates(
@@ -126,7 +129,16 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     return backToStatus("invalid");
   }
 
-  if (url.searchParams.has("error")) return backToStatus("denied");
+  if (url.searchParams.has("error")) {
+    if (scopeProbe) {
+      const failure = url.searchParams.get("error");
+      return renderAllianceScopeProbe(scopeProbe, {
+        status: failure === "invalid_scope" ? "invalid-scope" :
+          failure === "access_denied" ? "access-denied" : "oauth-error"
+      });
+    }
+    return backToStatus("denied");
+  }
 
   const code = url.searchParams.get("code");
   if (!code || code.length > 8192) return backToStatus("invalid");
@@ -192,7 +204,13 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
         tokenResponse.type === "opaqueredirect") {
       return backToStatus("exchange-redirect");
     }
-    if (!tokenResponse.ok) return backToStatus(await classifyTokenFailure(tokenResponse));
+    if (!tokenResponse.ok) {
+      const failure = await classifyTokenFailure(tokenResponse);
+      if (scopeProbe) return renderAllianceScopeProbe(scopeProbe, {
+        status: failure === "exchange-invalid-scope" ? "invalid-scope" : "oauth-error"
+      });
+      return backToStatus(failure);
+    }
 
     let result;
     try {
@@ -203,6 +221,12 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     if (!result || typeof result.access_token !== "string" ||
         !result.access_token || String(result.token_type).toLowerCase() !== "bearer") {
       return backToStatus("exchange-unexpected-response");
+    }
+
+    // Experimental read-scope authorization test: do not fetch any player or alliance data.
+    if (scopeProbe) {
+      return renderAllianceScopeProbe(scopeProbe,
+        auditAllianceScopeProbe(scopeProbe, result.scope));
     }
 
     // Full captain consent: inspect only the scope identifiers returned by Scopely.

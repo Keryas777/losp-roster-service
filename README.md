@@ -170,6 +170,16 @@ La route `GET /login/rosters` est un parcours OAuth séparé, utilisant les scop
 
 Ce document contient les informations visibles des personnages et est transmis uniquement au navigateur ayant passé l'OAuth. Il n'est jamais publié en JSON public, ni sauvegardé dans R2 ou localStorage. Les cookies OAuth sont supprimés et l'URL du callback est neutralisée. Il ne faut pas confondre cette première interface avec une connexion persistante : le coffre R2 chiffré `src/session-vault.js` existe mais ne dispose pas du bucket privé et du secret runtime nécessaires. Le renouvellement du token exige en outre une procédure sûre de rotation du refresh token.
 
+## Diagnostic isolé : quatre scopes de lecture d’alliance non confirmés
+
+Les quatre identifiants `m3p.f.ar.inv`, `m3p.f.ar.raid`, `m3p.f.ar.war` et `m3p.f.ar.act` apparaissent uniquement dans les **tags** de la spécification OpenAPI publique. Ils ne sont pas confirmés dans son catalogue OAuth et aucun accès API réel n’a été démontré pour ces catégories.
+
+Nouvelle route de découverte volontaire : `GET /login/scope-probe/all`. Elle ajoute **seulement ces quatre permissions** aux scopes de base connus `openid m3p.f.pr.pro m3p.f.ar.pro`. Si la demande groupée est acceptée, le callback vérifie `scope` dans la réponse OAuth, sans télécharger aucune donnée utilisateur supplémentaire. Si elle échoue, quatre routes de repli autorisent des essais indépendants : `/login/scope-probe/inv`, `/login/scope-probe/raid`, `/login/scope-probe/war` et `/login/scope-probe/act`.
+
+Ces essais ne demandent pas `offline`. Les tokens ne sont pas stockés ; seule la présence exacte des identifiants dans le champ `scope` est examinée. Si Scopely refuse `invalid_scope`, le résultat le signale sans exposer sa réponse brute ni tirer de conclusions sur les autres permissions. Si le champ `scope` est absent, le résultat reste `non vérifiable`. Aucun endpoint privé n’est interrogé au-delà du seul échange OAuth et les anciens parcours restent inchangés. Même un scope accordé ne prouve pas que les données sous-jacentes sont accessibles : une validation API distincte sera nécessaire avant toute intégration.
+
+**Ne pas ajouter ces scopes à la future connexion des capitaines (PR #25) sans validation.** Il faut attendre le test réel sur Keryas I. La PR #25 reste séparée de ce diagnostic.
+
 ## Autorisations complètes pour les futurs capitaines
 
 La route `GET /login/captain` utilise un manifeste central dans `src/captain-scopes.js`. Elle demande les six permissions de consultation déclarées dans l’OpenAPI OAuth de Scopely, plus `m3p.f.ar.ros` (autorisation des rosters d’alliance prouvée en live le 16 octobre 2026), `openid` et `offline`. Il s'agit de **neuf scopes**, dont **sept permissions de consultation**.
