@@ -1,4 +1,5 @@
 import { handleCallback, handleOAuthStatus } from "./oauth-callback.js";
+import { getAllianceScopeProbe, allianceScopeRequest } from "./alliance-scope-probes.js";
 
 const SCOPELY_AUTH_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/auth";
 const APP_ORIGIN = "https://losp-roster-service.deliriousfan7.workers.dev";
@@ -63,10 +64,12 @@ async function startLogin(request, env, url) {
   const allianceScopeProbe = url.pathname === "/login/alliance-scope-test";
   const collectionProbe = url.pathname === "/login/alliance-collection-test";
   const rosterViewerMode = url.pathname === "/login/rosters";
+  const scopeProbe = getAllianceScopeProbe(url.pathname);
   const allianceProbe = url.pathname === "/login/alliance-test" || rosterScopeProbe;
   const scopes = allianceProbe || allianceScopeProbe || collectionProbe || rosterViewerMode || profilesProbe || coverageProbe || cardTypesProbe || metricsProbe
     ? LOGIN_SCOPES + " m3p.f.ar.pro" : LOGIN_SCOPES;
-  authorize.searchParams.set("scope", inventoryProbe ? LOGIN_SCOPES + " m3p.f.pr.inv" :
+  authorize.searchParams.set("scope", scopeProbe ? allianceScopeRequest(scopeProbe) :
+    inventoryProbe ? LOGIN_SCOPES + " m3p.f.pr.inv" :
     (allianceScopeProbe || collectionProbe || rosterViewerMode) ? scopes + " m3p.f.ar.ros" :
     rosterScopeProbe ? scopes + " m3p.f.pr.ros" : scopes);
   authorize.searchParams.set("state", state);
@@ -90,6 +93,7 @@ async function startLogin(request, env, url) {
   if (allianceScopeProbe) headers.append("Set-Cookie", "__Host-losp_oauth_alliance_scope_test=" + state + "; " + attributes);
   if (collectionProbe) headers.append("Set-Cookie", "__Host-losp_oauth_collection_test=" + state + "; " + attributes);
   if (rosterViewerMode) headers.append("Set-Cookie", "__Host-losp_oauth_roster_viewer=" + state + "; " + attributes);
+  if (scopeProbe) headers.append("Set-Cookie", scopeProbe.cookie + "=" + state + "; " + attributes);
   if (inventoryProbe) headers.append("Set-Cookie", "__Host-losp_oauth_inventory_test=" + state + "; " + attributes);
   if (profilesProbe) headers.append("Set-Cookie", "__Host-losp_oauth_profiles_test=" + state + "; " + attributes);
   if (coverageProbe) headers.append("Set-Cookie", "__Host-losp_oauth_coverage_test=" + state + "; " + attributes);
@@ -103,7 +107,8 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    if (url.pathname === "/login" || url.pathname === "/login/alliance-test" ||
+    if (getAllianceScopeProbe(url.pathname) ||
+        url.pathname === "/login" || url.pathname === "/login/alliance-test" ||
         url.pathname === "/login/roster-scope-test" ||
         url.pathname === "/login/alliance-scope-test" ||
         url.pathname === "/login/alliance-collection-test" ||
