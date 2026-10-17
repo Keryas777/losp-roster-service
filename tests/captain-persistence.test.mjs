@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/index.js";
+import { handleCallback } from "../src/oauth-callback.js";
 import {
   CAPTAIN_PREFIX, CAPTAIN_MAX_AGE, newCaptainSessionId, captainSessionKey,
   captainConfigReady, getCaptainRecord, putCaptainRecord
@@ -205,4 +206,73 @@ test("malformed cookie, missing binding and no persistence do not leak access",a
   const invalid=await handleCaptainRosters(req("/captain/rosters","a".repeat(43)),env);
   assert.equal(invalid.status,303);
   assert.equal(invalid.headers.get("location"),origin+"/captain");
+});
+
+test("captain OAuth callback persists only after validated offline token grant",async()=>{
+  const {env,bucket}=setup();
+  const marker="a".repeat(43),verifier="b".repeat(43);
+  const cb=new Request(origin+"/oauth/callback?state="+marker+"&code=PRIVATE_CODE",{
+    headers:{Cookie:[
+      "__Host-losp_oauth_state="+marker,
+      "__Host-losp_oauth_verifier="+verifier,
+      "__Host-losp_oauth_captain="+marker
+    ].join("; ")}
+  });
+  const scopesFull="openid m3p.f.pr.pro m3p.f.pr.ros m3p.f.pr.inv m3p.f.pr.act m3p.f.pr.buy m3p.f.ar.pro m3p.f.ar.ros offline";
+  let calls=[];
+  const success=await handleCallback(cb,env,async url=>{
+    calls.push(url);
+    if(url.endsWith("/oauth2/token"))return fakeResponse({...token("PRIVATE_ACCESS","PRIVATE_REFRESH"),scope:scopesFull});
+    if(url.endsWith("/alliance/members"))return fakeResponse({data:[]});
+    throw Error("Unexpected URL");
+  });
+  assert.equal(success.status,200);
+  assert.equal(bucket.map.size,1);
+  const headers=success.headers.getSetCookie();
+  assert.ok(headers.some(row=>row.startsWith("__Host-losp_captain_session=")));
+  const html=await success.text();
+  assert.match(html,/connexion du capitaine est conservée/);
+  assert.doesNotMatch(html+JSON.stringify([...success.headers]),/PRIVATE_(ACCESS|REFRESH)/);
+  assert.deepEqual(calls,[
+    "https://hydra-public.prod.m3.scopelypv.com/oauth2/token",
+    "https://api.marvelstrikeforce.com/player/v1/alliance/members"
+  ]);
+});
+
+test("no granted offline scope means no durable cookie or R2 grant",async()=>{
+  const {env,bucket}=setup();
+  const state="c".repeat(43),verifier="d".repeat(43);
+  const res=await handleCallback(new Request(origin+"/oauth/callback?state="+state+"&code=PRIVATE_CODE",{
+    headers:{Cookie:[
+      "__Host-losp_oauth_state="+state,
+      "__Host-losp_oauth_verifier="+verifier,
+      "__Host-losp_oauth_captain="+state
+    ].join("; ")}
+  }),env,async url=>{
+    if(url.endsWith("/oauth2/token"))return fakeResponse({
+      ...token("PRIVATE_ACCESS","PRIVATE_REFRESH"),
+      scope:"openid m3p.f.pr.pro m3p.f.ar.pro m3p.f.ar.ros"
+    });
+    if(url.endsWith("/alliance/members"))return fakeResponse({data:[]});
+    throw Error("Unexpected API access");
+  });
+  assert.equal(res.status,200);
+  assert.equal(bucket.map.size,0);
+  assert.ok(!res.headers.getSetCookie().some(row=>row.startsWith("__Host-losp_captain_session=")));
+  assert.match(await res.text(),/connexion durable impossible/i);
+});
+
+test("temporary provider outage must not redirect a returning captain into email login",async()=>{
+  const {env,bucket}=setup(async()=>Response.json({error:"temporarily_unavailable"},{status:503}));
+  const id=newCaptainSessionId(),{key}=await store(env,id);
+  const record=await getCaptainRecord(bucket,secret,key);
+  await putCaptainRecord(bucket,secret,key,{...record,accessExpiresAt:Date.now()-1000});
+  const login=await worker.fetch(req("/login/captain",id),env);
+  assert.equal(login.status,503);
+  assert.equal(login.headers.get("location"),null);
+  assert.equal(bucket.map.has(key),true);
+  const landing=await handleCaptainLanding(req("/captain",id),env);
+  const body=await landing.text();
+  assert.match(body,/Votre autorisation n.a pas été supprimée/);
+  assert.doesNotMatch(body,/href="\/login\/captain"/);
 });
