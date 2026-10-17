@@ -49,13 +49,24 @@ export async function diagnoseAdminAuth(request,env,fetchImpl=fetch,now=Date.now
   if(!allowed.includes(claims.email.trim().toLowerCase()))return "jwt-email-not-allowed";
   if(jwksCache.domain!==env.CF_ACCESS_TEAM_DOMAIN||jwksCache.until<=now){
     let jwks;
+    let res;
     try{
-      const res=await fetchImpl("https://"+env.CF_ACCESS_TEAM_DOMAIN+"/cdn-cgi/access/certs",{
-        method:"GET",signal:AbortSignal.timeout(7000),redirect:"error"
+      // Do not follow redirects: a login/edge redirect is not a JWKS response.
+      // Keep the exact Cloudflare-documented team-domain certificate endpoint.
+      res=await fetchImpl("https://"+env.CF_ACCESS_TEAM_DOMAIN+"/cdn-cgi/access/certs",{
+        method:"GET",signal:AbortSignal.timeout(12000),redirect:"manual",
+        headers:{"Accept":"application/json"}
       });
-      if(!res.ok)return "jwks-unavailable";
+    }catch(error){
+      // These fixed codes expose neither certificate contents nor credentials.
+      return error?.name==="TimeoutError"||error?.name==="AbortError"
+        ?"jwks-timeout":"jwks-network-error";
+    }
+    if(res.status>=300 && res.status<400)return "jwks-redirect";
+    if(!res.ok)return "jwks-http-"+(Number.isInteger(res.status)?res.status:"error");
+    try{
       jwks=await res.json();
-    }catch{return "jwks-unavailable";}
+    }catch{return "jwks-invalid-json";}
     if(!Array.isArray(jwks?.keys)||jwks.keys.length>20)
       return "jwks-invalid";
     jwksCache={domain:env.CF_ACCESS_TEAM_DOMAIN,keys:jwks.keys,until:now+300000};
