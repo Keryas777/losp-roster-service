@@ -281,7 +281,7 @@ test("verified browser visits renew the 180-day cookie, never the access token c
   const {env}=setup();
   const id=newCaptainSessionId();
   await store(env,id);
-  const expected=/__Host-losp_captain_session=[A-Za-z0-9_-]{43}; Max-Age=15552000; Path=\\/; Secure; HttpOnly; SameSite=Lax/;
+  const expected=/__Host-losp_captain_session=[A-Za-z0-9_-]{43}; Max-Age=15552000; Path=[/]; Secure; HttpOnly; SameSite=Lax/;
   const status=await handleCaptainSession(req("/session",id),env);
   assert.match(status.headers.getSetCookie().join(" "),expected);
   assert.deepEqual(await status.json(),{status:"connected"});
