@@ -15,7 +15,17 @@ export function adminReady(env){
 let jwksCache={domain:"",until:0,keys:[]};
 export async function authenticateAdmin(request,env,fetchImpl=fetch,now=Date.now()){
   if(!adminReady(env))return false;
-  const jwt=request.headers.get("Cf-Access-Jwt-Assertion");
+  // Access normally forwards its JWT in this header. Some browser flows
+  // deliver the same signed JWT through CF_Authorization instead.
+  // A cookie alone is NEVER sufficient: all existing JWT checks still apply.
+  const headerToken=request.headers.get("Cf-Access-Jwt-Assertion");
+  let cookieToken=null;
+  if(!headerToken){
+    const raw=request.headers.get("Cookie")||"";
+    const cookies=raw.split(";").map(s=>s.trim()).filter(s=>s.startsWith("CF_Authorization="));
+    if(cookies.length===1)cookieToken=cookies[0].slice("CF_Authorization=".length);
+  }
+  const jwt=headerToken||cookieToken;
   if(!jwt||jwt.length>10000)return false;
   const parts=jwt.split(".");
   if(parts.length!==3)return false;

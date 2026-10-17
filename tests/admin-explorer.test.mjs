@@ -84,6 +84,37 @@ test("signed Access RS256 JWT is validated against domain/audience/email/expiry"
     signature:"garbage"})),envAccess,certs),false);
 });
 
+test("a cryptographically valid CF_Authorization cookie authenticates only its permitted owner",async()=>{
+  const cookie="CF_Authorization="+assertion();
+  assert.equal(await authenticateAdmin(new Request(origin+"/admin",{headers:{
+    Cookie:"unrelated=1; "+cookie+"; other=2"
+  }}),envAccess,certs),true);
+  const result=await handleAdmin(new Request(origin+"/admin",{headers:{Cookie:cookie}}),envAccess,certs);
+  assert.equal(result.status,200);
+});
+
+test("invalid, forged, duplicate and unauthorized Access cookies are all denied",async()=>{
+  const cases=[
+    "CF_Authorization=not-a-jwt",
+    "CF_Authorization="+assertion({}, {signature:"forged"}),
+    "CF_Authorization="+assertion({email:"other@example.test"}),
+    "CF_Authorization="+assertion({aud:["other-audience"]}),
+    "CF_Authorization="+assertion()+"; CF_Authorization="+assertion()
+  ];
+  for(const cookie of cases){
+    const res=await handleAdmin(new Request(origin+"/admin",{headers:{Cookie:cookie}}),envAccess,certs);
+    assert.equal(res.status,403);
+    assert.equal(await res.text(),"Accès administrateur refusé");
+  }
+});
+
+test("invalid explicit Access assertion cannot be bypassed by a valid cookie",async()=>{
+  assert.equal(await authenticateAdmin(new Request(origin+"/admin",{headers:{
+    "Cf-Access-Jwt-Assertion":"invalid",
+    Cookie:"CF_Authorization="+assertion()
+  }}),envAccess,certs),false);
+});
+
 test("valid admin sees a no-store page, access to unknown paths is denied",async()=>{
   const valid=adminRequest("/admin",assertion());
   const page=await handleAdmin(valid,envAccess,certs);
