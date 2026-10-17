@@ -59,8 +59,18 @@ async function startLogin(request, env, url) {
   if (url.pathname === "/login/captain" && captainConfigReady(env)) {
     // A returning captain must not be sent through the emailed-code OAuth flow.
     const status=await handleCaptainSession(request,env);
-    if(status.ok && (await status.json()).status==="connected") {
-      return Response.redirect(APP_ORIGIN+"/captain",302);
+    if(status.ok) {
+      const previous=await status.json();
+      if(previous.status==="connected")
+        return Response.redirect(APP_ORIGIN+"/captain",302);
+      if(previous.status==="temporarily-unavailable")
+        return new Response("Connexion temporairement indisponible : réessayer plus tard",{
+          status:503,headers:{"Cache-Control":"no-store"}
+        });
+    } else {
+      return new Response("Vérification de session indisponible : réessayer plus tard",{
+        status:503,headers:{"Cache-Control":"no-store"}
+      });
     }
   }
 
