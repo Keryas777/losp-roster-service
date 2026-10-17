@@ -2,6 +2,8 @@ import {
   CAPTAIN_PREFIX,CAPTAIN_COOKIE_AGE,newCaptainSessionId,
   captainSessionKey,captainConfigReady,validCaptainKey
 } from "./captain-vault.js";
+import { collectAllianceRosterSample } from "./roster-collector.js";
+import { renderLiveRosterViewer } from "./roster-viewer.js";
 
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const COOKIE="__Host-losp_captain_session";
@@ -30,8 +32,15 @@ async function coordinate(env,key,action,record){
   if(!result.ok)throw Error("Captain coordinator not available");
   return result.json();
 }
-export async function saveCaptainConsent(res,token,env){
+export async function saveCaptainConsent(res,token,env,request){
   if(!captainConfigReady(env))throw Error("Captain storage not available");
+  // Explicit new consent supersedes the old browser's grant. Revoke before
+  // minting the replacement so old credentials cannot keep auto-renewing.
+  const previous=readCookie(request);
+  if(previous){
+    const result=await coordinate(env,await captainSessionKey(previous),"logout");
+    if(result.status!=="disconnected")throw Error("Old consent could not be revoked");
+  }
   const id=newCaptainSessionId(),key=await captainSessionKey(id);
   const stored=await coordinate(env,key,"store",{
     accessToken:token.access_token,refreshToken:token.refresh_token,
@@ -65,9 +74,57 @@ export async function handleCaptainLogout(request,env){
       if(s.status!=="disconnected")return response({status:"temporarily-unavailable"},503);
     }catch{return response({status:"temporarily-unavailable"},503);}
   }
-  const res=response({status:"disconnected"});
+  const acceptsHtml=(request.headers.get("Accept")||"").includes("text/html");
+  const res=acceptsHtml
+    ? new Response(null,{status:303,headers:{
+        Location:ORIGIN+"/captain","Cache-Control":"no-store",
+        "Referrer-Policy":"no-referrer"
+      }})
+    : response({status:"disconnected"});
   res.headers.append("Set-Cookie",COOKIE+"=; Max-Age=0"+attributes);
   return res;
+}
+
+export async function handleCaptainLanding(request,env){
+  if(request.method!=="GET")return new Response("Method Not Allowed",{status:405});
+  if(!captainConfigReady(env))return response({status:"not-configured"},503);
+  const status=await handleCaptainSession(request,env);
+  let connected=false;
+  if(status.ok){
+    const body=await status.json();connected=body.status==="connected";
+  }
+  const html='<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
+    '<meta name="viewport" content="width=device-width,initial-scale=1">'+
+    '<meta name="referrer" content="no-referrer"><title>Connexion capitaine — LoSP</title>'+
+    '<link rel="stylesheet" href="/style.css"></head><body><main>'+
+    '<h1>Connexion du capitaine</h1>'+
+    (connected?'<p>Autorisation Scopely maintenue automatiquement.</p>'+
+      '<p><a href="/captain/rosters">Consulter les rosters partagés</a></p>'+
+      '<form method="post" action="/logout"><button type="submit">Révoquer ma connexion LoSP</button></form>':
+      '<p>Aucune session active dans ce navigateur ou renouvellement indisponible.</p>'+
+      '<p><a href="/login/captain">Autoriser à nouveau LoSP</a></p>')+
+    '<p>Aucun jeton OAuth n’est exposé au navigateur.</p></main></body></html>';
+  return new Response(html,{headers:{
+    "Content-Type":"text/html; charset=utf-8",
+    "Cache-Control":"no-store","Referrer-Policy":"no-referrer",
+    "X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY",
+    "Content-Security-Policy":"default-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+  }});
+}
+export async function handleCaptainRosters(request,env){
+  if(request.method!=="GET")return response({status:"method-not-allowed"},405);
+  if(!captainConfigReady(env))return response({status:"not-configured"},503);
+  const id=readCookie(request);
+  if(!id)return Response.redirect(ORIGIN+"/captain",303);
+  try{
+    const grant=await coordinate(env,await captainSessionKey(id),"access");
+    if(grant.status!=="active" || typeof grant.accessToken!=="string"){
+      return Response.redirect(ORIGIN+"/captain",303);
+    }
+    return renderLiveRosterViewer(await collectAllianceRosterSample(grant.accessToken,fetch,{
+      maxMembers:3,charInfo:true
+    }));
+  }catch{return response({status:"temporarily-unavailable"},503);}
 }
 export async function renewCaptainGrants(env){
   if(!captainConfigReady(env))return {status:"disabled",checked:0};
