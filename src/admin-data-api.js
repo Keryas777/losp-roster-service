@@ -22,7 +22,19 @@ export const API_RESOURCES=Object.freeze([
   {id:"game-iso8",label:"Capacités ISO-8",path:"/game/v1/iso8Abilities",scope:null},
   {id:"game-upgrades",label:"Paliers d’amélioration",path:"/game/v1/upgradeData",scope:null},
   {id:"game-raids",label:"Définitions des raids",path:"/game/v1/raids",scope:null},
-  {id:"game-raid-groups",label:"Groupes de raids",path:"/game/v1/raidGroups",scope:null}
+  {id:"game-raid-groups",label:"Groupes de raids",path:"/game/v1/raidGroups",scope:null},
+  {id:"game-languages",label:"Langues du jeu",path:"/game/v1/languages",scope:null},
+  {id:"game-scopes",label:"Permissions API",path:"/game/v1/scopes",scope:null},
+  {id:"game-decorations",label:"Décorations",path:"/game/v1/decorations",scope:null},
+  {id:"game-caps",label:"Plafonds des personnages",path:"/game/v1/characterInstanceCaps",scope:null},
+  {id:"game-dark-dimensions",label:"Dimensions obscures",path:"/game/v1/dds",scope:null},
+  {id:"game-pyp",label:"Pick Your Poison",path:"/game/v1/pickYourPoisons",scope:null},
+  {id:"game-towers",label:"Tours de survie",path:"/game/v1/survivalTowers",scope:null},
+  {id:"game-character",label:"Fiche détaillée d’un personnage",path:"/game/v1/characters/",scope:null},
+  {id:"game-item",label:"Fiche détaillée d’un objet",path:"/game/v1/items/",scope:null},
+  {id:"game-raid",label:"Détail d’un raid",path:"/game/v1/raids/",scope:null},
+  {id:"game-iso8-detail",label:"Détail d’une capacité ISO-8",path:"/game/v1/iso8Abilities/",scope:null},
+  {id:"personal-event",label:"Détail d’un événement personnel",path:"/player/v1/events/",scope:"m3p.f.pr.act"}
 ]);
 const byId=new Map(API_RESOURCES.map(r=>[r.id,r]));
 const validId=id=>typeof id==="string"&&/^[A-Za-z0-9:_-]{1,256}$/.test(id);
@@ -135,6 +147,11 @@ export async function adminResource(request,env,fetchImpl=fetch){
        !members.some(m=>m?.id===member&&m?.isSelf!==true&&m?.card?.rosterShare===true))
       return json({error:"not-a-current-shared-member"},403);
     path+=encodeURIComponent(member);
+  }
+  if(resource.path.endsWith("/") && resource.id!=="alliance-roster"){
+    const entity=url.searchParams.get("entity");
+    if(!validId(entity))return json({error:"entity-required"},400);
+    path+=encodeURIComponent(entity);
   }
   const result=await getProvider(path+(query?"?"+query:""),token,fetchImpl);
   if(result.error)return json({error:result.error,upstreamStatus:result.httpStatus||null},502);
