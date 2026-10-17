@@ -6,7 +6,7 @@ const bytes=(s)=>{if(!/^[A-Za-z0-9_-]+$/.test(s))throw Error("invalid base64");
   return Uint8Array.from(atob(s.replace(/-/g,"+").replace(/_/g,"/")+"=".repeat((4-s.length%4)%4)),c=>c.charCodeAt(0));
 };
 const parsed=(s)=>JSON.parse(decoder.decode(bytes(s)));
-const validDomain=(s)=>typeof s==="string"&&/^[a-z0-9-]+\\.cloudflareaccess\\.com$/.test(s);
+const validDomain=(s)=>typeof s==="string"&&/^[a-z0-9-]+\.cloudflareaccess\.com$/.test(s);
 export function adminReady(env){
   return env?.MSF_ADMIN_ENABLED==="true"&&
     validDomain(env.CF_ACCESS_TEAM_DOMAIN)&&
