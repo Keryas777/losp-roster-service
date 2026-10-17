@@ -5,6 +5,7 @@ import { captainConfigReady } from "./captain-vault.js";
 import { handleCaptainSession, handleCaptainLogout, handleCaptainLanding, handleCaptainRosters, handleCaptainCoverage, renewCaptainGrants } from "./captain-session-routes.js";
 export { CaptainRefreshCoordinator } from "./captain-refresh-coordinator.js";
 import { buildPrivateCoverage } from "./alliance-coverage.js";
+import { handleAdmin } from "./admin-routes.js";
 
 const SCOPELY_AUTH_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/auth";
 const APP_ORIGIN = "https://losp-roster-service.deliriousfan7.workers.dev";
@@ -154,6 +155,10 @@ export default {
   },
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
+      return handleAdmin(request, env);
+    }
 
     if (getAllianceScopeProbe(url.pathname) ||
         url.pathname === "/login" || url.pathname === "/login/alliance-test" ||
