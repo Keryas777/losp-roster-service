@@ -8,6 +8,8 @@ import { probeAllianceRoster, probeOwnRoster, renderAllianceProbe } from "./alli
 import { collectAllianceRosterSample, renderRosterCollectionSample } from "./roster-collector.js";
 import { renderLiveRosterViewer } from "./roster-viewer.js";
 import { auditCaptainScopes } from "./captain-scopes.js";
+import { saveCaptainConsent } from "./captain-session-routes.js";
+import { captainConfigReady } from "./captain-vault.js";
 import { ALLIANCE_SCOPE_PROBES, auditAllianceScopeProbe, renderAllianceScopeProbe } from "./alliance-scope-probes.js";
 import { getPlayerCard, showEphemeralPlayerCard } from "./player-card.js";
 
@@ -229,18 +231,48 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
         auditAllianceScopeProbe(scopeProbe, result.scope));
     }
 
-    // Full captain consent: inspect only the scope identifiers returned by Scopely.
-    // Never persist or expose refresh tokens. The durable session is a separate phase.
+    // Full captain consent. Persist only after R2 + serialized refresh are
+    // explicitly enabled. All old ephemeral diagnostics remain unchanged.
     if (captainMode) {
       const scopeAudit = auditCaptainScopes(result.scope);
       const rosterAllowed = scopeAudit.scopes.find(row =>
         row.scope === "m3p.f.ar.ros")?.granted === true;
+      const offlineAllowed = scopeAudit.scopes.find(row =>
+        row.scope === "offline")?.granted === true;
+      let persistence = "disabled";
+      let saveToken = false;
+      if (env?.CAPTAIN_SESSIONS_ENABLED === "true") {
+        if (!captainConfigReady(env)) {
+          return new Response("Captain storage is not configured", {
+            status: 503, headers: { "Cache-Control": "no-store" }
+          });
+        }
+        if (!offlineAllowed || !rosterAllowed) persistence = "scope-not-granted";
+        else if (typeof result.refresh_token !== "string" || !result.refresh_token ||
+          !Number.isInteger(result.expires_in) || result.expires_in < 60) {
+          persistence = "missing-refresh-token";
+        } else saveToken = true;
+      }
       const report = rosterAllowed
         ? await collectAllianceRosterSample(result.access_token, fetchImpl, {
             maxMembers: 3, charInfo: true
           })
         : { status: "scope-not-granted" };
-      return renderLiveRosterViewer({ ...report, captainScopeAudit: scopeAudit });
+      let rendered = renderLiveRosterViewer({
+        ...report, captainScopeAudit: scopeAudit,
+        captainPersistence: saveToken ? "active" : persistence
+      });
+      if (saveToken) {
+        try {
+          rendered = await saveCaptainConsent(rendered, result, env, request);
+        } catch {
+          rendered = renderLiveRosterViewer({
+            ...report, captainScopeAudit: scopeAudit,
+            captainPersistence: "store-failed"
+          });
+        }
+      }
+      return rendered;
     }
 
     // Private roster viewer, never saved: render only after a valid OAuth consent.

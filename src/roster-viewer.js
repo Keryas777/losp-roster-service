@@ -62,6 +62,15 @@ export function renderLiveRosterViewer(report) {
     '</div></section>').join("");
 
   const scopeAudit = report.captainScopeAudit;
+  const persistenceNotes = {
+    active: 'La connexion du capitaine est conservée dans un coffre privé chiffré. Retour sans code via /captain, tant que Scopely permet le renouvellement.',
+    disabled: 'La permission de maintien n’est pas encore active : les jetons sont détruits après cette visite. Configurer le stockage privé avant d’inviter les autres capitaines.',
+    "scope-not-granted": 'Autorisation offline ou partage de roster refusé : connexion durable impossible.',
+    "missing-refresh-token": 'Scopely n’a pas transmis de refresh_token exploitable. Connexion durable impossible.',
+    "store-failed": 'Le stockage privé a échoué : aucun accès durable n’a été établi.'
+  };
+  const note = persistenceNotes[report.captainPersistence] ||
+    'Les jetons ne sont pas conservés avant activation du stockage privé.';
   const scopeBanner = scopeAudit ? '<section class="permissions" aria-label="Autorisations Scopely">' +
     '<h2>Autorisations accordées : ' + scopeAudit.granted + ' / ' +
     scopeAudit.total + '</h2>' +
@@ -73,9 +82,7 @@ export function renderLiveRosterViewer(report) {
     '<ul>' + scopeAudit.scopes.map(row => '<li>' +
       (row.granted ? '✓ ' : '— ') + escape(row.label) +
       (row.granted ? ' : accordé' : ' : non confirmé') + '</li>').join("") +
-    '</ul><p class="scope-note">La permission « maintien de l’accès » n’active pas encore de session durable : ' +
-    'les jetons sont détruits après cette visite. Attendre la configuration du stockage privé avant ' +
-    'de connecter les capitaines.</p></section>' : "";
+    '</ul><p class="scope-note">' + escape(note) + '</p></section>' : "";
 
   const body = ok
     ? '<div class="summary"><div><strong>' + number(report.completedCount) +

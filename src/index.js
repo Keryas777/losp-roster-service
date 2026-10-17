@@ -1,6 +1,9 @@
 import { handleCallback, handleOAuthStatus } from "./oauth-callback.js";
 import { getAllianceScopeProbe, allianceScopeRequest } from "./alliance-scope-probes.js";
 import { CAPTAIN_SCOPES } from "./captain-scopes.js";
+import { captainConfigReady } from "./captain-vault.js";
+import { handleCaptainSession, handleCaptainLogout, handleCaptainLanding, handleCaptainRosters, renewCaptainGrants } from "./captain-session-routes.js";
+export { CaptainRefreshCoordinator } from "./captain-refresh-coordinator.js";
 
 const SCOPELY_AUTH_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/auth";
 const APP_ORIGIN = "https://losp-roster-service.deliriousfan7.workers.dev";
@@ -39,12 +42,36 @@ async function startLogin(request, env, url) {
     return new Response("Not Found", { status: 404 });
   }
 
+  if (url.pathname === "/login/captain" && env?.CAPTAIN_SESSIONS_ENABLED === "true" &&
+      !captainConfigReady(env)) {
+    return new Response("Captain session storage is not configured", {
+      status: 503, headers: { "Cache-Control": "no-store" }
+    });
+  }
   const clientId = env?.SCOPELY_CLIENT_ID;
   if (typeof clientId !== "string" || !clientId.trim()) {
     return new Response("OAuth is not configured", {
       status: 503,
       headers: { "Cache-Control": "no-store" }
     });
+  }
+
+  if (url.pathname === "/login/captain" && captainConfigReady(env)) {
+    // A returning captain must not be sent through the emailed-code OAuth flow.
+    const status=await handleCaptainSession(request,env);
+    if(status.ok) {
+      const previous=await status.json();
+      if(previous.status==="connected")
+        return Response.redirect(APP_ORIGIN+"/captain",302);
+      if(previous.status==="temporarily-unavailable")
+        return new Response("Connexion temporairement indisponible : réessayer plus tard",{
+          status:503,headers:{"Cache-Control":"no-store"}
+        });
+    } else {
+      return new Response("Vérification de session indisponible : réessayer plus tard",{
+        status:503,headers:{"Cache-Control":"no-store"}
+      });
+    }
   }
 
   const state = randomBase64Url();
@@ -108,6 +135,11 @@ async function startLogin(request, env, url) {
 }
 
 export default {
+  async scheduled(controller, env) {
+    // Scheduled refresh is disabled unless all private storage bindings exist.
+    // No player or roster information is fetched or logged.
+    try { await renewCaptainGrants(env); } catch {}
+  },
   async fetch(request, env) {
     const url = new URL(request.url);
 
@@ -125,6 +157,19 @@ export default {
         url.pathname === "/login/metrics-test" ||
         url.pathname === "/login/iso-icons-test") {
       return startLogin(request, env, url);
+    }
+
+    if (url.pathname === "/captain") {
+      return handleCaptainLanding(request, env);
+    }
+    if (url.pathname === "/captain/rosters") {
+      return handleCaptainRosters(request, env);
+    }
+    if (url.pathname === "/session") {
+      return handleCaptainSession(request, env);
+    }
+    if (url.pathname === "/logout") {
+      return handleCaptainLogout(request, env);
     }
 
     if (url.pathname === "/oauth/callback") {

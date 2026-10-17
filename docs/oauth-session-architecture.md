@@ -1,45 +1,51 @@
-# Architecture des connexions Scopely — décision de phase 4
+# Architecture des connexions Scopely — capitaines LoSP
 
-État : **fondation implémentée, stockage en production NON ACTIVÉ**. Le callback existant doit rester éphémère jusqu'à validation des points ci-dessous.
+Statut au 17 octobre 2026 : **code préparé dans la PR #27, connexion durable DÉSACTIVÉE tant que Cloudflare R2 n'est pas configuré et testé en réel**. Aucun capitaine ne doit être invité tant que les prérequis et vérifications ne sont pas terminés.
 
-## Choix retenu
+## Séparation des deux coffres
 
-Utiliser **Cloudflare R2 privé** pour les tokens OAuth chiffrés (AES-GCM, 256 bits), avec une clé conservée exclusivement dans un secret Runtime Cloudflare. D1 n'est pas retenu pour les secrets : Time Travel permet de restaurer des valeurs supprimées. R2 a une suppression fortement cohérente via le binding Worker ; cela ne garantit pas un effacement physique instantané dans toute l'infrastructure Cloudflare.
+- `src/session-vault.js` : prototype historique AES-256-GCM limité à 24 heures, **non branché**. Le conserver tel quel ; ne pas lui injecter de refresh token.
+- `src/captain-vault.js` : coffre distinct AES-256-GCM pour les autorisations OAuth longue durée. Un objet R2 par session sous `oauth-captains/v1/` + SHA-256 d'un cookie aléatoire de 256 bits. Aucun nom, pseudo, identifiant de joueur, secret ou token ne figure dans la clé d'objet. IV unique aléatoire de 96 bits, authentification du nom d'objet comme AAD.
+- `src/captain-refresh-coordinator.js` : un Durable Object par clé R2. Une file asynchrone par instance empêche les rafraîchissements concurrents d'un même jeton à usage unique. Ni la file ni le DO ne conservent les jetons durablement hors de R2.
+- `src/captain-session-routes.js` : routes navigateur, cookie, accès répété aux rosters et renouvellement horaire.
 
-Aucun nom, identifiant de joueur, secret ou token n'apparaît dans les clés d'objet : uniquement `oauth-sessions/v1/` + SHA-256 d'un identifiant de session aléatoire. Le jeton de session à 256 bits n'est jamais enregistré en clair dans R2 et ne doit jamais apparaître dans l'URL. Chaque objet chiffré comporte une IV AES-GCM aléatoire unique et utilise sa clé d'objet comme données associées authentifiées.
+La durée maximale d'un objet capitaine est de 365 jours, **glissante uniquement lors d'une rotation réussie**. Le cookie navigateur sécurisé `__Host-losp_captain_session` a `Max-Age=180 jours` et contient seulement un identifiant aléatoire, jamais un token. Perdre ce cookie peut nécessiter une nouvelle connexion au navigateur, sans invalider nécessairement l'autorisation déjà maintenue par le cron côté serveur. Il ne faut pas promettre l'absence permanente de reconnexion : Scopely peut révoquer ou invalider les refresh tokens.
 
-Le module `src/session-vault.js` offre `saveSession`, `readSession`, `deleteSession`, `purgeExpiredSessions` et `generateSessionId`. **Il n'est pas importé par le Worker.** Aucun token réel n'est donc enregistré aujourd'hui.
+## Préparation Cloudflare obligatoire (ordre strict)
 
-## Mise en service : prérequis bloquants
+1. **Créer dans Cloudflare R2 un NOUVEAU bucket privé** `losp-captain-tokens` (séparé de `losp-roster-sessions` du prototype 24 heures). Ne définir **aucun** domaine public ni sous-domaine R2.dev. Définir une suppression automatique au plus tard après 365 jours depuis la dernière écriture comme filet de sécurité, et vérifier le fonctionnement réel de la règle. Ne jamais configurer une règle de 24 heures pour les autorisations longue durée.
+2. Une fois ce bucket réellement créé, ajouter dans `wrangler.jsonc` (seulement à ce moment, dans une nouvelle modification/PR) :
+   ```json
+   "r2_buckets": [
+     { "binding": "CAPTAIN_BUCKET", "bucket_name": "losp-captain-tokens" }
+   ]
+   ```
+   Le code de la PR #27 **n'ajoute volontairement pas ce binding** : déclarer un bucket inexistant dans la configuration casserait le déploiement GitHub → Cloudflare.
+3. Configurer un secret de production Cloudflare `CAPTAIN_ENCRYPTION_KEY_HEX`, avec exactement **64 caractères hexadécimaux aléatoires** (32 octets, 256 bits). Générer le secret localement avec un CSPRNG fiable (par exemple `openssl rand -hex 32`) ; ne **jamais** envoyer la valeur par ChatGPT, Discord, GitHub, logs ou commits. Garder une sauvegarde sécurisée hors R2 : perdre cette clé signifie perdre les autorisations, et une mauvaise rotation rend les objets illisibles.
+4. La PR #27 ajoute seulement la liaison Durable Object `CAPTAIN_REFRESH_COORDINATOR`, sa migration SQLite et un cron horaire `15 * * * *`. Vérifier après déploiement que la migration est exécutée et que le binding existe. Le cron n'effectue aucune lecture privée quand le stockage n'est pas activé.
+5. Ajouter enfin la variable runtime **de production** `CAPTAIN_SESSIONS_ENABLED=true` après la validation du binding et du secret. Sa valeur par défaut est désactivée. Une variable absente, une mauvaise clé ou un binding manquant bloquent la persistance ; si la variable est activée sans configuration complète, `/login/captain` répond HTTP 503 **avant** de demander le code Scopely.
+6. Sur le compte pilote Keryas I uniquement, ouvrir `/login/captain`, accorder les droits, vérifier que `offline` et `m3p.f.ar.ros` ont été accordés, et que Scopely transmet réellement `refresh_token` et `expires_in`. Sans ces deux dernières informations, la page annonce explicitement l'absence de session durable.
+7. Vérifier `GET /session` (retourne uniquement connecté/déconnecté), `GET /captain`, `GET /captain/rosters`, le retour par `/login/captain` **sans nouvel e-mail**, le renouvellement à expiration (en test), puis `POST /logout` avec Origin valide. Tester aussi la révocation dans l'interface Scopely et l'absence de récupération de rosters après retrait.
+8. Avant d'inviter les autres capitaines, confirmer la politique Scopely en cas de révocation depuis le compte, la stratégie de purge ciblée multi-session, la récupération après panne ou refresh token consommé sans écriture R2, et vérifier que la rotation fonctionne réellement de bout en bout.
 
-1. Créer un bucket privé R2 dédié, proposé : `losp-roster-sessions`, sans domaine public ni accès R2.dev. Ne pas y mélanger les snapshots de roster.
-2. Configurer sur ce bucket une règle de cycle de vie **supprimant après 1 jour**, comme filet de sécurité ; la suppression peut avoir un délai et ne remplace jamais la vérification applicative de l'expiration. Vérifier aussi la politique de conservation et tout mécanisme de sauvegarde.
-3. Configurer une liaison R2 pour le Worker, `SESSION_BUCKET` → `losp-roster-sessions`, **après** création du bucket. Ne pas ajouter de binding inexistant dans `wrangler.jsonc` : cela casserait le déploiement automatique.
-4. Créer dans `Runtime variables and secrets / Production` un secret `SESSION_ENCRYPTION_KEY_HEX`, de 32 octets aléatoires représentés par 64 chiffres hexadécimaux, généré localement de façon sûre ; ne jamais copier sa valeur dans GitHub, cette documentation ou une conversation.
-5. Définir une cookie de session hôte unique `__Host-losp_session` : `Secure; HttpOnly; Path=/; SameSite=Lax` avec expiration `<=` à celle du token. Cookies OAuth actuels conservés. Au nouveau login, révoquer l'ancienne session avant de délivrer la nouvelle. Ne jamais afficher l'identifiant de session, ni dans des journaux ni dans l'URL.
-6. Ajouter une route `POST /logout` qui vérifie l'origine et se protège des CSRF : la demande utilise la session hôte et supprime l'objet R2 avant de supprimer son cookie ; prévoir un retour sûr et des erreurs fermées. Une route `GET /session` ne doit exposer qu'un état général, jamais un token ou une donnée privée en clair sans autorisation.
-7. Ajouter un `scheduled()` (cron) de purge ; prévoir le nettoyage de toutes les sessions expirées et des sessions révoquées. Les réponses doivent systématiquement être `Cache-Control: no-store`.
-8. Confirmer la prise en compte des retraits d'autorisation depuis le **tableau de bord Scopely** (webhook, interrogation de l'API, ou erreur de consentement au prochain appel). La suppression doit être immédiate dès notification ou demande locale ; jusqu'à cette garantie, **ne pas considérer les connexions persistantes comme aptes à la production**.
-9. Exercer les tests : authentification initiale, rechargement, expiration, logout, suppression R2, absence de clé, contenu chiffré corrompu, session volée/forgée, révocation chez Scopely, double login, réinitialisation de Worker et erreur R2.
+## Comportements et protections
 
-## Limites actuelles
+- `/login`, `/login/rosters`, les diagnostics précédents et la web-app GitHub Pages restent inchangés. **Seule** la route `/login/captain` peut créer une session durable, lorsque la fonctionnalité est explicitement activée.
+- La demande OAuth utilise HTTPS, PKCE S256, état CSRF lié à des cookies host-only de 10 minutes. `offline` seul n'active rien sans `CAPTAIN_BUCKET`, `CAPTAIN_ENCRYPTION_KEY_HEX` et le coordinateur.
+- Le callback n'enregistre rien si `offline`, l'accès aux rosters d'alliance, le refresh token, la durée de vie du token ou un stockage sain manquent. Il présente un état explicite au navigateur. Les autres scopes restent auditables mais ne déclenchent pas d'accès automatique aux données personnelles.
+- Les jetons OAuth ne sont jamais conservés dans le cookie, les URLs, les fichiers publics, le localStorage ou les journaux. Seuls les objets R2 contiennent les jetons **chiffrés**. Le DO peut les lire en mémoire côté serveur pour la rotation, jamais depuis une route publique.
+- `GET /captain/rosters` réutilise un jeton serveur valide pour afficher temporairement les **trois premiers** rosters de coéquipiers qui partagent leur roster ; les images et détails sont livrés uniquement au navigateur autorisé, avec `no-store`. Aucune synchronisation globale, sauvegarde de rosters ou JSON public n'est activée.
+- `GET /session` ne révèle ni identité, ni jeton, ni données de joueur. `POST /logout` exige l'origine exacte et supprime l'objet R2, puis tente sa révocation chez Scopely ; il n'affirme pas la révocation distante en cas d'erreur réseau.
+- Le cron horaire liste uniquement les objets du coffre capitaine (borné à huit pages de cent clés). Il renouvelle les jetons proches de leur expiration, sans jamais récupérer d'inventaire, de raid, de guerre ou de roster. Une erreur temporaire retarde le renouvellement ; `invalid_grant` retire localement la session. Les rotations parallèles du **même** jeton sont sérialisées.
+- Erreurs de clé/chiffrement : lecture fermée et aucune suppression aveugle des objets illisibles. La suppression R2 retire l'accès logique via ce bucket mais ne prouve pas l'effacement physique instantané chez le fournisseur.
+- Les règles de conservation des données de jeu et les tokens OAuth sont distinctes : toute future copie de roster doit avoir son propre TTL de **30 jours maximum** à compter de sa collecte. Ne pas proroger un ancien snapshot par simple lecture.
+- **Limite à lever avant exploitation complète multi-alliances** : l'identification durable, la révocation administrative ciblée de toutes les sessions d'un compte, et le comportement de Scopely lors d'une rotation perdue entre l'acceptation réseau et l'écriture chiffrée R2 ne sont pas garantis par un simple test CI. Le code reste un pilote jusqu'à validation.
 
-- **Aucun `offline` demandé**, donc aucun refresh token à sauvegarder. Un access token expiré implique une nouvelle autorisation OAuth ; cela ne permet pas encore de synchroniser les rosters automatiquement.
-- La rotation des refresh tokens Scopely est à usage unique : avant d'activer `offline`, prévoir un coordonnateur de renouvellement sérialisé par connexion (ex. Durable Object) et étudier l'endpoint officiel `gatedRefresh`. La simple mise à jour concurrente d'un objet R2 ne suffit pas.
-- Pour la gestion multi-alliances, il faut un mécanisme d'indexation par identité joueur et d'appartenance à l'alliance qui permette la purge ciblée **de toutes les sessions et données dérivées**, même après changement de pseudo ou d'alliance. Aucun identifiant durable n'a encore été validé dans le code.
-- Le TTL de prototype du coffre est **24 h maximum**. Les futures données de roster devront avoir un TTL contractuel individuel (30 jours max depuis collecte) ; il ne faudra jamais prolonger un ancien snapshot par une simple lecture.
-- La politique de confidentialité devra être actualisée avant d'activer un stockage réel ; aucune donnée API ne doit être déversée dans des JSON publics, des logs, des caches PWA ou des backups non maîtrisés.
-- **La suppression R2 rend les objets immédiatement inaccessibles via les accès directs au stockage**, selon la documentation ; il ne faut pas promettre un effacement physique instantané ou une conformité juridique automatique sans analyse supplémentaire.
-
-## Pourquoi ce découpage ?
-
-Le test validé aujourd'hui (OAuth → `/player/v1/card` → affichage temporaire) **ne doit pas régresser**. Ce commit livre uniquement la brique testable d'un coffre avec chiffrement, expiration et effacement. La liaison R2, les routes persistantes et le scope `offline` ne seront introduits que lorsque les prérequis sont satisfaits.
-
-## Références
+## Sources
 
 - https://developers.cloudflare.com/r2/reference/consistency/
 - https://developers.cloudflare.com/r2/get-started/workers-api/
 - https://developers.cloudflare.com/r2/buckets/object-lifecycles/
-- https://developers.cloudflare.com/d1/reference/time-travel/
-- https://developers.cloudflare.com/workers/runtime-apis/web-crypto/
+- https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/
+- https://developers.cloudflare.com/workers/wrangler/configuration/
 - https://developer.marvelstrikeforce.com/beta/index.html
