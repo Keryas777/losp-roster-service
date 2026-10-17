@@ -112,11 +112,13 @@ test("captain consent sets only HttpOnly cookie after successful encrypted stora
 });
 
 test("refresh token rotates once under concurrent browser and scheduled requests",async()=>{
-  let calls=0,release;
+  let calls=0,release,started;
+  const pending=new Promise(resolve=>{started=resolve;});
   const {env,bucket}=setup(async(url,options)=>{
     calls++;
     assert.ok(url.endsWith("/oauth2/token"));
     assert.equal(new URLSearchParams(options.body).get("refresh_token"),"PRIVATE_REFRESH_A");
+    started();
     await new Promise(resolve=>{release=resolve;});
     return fakeResponse(token("PRIVATE_ACCESS_B","PRIVATE_REFRESH_B"));
   });
@@ -125,8 +127,8 @@ test("refresh token rotates once under concurrent browser and scheduled requests
   const old=await getCaptainRecord(bucket,secret,key);
   await putCaptainRecord(bucket,secret,key,{...old,accessExpiresAt:Date.now()-1000});
   const status1=handleCaptainSession(req("/session",id),env);
-  // Wait for the first request to enter the provider refresh.
-  for(let i=0;i<100 && !release;i++)await Promise.resolve();
+  // Deterministically wait until the provider call starts (crypto is async).
+  await pending;
   assert.equal(calls,1);
   const status2=handleCaptainSession(req("/session",id),env);
   assert.equal(calls,1);
