@@ -2,7 +2,7 @@ import { handleCallback, handleOAuthStatus } from "./oauth-callback.js";
 import { getAllianceScopeProbe, allianceScopeRequest } from "./alliance-scope-probes.js";
 import { CAPTAIN_SCOPES } from "./captain-scopes.js";
 import { captainConfigReady } from "./captain-vault.js";
-import { handleCaptainSession, handleCaptainLogout, handleCaptainLanding, handleCaptainRosters, renewCaptainGrants } from "./captain-session-routes.js";
+import { handleCaptainSession, handleCaptainLogout, handleCaptainLanding, handleCaptainRosters, handleCaptainCoverage, renewCaptainGrants } from "./captain-session-routes.js";
 export { CaptainRefreshCoordinator } from "./captain-refresh-coordinator.js";
 import { buildPrivateCoverage } from "./alliance-coverage.js";
 
@@ -176,6 +176,9 @@ export default {
     }
     if (url.pathname === "/captain/rosters") {
       return handleCaptainRosters(request, env);
+    }
+    if (url.pathname === "/captain/coverage") {
+      return handleCaptainCoverage(request, env);
     }
     if (url.pathname === "/session") {
       return handleCaptainSession(request, env);
