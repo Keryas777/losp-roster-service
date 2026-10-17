@@ -15,7 +15,13 @@ L'API officielle décrit `AllianceCard.id` comme `{aid}:{member_version}`. La ve
 - Pour une alliance donnée, `GET /player/v1/alliance/members` est normalement appelé **une seule fois**, via une session active ; si la requête échoue, tente une seconde session de la même alliance. Exige exactement un `isSelf` valide, des membres uniques et un booléen `rosterShare` explicite pour compter les partages. Ne lit aucun roster de personnage.
 - Écrit uniquement un état agrégé privé, `oauth-coverage/v1/latest.json` dans R2 : date, nom d'alliance, empreinte SHA-256 de son identifiant stable, nombre de connexions, membres, partages et absences de partage, éventuellement les rangs documentés si Scopely les retourne. **Aucun nom de joueur, identifiant membre, token, contenu de roster ou inventaire.**
 - Le scan est limité à **12 sessions par exécution** pour respecter un budget conservateur d'appels du Worker. Si la couverture est incomplète ou Scopely indisponible, `complete=false` ; ne jamais afficher un total comme exhaustif dans ce cas.
-- Une deuxième entrée cron `15 3 * * *` (03:15 UTC) est préparée, mais **la découverte ne démarre pas** tant que la variable texte Cloudflare `CAPTAIN_COVERAGE_ENABLED=true` n'est pas activée. Le renouvellement OAuth horaire existant reste distinct et inchangé.
+- Une deuxième entrée cron `15 3 * * *` (03:15 UTC) est préparée, mais **la découverte ne démarre pas** tant que la variable texte Cloudflare `CAPTAIN_COVERAGE_ENABLED=true` n'est pas activée. Le fichier Wrangler définit explicitement `CAPTAIN_COVERAGE_ENABLED=false` par défaut. Le renouvellement OAuth horaire existant reste distinct et inchangé.
+
+## Consultation immédiate par le capitaine
+
+En complément du scanner collectif (désactivé), un capitaine déjà connecté peut ouvrir `GET /captain/coverage` depuis son espace `/captain`. Cette page est **personnelle à sa session** : elle réutilise son propre jeton chiffré pour demander la fiche d'alliance et les membres actuels en direct, puis affiche seulement le nom de l'alliance, le total des membres, le nombre de partages et le nombre de non-partages.
+
+L'API doit identifier exactement un membre `isSelf` ; en cas d'échec, la page n'affiche aucune donnée. La réponse est `no-store`, les champs textes sont échappés, et aucun identifiant de membre ni jeton n'est envoyé au navigateur. Cette consultation ne déclenche **aucun** regroupement des autres sessions et n'écrit rien en R2 ; elle est disponible sans `CAPTAIN_COVERAGE_ENABLED=true` pour contrôler les accès individuellement.
 
 ## Activation — pas pendant cette PR
 
