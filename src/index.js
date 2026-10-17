@@ -61,8 +61,15 @@ async function startLogin(request, env, url) {
     const status=await handleCaptainSession(request,env);
     if(status.ok) {
       const previous=await status.json();
-      if(previous.status==="connected")
-        return Response.redirect(APP_ORIGIN+"/captain",302);
+      if(previous.status==="connected"){
+        const redirect=Response.redirect(APP_ORIGIN+"/captain",302);
+        // Extend the sliding browser lease only when the Worker confirmed
+        // the opaque session. No token is ever sent to the browser.
+        const headers=new Headers(redirect.headers);
+        for(const cookie of status.headers.getSetCookie())headers.append("Set-Cookie",cookie);
+        headers.set("Cache-Control","no-store");
+        return new Response(null,{status:302,headers});
+      }
       if(previous.status==="temporarily-unavailable")
         return new Response("Connexion temporairement indisponible : réessayer plus tard",{
           status:503,headers:{"Cache-Control":"no-store"}
