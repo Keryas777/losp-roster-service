@@ -2,7 +2,7 @@ import { handleCallback, handleOAuthStatus } from "./oauth-callback.js";
 import { getAllianceScopeProbe, allianceScopeRequest } from "./alliance-scope-probes.js";
 import { CAPTAIN_SCOPES } from "./captain-scopes.js";
 import { captainConfigReady } from "./captain-vault.js";
-import { handleCaptainSession, handleCaptainLogout, renewCaptainGrants } from "./captain-session-routes.js";
+import { handleCaptainSession, handleCaptainLogout, handleCaptainLanding, handleCaptainRosters, renewCaptainGrants } from "./captain-session-routes.js";
 export { CaptainRefreshCoordinator } from "./captain-refresh-coordinator.js";
 
 const SCOPELY_AUTH_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/auth";
@@ -54,6 +54,14 @@ async function startLogin(request, env, url) {
       status: 503,
       headers: { "Cache-Control": "no-store" }
     });
+  }
+
+  if (url.pathname === "/login/captain" && captainConfigReady(env)) {
+    // A returning captain must not be sent through the emailed-code OAuth flow.
+    const status=await handleCaptainSession(request,env);
+    if(status.ok && (await status.json()).status==="connected") {
+      return Response.redirect(APP_ORIGIN+"/captain",302);
+    }
   }
 
   const state = randomBase64Url();
@@ -141,6 +149,12 @@ export default {
       return startLogin(request, env, url);
     }
 
+    if (url.pathname === "/captain") {
+      return handleCaptainLanding(request, env);
+    }
+    if (url.pathname === "/captain/rosters") {
+      return handleCaptainRosters(request, env);
+    }
     if (url.pathname === "/session") {
       return handleCaptainSession(request, env);
     }
