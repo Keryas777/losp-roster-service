@@ -13,14 +13,14 @@ La durée maximale d'un objet capitaine est de 365 jours, **glissante uniquement
 
 ## Préparation Cloudflare obligatoire (ordre strict)
 
-1. **Créer dans Cloudflare R2 un NOUVEAU bucket privé** `losp-captain-tokens` (séparé de `losp-roster-sessions` du prototype 24 heures). Ne définir **aucun** domaine public ni sous-domaine R2.dev. Définir une suppression automatique au plus tard après 365 jours depuis la dernière écriture comme filet de sécurité, et vérifier le fonctionnement réel de la règle. Ne jamais configurer une règle de 24 heures pour les autorisations longue durée.
-2. Une fois ce bucket réellement créé, ajouter dans `wrangler.jsonc` (seulement à ce moment, dans une nouvelle modification/PR) :
+1. **Bucket privé R2 existant validé le 17 octobre 2026 :** `losp-roster-sessions` (0 objet lors de la vérification). Une règle `captain-tokens-365d` activée ne cible que le préfixe `oauth-captains/v1/` et supprime après 365 jours. Le prototype 24 h (`oauth-sessions/v1/`) est séparé par préfixe. Vérifier aussi que ce bucket n'a **aucun** domaine public ni accès R2.dev. La règle est un filet de sécurité : l'expiration doit également être appliquée par le Worker.
+2. La PR de liaison R2 ajoute au `wrangler.jsonc` :
    ```json
    "r2_buckets": [
-     { "binding": "CAPTAIN_BUCKET", "bucket_name": "losp-captain-tokens" }
+     { "binding": "CAPTAIN_BUCKET", "bucket_name": "losp-roster-sessions" }
    ]
    ```
-   Le code de la PR #27 **n'ajoute volontairement pas ce binding** : déclarer un bucket inexistant dans la configuration casserait le déploiement GitHub → Cloudflare.
+   Cette liaison concerne le bucket préexistant, vérifié dans Cloudflare ; elle ne crée aucun bucket et ne requiert pas de jeton R2 dans GitHub. **Elle n'active pas la persistance** tant que le secret et la variable `CAPTAIN_SESSIONS_ENABLED` n'ont pas été configurés.
 3. Configurer un secret de production Cloudflare `CAPTAIN_ENCRYPTION_KEY_HEX`, avec exactement **64 caractères hexadécimaux aléatoires** (32 octets, 256 bits). Générer le secret localement avec un CSPRNG fiable (par exemple `openssl rand -hex 32`) ; ne **jamais** envoyer la valeur par ChatGPT, Discord, GitHub, logs ou commits. Garder une sauvegarde sécurisée hors R2 : perdre cette clé signifie perdre les autorisations, et une mauvaise rotation rend les objets illisibles.
 4. La PR #27 ajoute seulement la liaison Durable Object `CAPTAIN_REFRESH_COORDINATOR`, sa migration SQLite et un cron horaire `15 * * * *`. Vérifier après déploiement que la migration est exécutée et que le binding existe. Le cron n'effectue aucune lecture privée quand le stockage n'est pas activé.
 5. Ajouter enfin la variable runtime **de production** `CAPTAIN_SESSIONS_ENABLED=true` après la validation du binding et du secret. Sa valeur par défaut est désactivée. Une variable absente, une mauvaise clé ou un binding manquant bloquent la persistance ; si la variable est activée sans configuration complète, `/login/captain` répond HTTP 503 **avant** de demander le code Scopely.
