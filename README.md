@@ -191,3 +191,11 @@ Ne pas demander les scopes hypothétiques `m3p.f.ar.inv`, `m3p.f.ar.raid`, `m3p.
 **Limite bloquante :** `offline` ne crée pas de session durable tout seul. Les refresh tokens sont jetés et jamais stockés. Il faut **activer R2 privé et le coffre chiffré, gérer la rotation sérialisée des refresh tokens ainsi que la déconnexion, la révocation et l’effacement** avant de présenter ce parcours comme une connexion unique aux autres capitaines. Ne pas les inviter tant que ces étapes ne sont pas terminées. Un scope initialement accordé peut aussi être refusé/révoqué ultérieurement ; aucune promesse d'accès perpétuel.
 
 Sources : https://developer.marvelstrikeforce.com/beta/msf-api.json, `docs/oauth-session-architecture.md`, audit réel PR #22.
+
+## Continuité de session et changement d’alliance (PR #28)
+
+Le cookie `__Host-losp_captain_session` conserve son `Max-Age=180 jours`, désormais renouvelé uniquement après une visite avec autorisation active : `GET /session`, `GET /captain`, `GET /captain/rosters`, et la redirection existante `GET /login/captain`. La durée R2 reste glissante à 365 jours après chaque renouvellement de token réussi, pas une coupure annuelle fixe. Une expiration, une révocation ou une erreur de renouvellement ne prolonge pas le cookie. Un navigateur sans son cookie ne peut pas « récupérer » une session simplement parce que le serveur possède encore un refresh token.
+
+Le consentement OAuth suit le **compte joueur**, pas une alliance mémorisée. Pour la seule consultation persistante `/captain/rosters`, la liste des membres est toujours demandée à Scopely au moment de la visite, et le compte autorisé doit apparaître exactement une fois comme `isSelf`. Si le joueur passe d'une alliance à l'autre, seule la liste fraîche peut être consultée. En l'absence de preuve d'appartenance, aucun roster n'est téléchargé. Aucun identifiant d'alliance antérieure n'est stocké. Les tests/diagnostics éphémères existants restent inchangés.
+
+**Limite** : être « capitaine LoSP » est distinct de la simple appartenance MSF. L'autorisation de consulter des données *pour le compte du groupement* devra être déterminée par un registre privé dynamique des responsables et alliances validées avant d'activer une publication multi-alliance. Aucune collecte ou diffusion publique n'est activée par cette PR.
