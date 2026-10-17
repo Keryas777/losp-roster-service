@@ -70,7 +70,7 @@ test("JWKS fetch errors fail closed and show no upstream data",async()=>{
   const other={...env,CF_ACCESS_TEAM_DOMAIN:"other-team.cloudflareaccess.com"};
   const token=jwt({iss:"https://other-team.cloudflareaccess.com"});
   assert.equal(await diagnoseAdminAuth(request(token),other,async()=>new Response("",{status:500})),
-    "jwks-unavailable");
+    "jwks-http-500");
 });
 
 test("JWKS failures distinguish HTTP, redirects, invalid JSON, network and timeouts safely",async()=>{
