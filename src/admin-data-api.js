@@ -119,6 +119,7 @@ export async function adminSessionList(env,fetchImpl=fetch,url){
       playerName:typeof player?.name==="string"?player.name:null,
       allianceName:typeof card?.name==="string"?card.name:null,
       allianceId:typeof card?.id==="string"?card.id.split(":")[0]:null,
+      allianceDetails:card&&typeof card==="object"?card:null,
       profileError:profile.error||null,allianceError:alliance.error||null});
   }
   return json({sessions,nextCursor:listing.truncated?listing.cursor:null});
