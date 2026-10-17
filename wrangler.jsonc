@@ -5,7 +5,8 @@
   "workers_dev": true,
   "vars": {
     "CAPTAIN_SESSIONS_ENABLED": "true",
-    "CAPTAIN_COVERAGE_ENABLED": "false"
+    "CAPTAIN_COVERAGE_ENABLED": "false",
+    "MSF_ADMIN_ENABLED": "true"
   },
   "assets": {
     "directory": "./public",
