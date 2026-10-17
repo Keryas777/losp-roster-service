@@ -9,7 +9,7 @@ import {
 import { CaptainRefreshCoordinator } from "../src/captain-refresh-coordinator.js";
 import {
   saveCaptainConsent, handleCaptainSession, handleCaptainLogout,
-  handleCaptainLanding, handleCaptainRosters, renewCaptainGrants
+  handleCaptainLanding, handleCaptainRosters, handleCaptainCoverage, renewCaptainGrants
 } from "../src/captain-session-routes.js";
 
 const origin="https://losp-roster-service.deliriousfan7.workers.dev";
@@ -387,4 +387,62 @@ test("no browser cookie after a long absence cannot be recovered merely from an 
   const res=await handleCaptainSession(new Request(origin+"/session"),env);
   assert.deepEqual(await res.json(),{status:"disconnected"});
   assert.equal(res.headers.getSetCookie().length,0);
+});
+
+test("captain coverage page reads CURRENT alliance only and never exposes OAuth or player IDs",async()=>{
+  const {env}=setup();
+  const id=newCaptainSessionId();
+  await store(env,id);
+  const requests=[];
+  const res=await handleCaptainCoverage(req("/captain/coverage",id),env,async(url,options)=>{
+    requests.push(url);
+    assert.ok(options.headers.Authorization.startsWith("Bearer PRIVATE_ACCESS"));
+    if(url.endsWith("/alliance/card"))return Response.json({
+      data:{id:"aid:v1",name:"<LoSP & Zeus>",warRank:189}
+    });
+    if(url.endsWith("/alliance/members"))return Response.json({data:[
+      {id:"secret-self",isSelf:true,card:{name:"Captain",rosterShare:true}},
+      {id:"secret-1",isSelf:false,card:{name:"Private player",rosterShare:false}},
+      {id:"secret-2",isSelf:false,card:{name:"Private player 2",rosterShare:true}}
+    ]});
+    throw Error("Only card and members endpoints are allowed");
+  });
+  assert.equal(res.status,200);
+  assert.match(res.headers.get("cache-control"),/no-store/);
+  assert.match(res.headers.getSetCookie().join(" "),/Max-Age=15552000/);
+  const html=await res.text();
+  assert.match(html,/&lt;LoSP &amp; Zeus&gt;/);
+  assert.match(html,/Rosters partagés : <strong>2<\/strong>/);
+  assert.match(html,/Partage non activé : <strong>1<\/strong>/);
+  assert.doesNotMatch(html,/secret-self|secret-1|secret-2|PRIVATE_ACCESS|Private player/);
+  assert.deepEqual(requests,[
+    "https://api.marvelstrikeforce.com/player/v1/alliance/card",
+    "https://api.marvelstrikeforce.com/player/v1/alliance/members"
+  ]);
+});
+
+test("captain coverage denies ambiguous membership without setting a new cookie",async()=>{
+  const {env}=setup();
+  const id=newCaptainSessionId();
+  await store(env,id);
+  const res=await handleCaptainCoverage(req("/captain/coverage",id),env,async url=>{
+    if(url.endsWith("/alliance/card"))return Response.json({data:{id:"aid:v2",name:"Zeus"}});
+    if(url.endsWith("/alliance/members"))return Response.json({data:[
+      {id:"member",isSelf:false,card:{rosterShare:true}}
+    ]});
+    throw Error("unexpected");
+  });
+  assert.equal(res.status,503);
+  assert.deepEqual(await res.json(),{status:"alliance-unavailable"});
+  assert.equal(res.headers.getSetCookie().length,0);
+});
+
+test("captain coverage without session redirects, without attempting a game API call",async()=>{
+  const {env}=setup();
+  let touched=false;
+  const res=await handleCaptainCoverage(new Request(origin+"/captain/coverage"),env,
+    async()=>{touched=true;throw Error("should not call API");});
+  assert.equal(res.status,303);
+  assert.equal(res.headers.get("location"),origin+"/captain");
+  assert.equal(touched,false);
 });
