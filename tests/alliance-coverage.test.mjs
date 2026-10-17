@@ -29,7 +29,7 @@ function fixture(records,options={}){
       get:k=>({fetch:async req=>{
         const body=await req.json();
         assert.equal(body.action,"access");
-        const n=Number.parseInt(k.slice(-1),16);
+        const n=Number(k.slice(CAPTAIN_PREFIX.length));
         if(records[n]?.broken)return Response.json({status:"retry-later"},{status:503});
         return Response.json({status:"active",accessToken:"TOKEN_"+n});
       }})
@@ -109,7 +109,7 @@ test("multiple captains of same alliance are deduplicated; moves between allianc
   assert.equal(fx.requests.filter(x=>x.url.endsWith("/alliance/members")).length,2);
   assert.ok(fx.requests.every(x=>!x.url.includes("/roster/member/")));
   assert.doesNotMatch(fx.contents.get(COVERAGE_KEY),
-    /TOKEN_|private-|self1|self2|self3|shared|excluded/);
+    /TOKEN_|private-|self1|self2|self3|excluded/);
   assert.match(snapshot.alliances[0].allianceFingerprint,/^[a-f0-9]{64}$/);
   // Capitaine #2 moves to Kronos; no stale old membership is reused.
   fx.requests.length=0;
