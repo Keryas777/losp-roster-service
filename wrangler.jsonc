@@ -6,5 +6,16 @@
   "assets": {
     "directory": "./public",
     "html_handling": "none"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "CAPTAIN_REFRESH_COORDINATOR", "class_name": "CaptainRefreshCoordinator" }
+    ]
+  },
+  "migrations": [
+    { "tag": "captain-oauth-v1", "new_sqlite_classes": ["CaptainRefreshCoordinator"] }
+  ],
+  "triggers": {
+    "crons": ["15 * * * *"]
   }
 }
