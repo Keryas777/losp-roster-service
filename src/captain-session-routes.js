@@ -4,6 +4,7 @@ import {
 } from "./captain-vault.js";
 import { collectAllianceRosterSample } from "./roster-collector.js";
 import { renderLiveRosterViewer } from "./roster-viewer.js";
+import { discoverAlliance, readAllianceCoverage } from "./alliance-coverage.js";
 
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const COOKIE="__Host-losp_captain_session";
@@ -112,6 +113,7 @@ export async function handleCaptainLanding(request,env){
     '<h1>Connexion du capitaine</h1>'+
     (connected?'<p>Autorisation Scopely maintenue automatiquement.</p>'+
       '<p><a href="/captain/rosters">Consulter les rosters partagés</a></p>'+
+      '<p><a href="/captain/coverage">Vérifier la couverture de mon alliance</a></p>'+
       '<form method="post" action="/logout"><button type="submit">Révoquer ma connexion LoSP</button></form>':
       temporary ? '<p>Le renouvellement est temporairement indisponible. Votre autorisation n’a pas été supprimée.</p>'+
         '<p><a href="/captain">Réessayer plus tard</a></p>' :
@@ -151,6 +153,51 @@ export async function handleCaptainRosters(request,env,fetchImpl=fetch){
     // Temporary Scopely failures must not present old data or force re-consent.
     const rendered=renderLiveRosterViewer(report);
     return renewBrowserCookie(rendered,id);
+  }catch{return response({status:"temporarily-unavailable"},503);}
+}
+// Ephemeral, account-scoped diagnostic. Reads only the current alliance;
+// never enumerates other captains or returns provider IDs, tokens or rosters.
+export async function handleCaptainCoverage(request,env,fetchImpl=fetch){
+  if(request.method!=="GET")return response({status:"method-not-allowed"},405);
+  if(!captainConfigReady(env))return response({status:"not-configured"},503);
+  const id=readCookie(request);
+  if(!id)return Response.redirect(ORIGIN+"/captain",303);
+  try{
+    const access=await coordinate(env,await captainSessionKey(id),"access");
+    if(access.status!=="active" || typeof access.accessToken!=="string"){
+      if(["absent","revoked","reconnect-required"].includes(access.status))
+        return Response.redirect(ORIGIN+"/captain",303);
+      return response({status:"temporarily-unavailable"},503);
+    }
+    const card=await discoverAlliance(access.accessToken,fetchImpl);
+    const coverage=card.ok
+      ? await readAllianceCoverage(access.accessToken,fetchImpl)
+      : {ok:false,status:"alliance-unavailable"};
+    if(!card.ok || !coverage.ok)
+      return response({status:"alliance-unavailable"},503);
+    const escapeHtml=value=>String(value).replace(/[&<>"']/g,ch=>
+      ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+    const html='<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
+      '<meta name="viewport" content="width=device-width,initial-scale=1">'+
+      '<meta name="referrer" content="no-referrer">'+
+      '<title>Couverture d\'alliance — LoSP</title>'+
+      '<link rel="stylesheet" href="/style.css"></head><body><main>'+
+      '<h1>Couverture de mon alliance</h1>'+
+      '<h2>'+escapeHtml(card.name)+'</h2>'+
+      '<p>Membres actuels : <strong>'+coverage.members+'</strong></p>'+
+      '<p>Rosters partagés : <strong>'+coverage.shared+'</strong></p>'+
+      '<p>Partage non activé : <strong>'+coverage.notShared+'</strong></p>'+
+      '<p>Cette lecture est effectuée en direct depuis Scopely. '+
+      'Aucun roster n\'est enregistré sur cette page.</p>'+
+      '<p><a href="/captain">Retour à l\'espace capitaine</a></p>'+
+      '</main></body></html>';
+    const result=new Response(html,{headers:{
+      "Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store",
+      "Referrer-Policy":"no-referrer","X-Content-Type-Options":"nosniff",
+      "X-Robots-Tag":"noindex","X-Frame-Options":"DENY",
+      "Content-Security-Policy":"default-src 'none'; style-src 'self'; base-uri 'none'; frame-ancestors 'none'"
+    }});
+    return renewBrowserCookie(result,id);
   }catch{return response({status:"temporarily-unavailable"},503);}
 }
 export async function renewCaptainGrants(env){

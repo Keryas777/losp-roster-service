@@ -4,7 +4,8 @@
   "compatibility_date": "2026-10-08",
   "workers_dev": true,
   "vars": {
-    "CAPTAIN_SESSIONS_ENABLED": "true"
+    "CAPTAIN_SESSIONS_ENABLED": "true",
+    "CAPTAIN_COVERAGE_ENABLED": "false"
   },
   "assets": {
     "directory": "./public",
@@ -22,6 +23,6 @@
     { "tag": "captain-oauth-v1", "new_sqlite_classes": ["CaptainRefreshCoordinator"] }
   ],
   "triggers": {
-    "crons": ["15 * * * *"]
+    "crons": ["15 * * * *", "15 3 * * *"]
   }
 }

@@ -2,8 +2,9 @@ import { handleCallback, handleOAuthStatus } from "./oauth-callback.js";
 import { getAllianceScopeProbe, allianceScopeRequest } from "./alliance-scope-probes.js";
 import { CAPTAIN_SCOPES } from "./captain-scopes.js";
 import { captainConfigReady } from "./captain-vault.js";
-import { handleCaptainSession, handleCaptainLogout, handleCaptainLanding, handleCaptainRosters, renewCaptainGrants } from "./captain-session-routes.js";
+import { handleCaptainSession, handleCaptainLogout, handleCaptainLanding, handleCaptainRosters, handleCaptainCoverage, renewCaptainGrants } from "./captain-session-routes.js";
 export { CaptainRefreshCoordinator } from "./captain-refresh-coordinator.js";
+import { buildPrivateCoverage } from "./alliance-coverage.js";
 
 const SCOPELY_AUTH_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/auth";
 const APP_ORIGIN = "https://losp-roster-service.deliriousfan7.workers.dev";
@@ -146,6 +147,10 @@ export default {
     // Scheduled refresh is disabled unless all private storage bindings exist.
     // No player or roster information is fetched or logged.
     try { await renewCaptainGrants(env); } catch {}
+    // Separate daily opt-in discovery; disabled by default. No roster sync.
+    if (controller?.cron === "15 3 * * *" && env?.CAPTAIN_COVERAGE_ENABLED === "true") {
+      try { await buildPrivateCoverage(env); } catch {}
+    }
   },
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -171,6 +176,9 @@ export default {
     }
     if (url.pathname === "/captain/rosters") {
       return handleCaptainRosters(request, env);
+    }
+    if (url.pathname === "/captain/coverage") {
+      return handleCaptainCoverage(request, env);
     }
     if (url.pathname === "/session") {
       return handleCaptainSession(request, env);
