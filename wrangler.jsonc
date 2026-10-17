@@ -3,6 +3,9 @@
   "main": "src/index.js",
   "compatibility_date": "2026-10-08",
   "workers_dev": true,
+  "vars": {
+    "CAPTAIN_SESSIONS_ENABLED": "true"
+  },
   "assets": {
     "directory": "./public",
     "html_handling": "none"
