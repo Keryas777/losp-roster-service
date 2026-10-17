@@ -9,6 +9,13 @@ const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const COOKIE="__Host-losp_captain_session";
 const COOKIE_RX=/^[A-Za-z0-9_-]{43}$/;
 const attributes="; Path=/; Secure; HttpOnly; SameSite=Lax";
+// Sliding cookie: refresh only after a verified, active session. Never extend
+// cookies after revocation, invalid_grant or temporary refresh errors.
+function renewBrowserCookie(response,id){
+  const headers=new Headers(response.headers);
+  headers.append("Set-Cookie",COOKIE+"="+id+"; Max-Age="+CAPTAIN_COOKIE_AGE+attributes);
+  return new Response(response.body,{status:response.status,headers});
+}
 function response(data,status=200){
   return Response.json(data,{status,headers:{
     "Cache-Control":"no-store","Referrer-Policy":"no-referrer",
@@ -58,8 +65,9 @@ export async function handleCaptainSession(request,env){
   if(!id)return response({status:"disconnected"});
   try{
     const s=await coordinate(env,await captainSessionKey(id),"status");
-    return response({status:s.status==="active"?"connected":
+    const result=response({status:s.status==="active"?"connected":
       ["absent","revoked","reconnect-required"].includes(s.status)?"disconnected":"temporarily-unavailable"});
+    return s.status==="active"?renewBrowserCookie(result,id):result;
   }catch{return response({status:"temporarily-unavailable"},503);}
 }
 export async function handleCaptainLogout(request,env){
@@ -110,14 +118,19 @@ export async function handleCaptainLanding(request,env){
         '<p>Aucune session active dans ce navigateur.</p>'+
         '<p><a href="/login/captain">Autoriser à nouveau LoSP</a></p>')+
     '<p>Aucun jeton OAuth n’est exposé au navigateur.</p></main></body></html>';
-  return new Response(html,{headers:{
+  const landing=new Response(html,{headers:{
     "Content-Type":"text/html; charset=utf-8",
     "Cache-Control":"no-store","Referrer-Policy":"no-referrer",
     "X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY",
     "Content-Security-Policy":"default-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
   }});
+  // Forward only the verified session cookie, never OAuth or authorization data.
+  if(connected && readCookie(request)){
+    return renewBrowserCookie(landing,readCookie(request));
+  }
+  return landing;
 }
-export async function handleCaptainRosters(request,env){
+export async function handleCaptainRosters(request,env,fetchImpl=fetch){
   if(request.method!=="GET")return response({status:"method-not-allowed"},405);
   if(!captainConfigReady(env))return response({status:"not-configured"},503);
   const id=readCookie(request);
@@ -127,9 +140,17 @@ export async function handleCaptainRosters(request,env){
     if(grant.status!=="active" || typeof grant.accessToken!=="string"){
       return Response.redirect(ORIGIN+"/captain",303);
     }
-    return renderLiveRosterViewer(await collectAllianceRosterSample(grant.accessToken,fetch,{
-      maxMembers:3,charInfo:true
-    }));
+    // Always read the CURRENT alliance from the account's own Scopely token.
+    // Never reuse members or roster IDs from a former alliance.
+    const report=await collectAllianceRosterSample(grant.accessToken,fetchImpl,{
+      maxMembers:3,charInfo:true,requireCurrentMembership:true
+    });
+    if(report.status==="current-membership-unverified"){
+      return response({status:"current-alliance-unverified"},403);
+    }
+    // Temporary Scopely failures must not present old data or force re-consent.
+    const rendered=renderLiveRosterViewer(report);
+    return renewBrowserCookie(rendered,id);
   }catch{return response({status:"temporarily-unavailable"},503);}
 }
 export async function renewCaptainGrants(env){

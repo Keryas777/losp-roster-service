@@ -276,3 +276,115 @@ test("temporary provider outage must not redirect a returning captain into email
   assert.match(body,/Votre autorisation n.a pas été supprimée/);
   assert.doesNotMatch(body,/href="\/login\/captain"/);
 });
+
+test("verified browser visits renew the 180-day cookie, never the access token cookie",async()=>{
+  const {env}=setup();
+  const id=newCaptainSessionId();
+  await store(env,id);
+  const expected=/__Host-losp_captain_session=[A-Za-z0-9_-]{43}; Max-Age=15552000; Path=[/]; Secure; HttpOnly; SameSite=Lax/;
+  const status=await handleCaptainSession(req("/session",id),env);
+  assert.match(status.headers.getSetCookie().join(" "),expected);
+  assert.deepEqual(await status.json(),{status:"connected"});
+  const landing=await handleCaptainLanding(req("/captain",id),env);
+  assert.match(landing.headers.getSetCookie().join(" "),expected);
+  assert.match(await landing.text(),/maintenue automatiquement/);
+  const returning=await worker.fetch(req("/login/captain",id),env);
+  assert.equal(returning.status,302);
+  assert.equal(returning.headers.get("location"),origin+"/captain");
+  assert.match(returning.headers.getSetCookie().join(" "),expected);
+  assert.equal(returning.headers.get("cache-control"),"no-store");
+});
+
+test("revoked and absent sessions never extend their browser cookies",async()=>{
+  const {env,bucket}=setup();
+  const id=newCaptainSessionId(),{key}=await store(env,id);
+  await bucket.delete(key);
+  const session=await handleCaptainSession(req("/session",id),env);
+  assert.deepEqual(await session.json(),{status:"disconnected"});
+  assert.equal(session.headers.getSetCookie().length,0);
+  const landing=await handleCaptainLanding(req("/captain",id),env);
+  assert.equal(landing.headers.getSetCookie().length,0);
+});
+
+test("temporary refresh errors never extend a browser cookie nor erase its grant",async()=>{
+  const {env,bucket}=setup(async()=>Response.json({error:"temporarily_unavailable"},{status:503}));
+  const id=newCaptainSessionId(),{key}=await store(env,id);
+  const record=await getCaptainRecord(bucket,secret,key);
+  await putCaptainRecord(bucket,secret,key,{...record,accessExpiresAt:Date.now()-1000});
+  const result=await handleCaptainSession(req("/session",id),env);
+  assert.deepEqual(await result.json(),{status:"temporarily-unavailable"});
+  assert.equal(result.headers.getSetCookie().length,0);
+  const landing=await handleCaptainLanding(req("/captain",id),env);
+  assert.equal(landing.headers.getSetCookie().length,0);
+  assert.equal(bucket.map.has(key),true);
+});
+
+test("current alliance is resolved again after every move; never read a previous alliance roster",async()=>{
+  const {env}=setup();
+  const id=newCaptainSessionId();
+  await store(env,id);
+  let members=[
+    {id:"self-old",isSelf:true,card:{name:"Captain",rosterShare:true}},
+    {id:"old-member",isSelf:false,card:{name:"Former ally",rosterShare:true}}
+  ];
+  const calls=[];
+  const gameFetch=async url=>{
+    calls.push(url);
+    if(url.endsWith("/alliance/members"))return Response.json({data:members});
+    if(url.includes("/roster/member/")){
+      const member=decodeURIComponent(url.split("/roster/member/")[1].split("?")[0]);
+      return Response.json({data:[{id:"hero-"+member,info:{name:member},power:9000}],
+        meta:{page:1,perPage:100,perTotal:1}});
+    }
+    throw Error("Unexpected game endpoint");
+  };
+  let response=await handleCaptainRosters(req("/captain/rosters",id),env,gameFetch);
+  assert.equal(response.status,200);
+  assert.match(response.headers.getSetCookie().join(" "),/Max-Age=15552000/);
+  const oldHtml=await response.text();
+  assert.match(oldHtml,/Former ally/);
+  assert.ok(calls.some(x=>x.includes("/roster/member/old-member")));
+  calls.length=0;
+  members=[
+    {id:"self-new",isSelf:true,card:{name:"Captain",rosterShare:true}},
+    {id:"new-member",isSelf:false,card:{name:"New ally",rosterShare:true}}
+  ];
+  response=await handleCaptainRosters(req("/captain/rosters",id),env,gameFetch);
+  assert.equal(response.status,200);
+  const newHtml=await response.text();
+  assert.match(newHtml,/New ally/);
+  assert.doesNotMatch(newHtml,/Former ally|old-member/);
+  assert.deepEqual(calls.filter(x=>x.includes("/roster/member/")).map(x=>x.split("/roster/member/")[1].split("?")[0]),["new-member"]);
+  assert.match(response.headers.get("cache-control"),/no-store/);
+});
+
+test("persistent roster access denies unknown or ambiguous CURRENT alliance membership",async()=>{
+  const {env}=setup();
+  const id=newCaptainSessionId();
+  await store(env,id);
+  for(const members of [
+    [{id:"colleague",isSelf:false,card:{name:"Colleague",rosterShare:true}}],
+    [{id:"a",isSelf:true,card:{}},{id:"b",isSelf:true,card:{}}]
+  ]){
+    let rosterCalls=0;
+    const res=await handleCaptainRosters(req("/captain/rosters",id),env,async url=>{
+      if(url.endsWith("/alliance/members"))return Response.json({data:members});
+      rosterCalls++;
+      throw Error("Private roster must not be read");
+    });
+    assert.equal(res.status,403);
+    assert.deepEqual(await res.json(),{status:"current-alliance-unverified"});
+    assert.equal(res.headers.getSetCookie().length,0);
+    assert.equal(rosterCalls,0);
+  }
+});
+
+test("no browser cookie after a long absence cannot be recovered merely from an R2 grant",async()=>{
+  const {env,bucket}=setup();
+  const id=newCaptainSessionId();
+  await store(env,id);
+  assert.equal(bucket.map.size,1);
+  const res=await handleCaptainSession(new Request(origin+"/session"),env);
+  assert.deepEqual(await res.json(),{status:"disconnected"});
+  assert.equal(res.headers.getSetCookie().length,0);
+});
