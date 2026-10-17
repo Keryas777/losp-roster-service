@@ -41,6 +41,21 @@ function tableFor(rows,parent){
     }
     const cell=node("td",null,r);
     jsonDetails(row,cell,"Ligne "+(idx+1));
+    if(resourceSelect.value==="alliance-members" && row?.card?.rosterShare===true &&
+       row.isSelf!==true && typeof row.id==="string"){
+      button("Voir son roster partagé",()=>{
+        resourceSelect.value="alliance-roster";
+        toggleMember();
+        el("member").value=row.id;
+        loadResource();
+      },cell);
+    }
+    if(resourceSelect.value==="personal-roster" && typeof row.id==="string"){
+      button("Fiche officielle du personnage",()=>{
+        resourceSelect.value="game-character";toggleMember();
+        el("entity").value=row.id;loadResource();
+      },cell);
+    }
   }
 }
 function renderPayload(response){
@@ -85,6 +100,8 @@ function makeOptions(){
 }
 function toggleMember(){
   el("member-wrap").hidden=resourceSelect.value!=="alliance-roster";
+  el("entity-wrap").hidden=!catalog.some(v=>v.id===resourceSelect.value &&
+    v.path.endsWith("/") && v.id!=="alliance-roster");
   el("pages-wrap").hidden=!["personal-roster","personal-inventory",
     "personal-wishlist","personal-events","alliance-roster",
     "game-characters","game-events"].includes(resourceSelect.value);
@@ -121,6 +138,12 @@ async function loadResource(){
   if(!el("pages-wrap").hidden){
     query.set("page",el("page").value);
     query.set("perPage",el("perPage").value);
+  }
+  const definition=catalog.find(v=>v.id===resource);
+  if(definition?.path.endsWith("/")&&resource!=="alliance-roster"){
+    const entity=el("entity").value.trim();
+    if(!entity){status("Indique l’identifiant du détail souhaité.");return;}
+    query.set("entity",entity);
   }
   if(resource==="alliance-roster"){
     const member=el("member").value.trim();
