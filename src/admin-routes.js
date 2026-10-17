@@ -1,4 +1,4 @@
-import {authenticateAdmin,adminReady} from "./admin-auth.js";
+import {diagnoseAdminAuth,adminReady} from "./admin-auth.js";
 import {adminSessionList,adminResource,adminCatalog} from "./admin-data-api.js";
 
 const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
@@ -25,10 +25,16 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   if(!adminReady(env))return new Response("Administration désactivée",{
     status:503,headers:{"Cache-Control":"no-store"}
   });
-  if(!await authenticateAdmin(request,env,fetchImpl))
-    return new Response("Accès administrateur refusé",{
+  const authStatus=await diagnoseAdminAuth(request,env,fetchImpl);
+  if(authStatus!=="ok"){
+    // Temporary opt-in troubleshooting: only a fixed reason code, never a
+    // token, email, claim, key, config value, or other private information.
+    const extra=env.MSF_ADMIN_DIAGNOSTICS_ENABLED==="true"
+      ? " (diagnostic : "+authStatus+")" : "";
+    return new Response("Accès administrateur refusé"+extra,{
       status:403,headers:{"Cache-Control":"no-store"}
     });
+  }
   const pathname=new URL(request.url).pathname;
   if(pathname==="/admin"||pathname==="/admin/"){
     return new Response(html,{headers:{
