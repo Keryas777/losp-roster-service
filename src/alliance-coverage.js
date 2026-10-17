@@ -16,7 +16,7 @@ const validMemberId=(v)=>typeof v==="string"&&v.length>0&&v.length<=256;
 // Only the left-hand aid persists across changes of alliance membership.
 export function stableAllianceId(value){
   if(typeof value!=="string")return null;
-  const m=/^([^:\\s]{1,128}):([^:\\s]{1,128})$/.exec(value);
+  const m=/^([^:\s]{1,128}):([^:\s]{1,128})$/.exec(value);
   return m?m[1]:null;
 }
 async function jsonGet(path,token,fetchImpl){
