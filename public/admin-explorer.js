@@ -89,6 +89,30 @@ function renderPayload(response){
   const raw=node("details",null,output),label=node("summary","Réponse API brute (data, meta et tout champ supplémentaire)",raw);
   raw.id="raw";node("pre",JSON.stringify(payload,null,2),raw);
 }
+function renderAllianceOverview(){
+  const target=el("alliances");clear(target);
+  const groups=new Map();
+  for(const account of sessions){
+    const id=account.allianceId||"inconnue:"+account.id;
+    const prev=groups.get(id)||{
+      name:account.allianceName||"Alliance indisponible",
+      card:account.allianceDetails||{},accounts:[]
+    };
+    prev.accounts.push(account);
+    groups.set(id,prev);
+  }
+  const rows=[...groups.values()].map(group=>({
+    Alliance:group.name,
+    Comptes:group.accounts.length,
+    Capitaines:group.accounts.map(a=>a.playerName||"(inconnu)").join(", "),
+    warRank:group.card.warRank??"—",
+    warLeague:typeof group.card.warLeague==="object"?
+      JSON.stringify(group.card.warLeague):group.card.warLeague??"—",
+    warTrophies:group.card.warTrophies??"—",
+    Statut:group.accounts.some(a=>a.status==="active")?"active":"à vérifier"
+  }));
+  tableFor(rows,target);
+}
 function makeOptions(){
   clear(resourceSelect);
   for(const item of catalog){
@@ -127,6 +151,7 @@ async function loadSessions(reset=true){
     const count=new Set(sessions.filter(s=>s.allianceId).map(s=>s.allianceId)).size;
     el("summary").textContent=sessions.length+" connexion(s) analysée(s), "+count+
       " alliance(s) distincte(s) identifiée(s). Les changements d’alliance sont relus en direct.";
+    renderAllianceOverview();
     status("Sessions prêtes.");
   }catch(err){status("Accès impossible : "+err.message);}
 }
