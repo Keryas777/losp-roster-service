@@ -58,7 +58,8 @@ export class CaptainRefreshCoordinator {
         !value.scope.split(/\s+/).includes("offline") ||
         !value.scope.split(/\s+/).includes("m3p.f.ar.ros"))
         return safeResponse({status:"invalid"},400);
-      if(await getCaptainRecord(bucket,key,payload.key,now))
+      // Refuse to overwrite an unreadable encrypted grant (wrong key/rotation).
+      if(await bucket.get(payload.key))
         return safeResponse({status:"exists"},409);
       const record={version:2,createdAt:now,expiresAt:now+CAPTAIN_MAX_AGE,
         accessExpiresAt:now+value.expiresIn*1000,accessToken:value.accessToken,
@@ -77,11 +78,12 @@ export class CaptainRefreshCoordinator {
       }
       return safeResponse({status:"disconnected"});
     }
-    if(payload.action!=="status" && payload.action!=="refresh")
+    if(!["status","refresh","access"].includes(payload.action))
       return safeResponse({status:"invalid"},400);
     if(!record)return safeResponse({status:"absent"});
     if(record.accessExpiresAt>now+SOON)
-      return safeResponse({status:"active",accessExpiresAt:record.accessExpiresAt});
+      return safeResponse({status:"active",accessExpiresAt:record.accessExpiresAt,
+        ...(payload.action==="access"?{accessToken:record.accessToken}:{})});
     try {
       const {res,data,error}=await tokenPost(this.env,TOKEN_URL,{
         grant_type:"refresh_token",refresh_token:record.refreshToken
@@ -112,7 +114,8 @@ export class CaptainRefreshCoordinator {
         accessExpiresAt:now+data.expires_in*1000,accessToken:data.access_token,
         refreshToken:data.refresh_token,scope:issuedScope
       });
-      return safeResponse({status:"active",accessExpiresAt:now+data.expires_in*1000});
+      return safeResponse({status:"active",accessExpiresAt:now+data.expires_in*1000,
+        ...(payload.action==="access"?{accessToken:data.access_token}:{})});
     }catch{
       return safeResponse({status:"retry-later"},503);
     }
