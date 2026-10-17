@@ -73,6 +73,40 @@ test("JWKS fetch errors fail closed and show no upstream data",async()=>{
     "jwks-unavailable");
 });
 
+test("JWKS failures distinguish HTTP, redirects, invalid JSON, network and timeouts safely",async()=>{
+  const originalEnv={...env,CF_ACCESS_TEAM_DOMAIN:"fresh-losp.cloudflareaccess.com"};
+  const signed=jwt({iss:"https://fresh-losp.cloudflareaccess.com"});
+  const checks=[
+    [async()=>new Response("Forbidden",{status:403}),"jwks-http-403"],
+    [async()=>new Response("Not found",{status:404}),"jwks-http-404"],
+    [async()=>new Response("",{status:302,headers:{Location:"https://invalid.example/login"}}),"jwks-redirect"],
+    [async()=>new Response("<html>not json</html>",{status:200}),"jwks-invalid-json"],
+    [async()=>{throw new TypeError("private transport detail");},"jwks-network-error"],
+    [async()=>{const e=new Error("timeout");e.name="TimeoutError";throw e;},"jwks-timeout"]
+  ];
+  for(const [mock,status] of checks){
+    const result=await diagnoseAdminAuth(request(signed),originalEnv,mock);
+    assert.equal(result,status);
+    assert.equal(await authenticateAdmin(request(signed),originalEnv,mock),false);
+  }
+});
+
+test("JWKS fetch is constrained to the configured team and does not follow redirects",async()=>{
+  const newEnv={...env,CF_ACCESS_TEAM_DOMAIN:"isolated-losp.cloudflareaccess.com"};
+  const signed=jwt({iss:"https://isolated-losp.cloudflareaccess.com"});
+  let checked=false;
+  const result=await diagnoseAdminAuth(request(signed),newEnv,async(url,options)=>{
+    checked=true;
+    assert.equal(url,"https://isolated-losp.cloudflareaccess.com/cdn-cgi/access/certs");
+    assert.equal(options.method,"GET");
+    assert.equal(options.redirect,"manual");
+    assert.equal(options.headers.Accept,"application/json");
+    return new Response("",{status:502});
+  });
+  assert.equal(checked,true);
+  assert.equal(result,"jwks-http-502");
+});
+
 test("diagnostics must never enable admin without a valid signed JWT",async()=>{
   const opts={...env,MSF_ADMIN_DIAGNOSTICS_ENABLED:"true"};
   const res=await handleAdmin(request("not.a.jwt"),opts,jwks);
