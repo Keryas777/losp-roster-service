@@ -1,0 +1,19 @@
+/* Mobile-first, framework-free private MSF API explorer. */
+:root{color-scheme:dark;font:15px/1.45 system-ui,-apple-system,sans-serif;background:#0b1321;color:#eff6ff}
+*{box-sizing:border-box}body{margin:0}header{padding:1rem;border-bottom:1px solid #34435b;background:#14223a}
+main{max-width:1120px;margin:auto;padding:1rem;display:grid;gap:1rem}
+h1{font-size:1.35rem;margin:.1rem 0}h2{font-size:1.12rem;margin:0 0 .6rem}
+p{margin:.3rem 0 .65rem;color:#bdcce2}
+section{background:#152238;border:1px solid #34435b;border-radius:12px;padding:1rem;min-width:0}
+label{display:grid;gap:.3rem;font-weight:600}
+button,select,input{font:inherit;min-height:40px;border:1px solid #6b89b1;border-radius:8px;padding:.5rem .65rem;background:#0e1829;color:#fff;max-width:100%}
+button{cursor:pointer;background:#214a79}button:disabled{opacity:.55;cursor:not-allowed}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid #8acbff}
+.controls{display:grid;gap:.65rem}.actions{display:flex;gap:.5rem;flex-wrap:wrap;margin:.7rem 0}
+.status{font-size:.9rem;color:#aaccf2;min-height:1.5em}
+table{width:100%;border-collapse:collapse;font-size:.85rem}th,td{padding:.55rem .4rem;text-align:left;vertical-align:top;border-bottom:1px solid #35445f}
+tr:nth-child(even){background:#1b2b44}.scroll{overflow-x:auto;max-width:100%}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#09101c;color:#dce9ff;padding:.7rem;border-radius:8px;font-size:.79rem;max-height:60vh;overflow:auto}
+details{margin:.4rem 0;border-radius:8px;padding:.55rem;border:1px solid #364765}summary{cursor:pointer;font-weight:600}
+.muted{color:#a7bdd6;font-size:.85rem}.badge{border:1px solid #4e78a2;border-radius:1rem;padding:.12rem .48rem;display:inline-block;font-size:.75rem}
+@media(min-width:720px){.controls{grid-template-columns:2fr 2fr 1fr 1fr}.panels{display:grid;grid-template-columns:1fr 1fr;gap:1rem}}
