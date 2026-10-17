@@ -179,3 +179,15 @@ Nouvelle route de découverte volontaire : `GET /login/scope-probe/all`. Elle aj
 Ces essais ne demandent pas `offline`. Les tokens ne sont pas stockés ; seule la présence exacte des identifiants dans le champ `scope` est examinée. Si Scopely refuse `invalid_scope`, le résultat le signale sans exposer sa réponse brute ni tirer de conclusions sur les autres permissions. Si le champ `scope` est absent, le résultat reste `non vérifiable`. Aucun endpoint privé n’est interrogé au-delà du seul échange OAuth et les anciens parcours restent inchangés. Même un scope accordé ne prouve pas que les données sous-jacentes sont accessibles : une validation API distincte sera nécessaire avant toute intégration.
 
 **Ne pas ajouter ces scopes à la future connexion des capitaines (PR #25) sans validation.** Il faut attendre le test réel sur Keryas I. La PR #25 reste séparée de ce diagnostic.
+
+## Autorisations complètes pour les futurs capitaines
+
+La route `GET /login/captain` utilise un manifeste central dans `src/captain-scopes.js`. Elle demande les six permissions de consultation déclarées dans l’OpenAPI OAuth de Scopely, plus `m3p.f.ar.ros` (autorisation des rosters d’alliance prouvée en live le 16 octobre 2026), `openid` et `offline`. Il s'agit de **neuf scopes**, dont **sept permissions de consultation**.
+
+Cette route est distincte des diagnostics précédents. Elle reprend PKCE/state, cookies `Secure/HttpOnly/SameSite=Lax` et le callback déjà approuvé. Le résultat affiche **uniquement** les permissions présentes ou absentes dans le champ `scope` de la réponse OAuth, à côté de l'interface de rosters partagés déjà existante si `m3p.f.ar.ros` est confirmé. Aucune nouvelle donnée personnelle (inventaire, offres, activité) n’est téléchargée simplement parce que ces cases sont cochées.
+
+Ne pas demander les scopes hypothétiques `m3p.f.ar.inv`, `m3p.f.ar.raid`, `m3p.f.ar.war` et `m3p.f.ar.act` : ils apparaissent dans les étiquettes OpenAPI mais n'ont ni endpoints exploitables associés ni déclarations OAuth. Les endpoints publics game/v1 ne requièrent pas un consentement par fonctionnalité.
+
+**Limite bloquante :** `offline` ne crée pas de session durable tout seul. Les refresh tokens sont jetés et jamais stockés. Il faut **activer R2 privé et le coffre chiffré, gérer la rotation sérialisée des refresh tokens ainsi que la déconnexion, la révocation et l’effacement** avant de présenter ce parcours comme une connexion unique aux autres capitaines. Ne pas les inviter tant que ces étapes ne sont pas terminées. Un scope initialement accordé peut aussi être refusé/révoqué ultérieurement ; aucune promesse d'accès perpétuel.
+
+Sources : https://developer.marvelstrikeforce.com/beta/msf-api.json, `docs/oauth-session-architecture.md`, audit réel PR #22.
