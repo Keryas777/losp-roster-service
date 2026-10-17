@@ -7,7 +7,7 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<link rel="stylesheet" href="/admin-explorer.css"></head><body>'+
 '<header><h1>Administration LoSP — API MSF</h1><p>Données privées. Lecture seule.</p></header>'+
 '<main><section><h2>Comptes et alliances</h2><p id="summary"></p>'+
-'<button id="refresh">Actualiser</button> <button id="more" hidden>Comptes suivants</button></section>'+
+'<button id="refresh">Actualiser</button> <button id="more" hidden>Comptes suivants</button><div id="alliances" class="scroll"></div></section>'+
 '<section><h2>Explorer</h2><div class="controls">'+
 '<label>Compte<select id="session"></select></label>'+
 '<label>Rubrique<select id="resource"></select></label>'+
