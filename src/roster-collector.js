@@ -164,6 +164,13 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
     seenMembers.add(member.id);
     if (member.isSelf !== true && member.card?.rosterShare === true) candidates.push(member);
   }
+  // Persistent captain sessions are account-bound, not alliance-bound.
+  // Fail closed if Scopely cannot unambiguously identify the authorized
+  // player in the CURRENT members list. Legacy one-shot probes are unchanged.
+  if(options.requireCurrentMembership === true &&
+     members.filter(member=>member.isSelf===true).length !== 1){
+    return {status:"current-membership-unverified",requests:budget.used};
+  }
   const selected = candidates.slice(0, maxMembers);
   const rosters = [];
   const summary = {
