@@ -60,7 +60,8 @@ test("signed header and cookie work, bad signature remains denied",async()=>{
   assert.equal(await authenticateAdmin(request(jwt()),env,jwks),true);
   assert.equal(await diagnoseAdminAuth(request(jwt(),true),env,jwks),"ok");
   const original=jwt();
-  const forged=original.slice(0,-1)+(original.at(-1)==="a"?"b":"a");
+  const parts=original.split(".");
+  const forged=parts[0]+"."+parts[1]+"."+(parts[2][0]==="a"?"b":"a")+parts[2].slice(1);
   assert.notEqual(await diagnoseAdminAuth(request(forged),env,jwks),"ok");
   assert.equal((await handleAdmin(request(jwt()),env,jwks)).status,200);
 });
