@@ -89,9 +89,13 @@ export async function handleCaptainLanding(request,env){
   if(request.method!=="GET")return new Response("Method Not Allowed",{status:405});
   if(!captainConfigReady(env))return response({status:"not-configured"},503);
   const status=await handleCaptainSession(request,env);
-  let connected=false;
+  let connected=false,temporary=false;
   if(status.ok){
-    const body=await status.json();connected=body.status==="connected";
+    const body=await status.json();
+    connected=body.status==="connected";
+    temporary=body.status==="temporarily-unavailable";
+  } else {
+    temporary=true;
   }
   const html='<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
     '<meta name="viewport" content="width=device-width,initial-scale=1">'+
@@ -101,8 +105,10 @@ export async function handleCaptainLanding(request,env){
     (connected?'<p>Autorisation Scopely maintenue automatiquement.</p>'+
       '<p><a href="/captain/rosters">Consulter les rosters partagés</a></p>'+
       '<form method="post" action="/logout"><button type="submit">Révoquer ma connexion LoSP</button></form>':
-      '<p>Aucune session active dans ce navigateur ou renouvellement indisponible.</p>'+
-      '<p><a href="/login/captain">Autoriser à nouveau LoSP</a></p>')+
+      temporary ? '<p>Le renouvellement est temporairement indisponible. Votre autorisation n’a pas été supprimée.</p>'+
+        '<p><a href="/captain">Réessayer plus tard</a></p>' :
+        '<p>Aucune session active dans ce navigateur.</p>'+
+        '<p><a href="/login/captain">Autoriser à nouveau LoSP</a></p>')+
     '<p>Aucun jeton OAuth n’est exposé au navigateur.</p></main></body></html>';
   return new Response(html,{headers:{
     "Content-Type":"text/html; charset=utf-8",
