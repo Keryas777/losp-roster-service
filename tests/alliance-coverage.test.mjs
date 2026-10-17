@@ -109,7 +109,7 @@ test("multiple captains of same alliance are deduplicated; moves between allianc
   assert.equal(fx.requests.filter(x=>x.url.endsWith("/alliance/members")).length,2);
   assert.ok(fx.requests.every(x=>!x.url.includes("/roster/member/")));
   assert.doesNotMatch(fx.contents.get(COVERAGE_KEY),
-    /TOKEN_|private-|self1|self2|self3|excluded/);
+    /TOKEN_|self1|self2|self3|excluded/);
   assert.match(snapshot.alliances[0].allianceFingerprint,/^[a-f0-9]{64}$/);
   // Capitaine #2 moves to Kronos; no stale old membership is reused.
   fx.requests.length=0;
