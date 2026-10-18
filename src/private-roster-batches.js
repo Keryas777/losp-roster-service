@@ -42,7 +42,10 @@ async function readState(env,fp){
      s.totalEligible>100||s.completed>s.totalEligible||
      !Number.isFinite(Date.parse(s.expiresAt))||
      !Number.isFinite(Date.parse(s.startedAt))||
-     Date.parse(s.expiresAt)-Date.parse(s.startedAt)!==BATCH_MAX_AGE_MS)
+     Date.parse(s.expiresAt)-Date.parse(s.startedAt)!==BATCH_MAX_AGE_MS||
+     (s.baseline!==undefined&&(!s.baseline||!RUN.test(s.baseline.runId)||
+        !/^[0-9a-f]{64}$/.test(s.baseline.membershipDigest)||
+        !Number.isFinite(Date.parse(s.baseline.expiresAt)))))
     throw Error("invalid progress");
   return s;
 }
@@ -76,15 +79,17 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
   if(request.headers.get("Origin")!==url.origin||
      !(request.headers.get("Content-Type")||"").toLowerCase().startsWith("application/json"))
     return answer({status:"forbidden"},403);
-  let fp,restart;
+  let fp,restart,refresh;
   try{
     const raw=await request.text();
     if(raw.length>300)throw Error("too-large");
     const data=JSON.parse(raw);
     if(!data||typeof data!=="object"||Array.isArray(data)||
-       !FP.test(data.fingerprint)||Object.keys(data).some(k=>!["fingerprint","restart"].includes(k))||
-       (data.restart!==undefined&&data.restart!==true))throw Error("bad-payload");
-    fp=data.fingerprint;restart=data.restart===true;
+       !FP.test(data.fingerprint)||Object.keys(data).some(k=>!["fingerprint","restart","refresh"].includes(k))||
+       (data.restart!==undefined&&data.restart!==true)||
+       (data.refresh!==undefined&&data.refresh!==true)||
+       (data.restart===true&&data.refresh===true))throw Error("bad-payload");
+    fp=data.fingerprint;restart=data.restart===true;refresh=data.refresh===true;
   }catch{return answer({status:"invalid-selection"},400);}
   let holder=crypto.randomUUID(),acquired=false;
   try{
@@ -96,15 +101,42 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     let previous=restart?null:await readState(env,fp);
     if(previous&&Date.parse(previous.expiresAt)<=now)
       return answer({...publicState(previous,now),status:"expired-restart-required"},409);
-    if(previous&&previous.completed===previous.totalEligible)
+    // Only an explicitly completed previous run is a safe cache baseline.
+    if(refresh&&(!previous||previous.completed!==previous.totalEligible))
+      return answer({status:"refresh-requires-complete-run"},409);
+    if(previous&&previous.completed===previous.totalEligible&&!refresh)
       return answer(publicState(previous,now));
+    const baseline=refresh?{
+      runId:previous.runId,membershipDigest:previous.membershipDigest,
+      expiresAt:previous.expiresAt
+    }:previous?.baseline;
+    if(refresh)previous=null; // New isolated run, old complete objects stay private.
     const selected=await chooseAccount(env,fp,fetchImpl);
     if(selected.status!=="ok")return answer({status:selected.status},409);
     const startIndex=previous?.completed||0;
+    const cachedForMember=async(member,index)=>{
+      if(!baseline||Date.parse(baseline.expiresAt)<=now)return null;
+      try{
+        const obj=await env.CAPTAIN_BUCKET.get(playerKey(fp,baseline.runId,index));
+        if(!obj)return null;
+        const text=await obj.text();
+        if(text.length>MAX_SNAPSHOT_BYTES)return null;
+        const old=JSON.parse(text);
+        if(old.version!==1||old.runId!==baseline.runId||
+           old.allianceFingerprint!==fp||old.memberIndex!==index||
+           old.volatileMemberId!==member.id||
+           typeof old.asOf!=="string"||!old.asOf||
+           Date.parse(old.expiresAt)<=now)return null;
+        return {asOf:old.asOf,chars:old.characters};
+      }catch{return null;}
+    };
     const result=await collectAllianceRosterSample(selected.token,fetchImpl,{
       maxMembers:BATCH_SIZE,startIndex,charInfo:true,
+      preferSinglePage:true,cachedForMember,
       requireCurrentMembership:true,requireStableMembership:true,
-      includeMembershipDigest:true
+      includeMembershipDigest:true,
+      ...(previous||baseline?{expectedMembershipDigest:
+        previous?.membershipDigest||baseline.membershipDigest}:{})
     });
     if(result.status!=="complete")return answer({status:result.status},409);
     if(previous&&(previous.membershipDigest!==result.membershipDigest||
@@ -127,7 +159,8 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
       key:playerKey(fp,runId,startIndex+i),value:JSON.stringify({
         version:1,kind:"private-staged-microbatch",allianceFingerprint:fp,
         runId,memberIndex:startIndex+i,name:r.name,volatileMemberId:r.memberId,
-        capturedAt:new Date(now).toISOString(),expiresAt,characters:r.chars
+        capturedAt:new Date(now).toISOString(),expiresAt,
+        asOf:r.asOf||null,characters:r.chars
       })
     }));
     if(snapshots.some(s=>s.value.length>MAX_SNAPSHOT_BYTES))
@@ -141,14 +174,16 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     const updated={
       version:1,fingerprint:fp,runId,membershipDigest:result.membershipDigest,
       startedAt,expiresAt,totalEligible:result.sharedCount,
-      completed:startIndex+result.selectedCount
+      completed:startIndex+result.selectedCount,
+      ...(baseline?{baseline}:{})
     };
     await env.CAPTAIN_BUCKET.put(stateKey(fp),JSON.stringify(updated),{
       httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
     });
     return answer({...publicState(updated,now),
       savedThisBatch:result.selectedCount,charactersThisBatch:result.characterCount,
-      pagesThisBatch:result.pages,requestsThisBatch:result.requests,
+      pagesThisBatch:result.pages,unchangedThisBatch:result.unchangedCount,
+      requestsThisBatch:result.requests+(selected.discoveryRequests||0)+1,
       storage:"private-r2",publiclyAvailable:false});
   }catch{return answer({status:"batch-unavailable"},503);}
   finally{if(acquired)try{await lock(env,fp,"release",holder);}catch{}}
