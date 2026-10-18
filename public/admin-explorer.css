@@ -22,5 +22,14 @@ tr.alliance-themed td:first-child{box-shadow:inset 3px 0 var(--alliance-color)}
 select.alliance-themed{border-color:var(--alliance-color);background:linear-gradient(var(--alliance-surface),var(--alliance-surface)),#0e1829}
 pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#09101c;color:#dce9ff;padding:.7rem;border-radius:8px;font-size:.79rem;max-height:60vh;overflow:auto}
 details{margin:.4rem 0;border-radius:8px;padding:.55rem;border:1px solid #364765}summary{cursor:pointer;font-weight:600}
+.members-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr));gap:.65rem}
+.member-card{display:grid;align-content:start;gap:.35rem;padding:.75rem;border:1px solid #35445f;border-radius:10px;background:#101d31;min-width:0;overflow-wrap:anywhere}
+.member-card .member-name{font-size:1rem}
+.member-role{font-size:.83rem;color:#b1c3dc}
+.member-sharing{font-size:.88rem;color:#82d6ae}
+.member-unshared{border-color:#bd8050;background:#30251f}
+.member-sharing-off,.share-warning{color:#ffb982}
+.share-warning{font-weight:600}
+.member-card button{justify-self:start}
 .muted{color:#a7bdd6;font-size:.85rem}.badge{border:1px solid #4e78a2;border-radius:1rem;padding:.12rem .48rem;display:inline-block;font-size:.75rem}
 @media(min-width:720px){.controls{grid-template-columns:2fr 2fr 1fr 1fr}.panels{display:grid;grid-template-columns:1fr 1fr;gap:1rem}}
