@@ -2,7 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {createSign,generateKeyPairSync,webcrypto} from "node:crypto";
 import {adminReady,authenticateAdmin} from "../src/admin-auth.js";
-import {adminCatalog,adminSessionList,adminResource,API_RESOURCES} from "../src/admin-data-api.js";
+import {adminCatalog,adminSessionList,adminResource,adminCoverage,API_RESOURCES} from "../src/admin-data-api.js";
 import {handleAdmin} from "../src/admin-routes.js";
 import worker from "../src/index.js";
 
@@ -199,4 +199,38 @@ test("API routes with only OAuth captain login never grant admin access",async()
     Cookie:"__Host-losp_captain_session="+"x".repeat(43)
   }}),env);
   assert.equal(res.status,403);
+});
+
+test("admin coverage reads current alliance counts through stored grants, no R2 writes",async()=>{
+  const env=apiEnv();
+  env.CAPTAIN_COVERAGE_ENABLED="false";
+  env.CAPTAIN_BUCKET.put=async()=>{throw Error("Admin scan must not store game data");};
+  const fetchImpl=async(url,opts)=>url.endsWith("/cdn-cgi/access/certs")?
+    certs():dataFetch(url,opts);
+  const result=await handleAdmin(adminRequest("/admin/api/coverage",assertion()),env,fetchImpl);
+  assert.equal(result.status,200);
+  assert.match(result.headers.get("cache-control"),/no-store/);
+  const payload=await result.json();
+  assert.equal(payload.mode,"private-discovery-only");
+  assert.equal(payload.complete,true);
+  assert.equal(payload.scannedSessions,1);
+  assert.equal(payload.alliances.length,1);
+  assert.equal(payload.alliances[0].memberCount,3);
+  assert.equal(payload.alliances[0].sharedCount,2);
+  assert.equal(payload.alliances[0].notSharedCount,1);
+  assert.doesNotMatch(JSON.stringify(payload),/PRIVATE_ACCESS_TOKEN|Captain Alpha|Teammate|Not shared/);
+});
+
+test("admin coverage cannot be accessed with a captain cookie or forged Access header",async()=>{
+  const env=apiEnv();
+  let calls=0;
+  const provider=async()=>{calls++;throw Error("No provider data for unauthorized client");};
+  const request=new Request(origin+"/admin/api/coverage",{headers:{
+    Cookie:"__Host-losp_captain_session="+"x".repeat(43),
+    "Cf-Access-Authenticated-User-Email":"admin@example.test"
+  }});
+  assert.equal((await handleAdmin(request,env,provider)).status,403);
+  assert.equal(calls,0);
+  const missing=await adminCoverage({...env,CAPTAIN_BUCKET:null},provider);
+  assert.equal(missing.status,503);
 });
