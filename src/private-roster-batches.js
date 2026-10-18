@@ -177,7 +177,7 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     if(status!=="acquired")return answer({status:status==="busy"?"busy":"lock-unavailable"},409);
     acquired=true;
     const campaign=typeof internal?.campaign==="string"&&
-      /^\\d{4}-\\d{2}-\\d{2}-(?:am|pm)$/.test(internal.campaign)?
+      /^\d{4}-\d{2}-\d{2}-(?:am|pm)$/.test(internal.campaign)?
       internal.campaign:null;
     let previous=restart?null:await readState(env,fp);
     if(campaign&&previous?.campaign!==campaign)previous=null;
@@ -185,6 +185,8 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
       return answer({...publicState(previous,now),status:"expired-restart-required"},409);
     if(refresh&&(!previous||previous.completed!==previous.totalEligible))
       return answer({status:"refresh-requires-complete-run"},409);
+    if(campaign&&previous?.lastAutoTick===internal.tick)
+      return answer({status:"already-processed-tick"},200);
     if(previous&&previous.completed===previous.totalEligible&&!refresh&&
        (!campaign||previous.selfCompleted===true))
       return answer(publicState(previous,now));
@@ -261,7 +263,7 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
       version:1,fingerprint:fp,runId,membershipDigest:result.membershipDigest,
       startedAt,expiresAt,totalEligible:result.sharedCount,
       completed:startIndex+result.selectedCount,
-      ...(campaign?{campaign,selfCompleted:false}:{}),
+      ...(campaign?{campaign,selfCompleted:false,lastAutoTick:internal.tick}:{}),
       ...(baseline?{baseline}:{})
     };
     await env.CAPTAIN_BUCKET.put(stateKey(fp),JSON.stringify(updated),{
