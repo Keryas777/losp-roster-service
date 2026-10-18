@@ -12,6 +12,11 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<p>Bilan privé des sessions déjà autorisées. Relecture en direct de Scopely, sans téléchargement de rosters ni activation du scan quotidien.</p>'+
 '<button id="check-coverage" type="button">Vérifier toutes les alliances</button>'+
 '<p id="coverage-status" role="status"></p><div id="coverage" class="scroll"></div></section>'+
+'<section><h2>Diagnostic du PID joueur</h2>'+
+'<p>Vérifie si la fiche Scopely du compte sélectionné contient le PID permanent visible dans MSF. Une seule lecture officielle, sans sauvegarde.</p>'+
+'<label>PID visible dans le jeu (facultatif)<input id="pid-expected" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="12" placeholder="Ex. 12345678" autocomplete="off"></label>'+
+'<button id="pid-check" type="button">Analyser le profil du compte sélectionné</button>'+
+'<p id="pid-status" role="status"></p><div id="pid-result"></div></section>'+
 '<section><h2>Explorer</h2><div class="controls">'+
 '<label>Compte<select id="session"></select></label>'+
 '<label>Rubrique<select id="resource"></select></label>'+
@@ -22,7 +27,8 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '</div><p class="muted">Tous les champs des réponses, y compris les sous-objets, sont consultables en JSON brut.</p>'+
 '<button id="load">Afficher les données</button><p id="status" role="status"></p></section>'+
 '<section id="output">Choisis un compte et une rubrique.</section></main>'+
-'<script src="/admin-explorer.js" defer></script></body></html>';
+'<script src="/admin-explorer.js" defer></script>'+
+'<script src="/admin-pid-diagnostic.js" defer></script></body></html>';
 
 export async function handleAdmin(request,env,fetchImpl=fetch){
   if(request.method!=="GET")return new Response("Method Not Allowed",{status:405});
