@@ -105,7 +105,7 @@ async function oldSelf(env,fp,base,now){
     return {asOf:value.asOf,chars:value.characters,memberId:value.volatileMemberId};
   }catch{return null;}
 }
-async function finishSelf(env,fp,previous,selected,baseline,now,fetchImpl){
+async function finishSelf(env,fp,previous,selected,baseline,now,fetchImpl,tick){
   const old=await oldSelf(env,fp,baseline,now);
   // Only reuse the old personal roster when Scopely confirms the same
   // membership snapshot; collectPersonalRoster validates isSelf both times.
@@ -141,7 +141,7 @@ async function finishSelf(env,fp,previous,selected,baseline,now,fetchImpl){
     httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
   });
   await env.CAPTAIN_BUCKET.put(stateKey(fp),JSON.stringify({
-    ...previous,selfCompleted:true
+    ...previous,selfCompleted:true,lastAutoTick:tick
   }),{httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}});
   return answer({...publicState({...previous,selfCompleted:true},now),
     savedThisBatch:1,charactersThisBatch:report.chars.length,
@@ -200,7 +200,7 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     const selected=await chooseAccount(env,fp,fetchImpl);
     if(selected.status!=="ok")return answer({status:selected.status},409);
     if(campaign&&previous&&previous.completed===previous.totalEligible)
-      return finishSelf(env,fp,previous,selected,baseline,now,fetchImpl);
+      return finishSelf(env,fp,previous,selected,baseline,now,fetchImpl,internal.tick);
     const startIndex=previous?.completed||0;
     const cachedForMember=async(member,index)=>{
       if(!baseline||Date.parse(baseline.expiresAt)<=now)return null;
