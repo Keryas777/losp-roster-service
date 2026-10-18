@@ -26,7 +26,7 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<label>Rubrique<select id="resource"></select></label>'+
 '<label id="pages-wrap">Page / par page <input id="page" type="number" min="1" max="1000" value="1">'+
 '<input id="perPage" type="number" min="1" max="50" value="20"></label>'+
-'<label id="member-wrap" hidden>Membre partagé <input id="member" placeholder="ID Scopely"></label>'+
+'<label id="member-wrap" hidden>Membre partageant son roster <select id="member"></select></label>'+
 '<label id="entity-wrap" hidden>Identifiant du détail <input id="entity" placeholder="ID Scopely"></label>'+
 '</div><p class="muted">Tous les champs des réponses, y compris les sous-objets, sont consultables en JSON brut.</p>'+
 '<button id="load">Afficher les données</button><p id="status" role="status"></p></section>'+
