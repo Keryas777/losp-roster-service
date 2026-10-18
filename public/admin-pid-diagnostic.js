@@ -36,7 +36,7 @@ function analyzePidCard(card,expectedPid=""){
         if(scalar!==null){
           if(expectedPid && scalar===expectedPid && matches.length<20)
             matches.push(field);
-          if(looksLikeIdentityKey(key) && /^\\d{5,12}$/.test(scalar) &&
+          if(looksLikeIdentityKey(key) && /^\d{5,12}$/.test(scalar) &&
              candidates.length<20){
             candidates.push({field,value:scalar});
           }
@@ -66,7 +66,7 @@ async function runPidDiagnostic(){
     status.textContent="Sélectionne d'abord un compte dans la rubrique Explorer.";
     return;
   }
-  if(raw && !/^\\d{5,12}$/.test(raw)){
+  if(raw && !/^\d{5,12}$/.test(raw)){
     status.textContent="Le PID connu doit contenir de 5 à 12 chiffres, sans espace.";
     return;
   }
