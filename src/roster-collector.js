@@ -104,9 +104,12 @@ async function unpagedRoster(memberId,token,budget,fetchImpl,withInfo,cache){
   // Provider may cap unpaged results: never accept a known partial snapshot.
   if(meta.perTotal!==undefined&&(!nonNegativeInt(meta.perTotal)||
       meta.perTotal!==data.length))return {status:"fallback"};
-  if(meta.page!==undefined&&meta.page!==1)return {status:"invalid-pagination"};
-  if(meta.perPage!==undefined&&(!nonNegativeInt(meta.perPage)||
-      meta.perPage<data.length))return {status:"invalid-pagination"};
+  // Unpaged responses may use 0 as a sentinel for unlimited pagination.
+  // meta.perTotal (when supplied) is the authoritative completeness check.
+  if(meta.page!==undefined&&meta.page!==0&&meta.page!==1)
+    return {status:"invalid-pagination"};
+  if(meta.perPage!==undefined&&!nonNegativeInt(meta.perPage))
+    return {status:"invalid-pagination"};
   if(data.length===0||data.length>MAX_CHARACTERS_PER_MEMBER)
     return {status:"invalid-pagination"};
   const ids=new Set();
