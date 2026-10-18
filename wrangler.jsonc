@@ -13,7 +13,9 @@
   "vars": {
     "CAPTAIN_SESSIONS_ENABLED": "true",
     "CAPTAIN_COVERAGE_ENABLED": "false",
-    "MSF_ADMIN_ENABLED": "true"
+    "MSF_ADMIN_ENABLED": "true",
+    "ROSTER_AUTO_ENABLED": "false",
+    "ROSTER_RETENTION_CONFIRMED": "false"
   },
   "assets": {
     "directory": "./public",
@@ -33,6 +35,6 @@
     { "tag": "roster-batch-v1", "new_sqlite_classes": ["RosterBatchLock"] }
   ],
   "triggers": {
-    "crons": ["15 * * * *", "15 3 * * *"]
+    "crons": ["15 * * * *", "15 3 * * *", "*/2 2-5,14-17 * * *"]
   }
 }

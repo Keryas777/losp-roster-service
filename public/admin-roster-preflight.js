@@ -94,6 +94,31 @@ async function rosterBatchStart(alliance,button,status,restart=false,refresh=fal
       ". Progression précédente conservée.";
   }finally{button.disabled=false;}
 }
+async function showRosterAutoStatus(){
+  const target=rosterEl("roster-auto-status");
+  if(!target)return;
+  try{
+    const response=await fetch("/admin/api/roster-auto-status",{
+      credentials:"same-origin",cache:"no-store",
+      headers:{Accept:"application/json"}
+    });
+    if(!response.ok)throw Error("unavailable");
+    const state=await response.json();
+    if(!state.enabled){
+      target.textContent="Collecte automatique désactivée ; R2 privé uniquement. "+
+        "La règle de suppression après 7 jours doit être confirmée avant activation.";
+      return;
+    }
+    if(!state.retentionConfirmed){
+      target.textContent="Automatisation en attente : rétention R2 non confirmée.";
+      return;
+    }
+    target.textContent="Automatisation active : 2 campagnes quotidiennes, "+
+      "un micro-lot par passage. Appels API aujourd’hui : "+
+      state.requestsToday+"/"+state.dailyBudget+
+      ". Dernier état : "+(state.lastOutcome||"aucun")+".";
+  }catch{target.textContent="État de l’automatisation indisponible.";}
+}
 async function loadRosterPreflight(){
   const btn=rosterEl("roster-preflight"),status=rosterEl("roster-preflight-status"),
     parent=rosterEl("roster-preflight-list");
@@ -198,3 +223,5 @@ async function submitRosterApprovals(){
 }
 rosterEl("roster-preflight").addEventListener("click",loadRosterPreflight);
 rosterEl("roster-approve").addEventListener("click",submitRosterApprovals);
+
+void showRosterAutoStatus();

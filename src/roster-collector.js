@@ -88,11 +88,12 @@ function checkedCache(cache){
   }
   return cache;
 }
-async function unpagedRoster(memberId,token,budget,fetchImpl,withInfo,cache){
+async function unpagedRoster(memberId,token,budget,fetchImpl,withInfo,cache,personal=false){
   const qs="?statsFormat=csv"+(withInfo?"&lang=fr&charInfo=full":"")+
     (cache?"&since="+encodeURIComponent(cache.asOf):"");
-  const r=await request("/player/v1/roster/member/"+encodeURIComponent(memberId)+qs,
-    token,budget,fetchImpl);
+  const prefix=personal?"/player/v1/roster":
+    "/player/v1/roster/member/"+encodeURIComponent(memberId);
+  const r=await request(prefix+qs,token,budget,fetchImpl);
   if(r.status==="unchanged"){
     return cache?{status:"ok",roster:cache.chars,pages:0,
       asOf:cache.asOf,unchanged:true}:{status:"invalid-unchanged"};
@@ -124,7 +125,8 @@ async function unpagedRoster(memberId,token,budget,fetchImpl,withInfo,cache){
 async function collectMember(memberId, token, budget, fetchImpl, withInfo = false, options = {}) {
   const cache=checkedCache(options.cached);
   if(options.preferSinglePage===true){
-    const quick=await unpagedRoster(memberId,token,budget,fetchImpl,withInfo,cache);
+    const quick=await unpagedRoster(memberId,token,budget,fetchImpl,withInfo,cache,
+      options.personal===true);
     if(quick.status!=="fallback")return quick;
   }
   let perPage = options.preferSinglePage===true?200:DEFAULT_PAGE_SIZE;
@@ -136,7 +138,8 @@ async function collectMember(memberId, token, budget, fetchImpl, withInfo = fals
   let downsizes = 0;
 
   for (let page = 1; page <= MAX_PAGES_PER_MEMBER; page++) {
-    const path = "/player/v1/roster/member/" + encodeURIComponent(memberId) +
+    const path = (options.personal===true?"/player/v1/roster":
+      "/player/v1/roster/member/" + encodeURIComponent(memberId)) +
       "?page=" + page + "&perPage=" + perPage + "&statsFormat=csv" +
       (withInfo ? "&lang=fr&charInfo=full" : "");
     const response = await request(path, token, budget, fetchImpl);
@@ -300,6 +303,46 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
   return { status: "complete", ...summary, requests: budget.used, rosters,
     ...(options.includeMembershipDigest===true?{membershipDigest:initialDigest}:{}),
     ...(options.startIndex!==undefined?{startIndex}:{} ) };
+}
+
+/**
+ * Same paged/unpaged validation as shared rosters, but the OAuth account's
+ * PERSONAL endpoint. Only the current isSelf account may be mapped to it.
+ * Not a public route. No storage. Missing personal scope fails closed.
+ */
+export async function collectPersonalRoster(token,fetchImpl=fetch,options={}){
+  if(typeof token!=="string"||!token)return {status:"missing-token"};
+  const budget={used:0};
+  const first=await request("/player/v1/alliance/members",token,budget,fetchImpl);
+  if(first.status!=="ok")return {status:first.status,requests:budget.used};
+  const members=first.payload.data;
+  if(!Array.isArray(members)||members.length<1||members.length>MAX_ALLIANCE_MEMBERS||
+     members.some(x=>!object(x)||!validId(x.id)))
+    return {status:"invalid-members",requests:budget.used};
+  const self=members.filter(x=>x.isSelf===true);
+  if(self.length!==1||!object(self[0].card))
+    return {status:"current-membership-unverified",requests:budget.used};
+  const ids=new Set(members.map(x=>x.id));
+  if(ids.size!==members.length)return {status:"invalid-members",requests:budget.used};
+  const digest=await membershipDigest(members);
+  if(options.expectedMembershipDigest!==undefined&&
+     options.expectedMembershipDigest!==digest)
+    return {status:"membership-changed-restart-required",requests:budget.used};
+  const c=await collectMember(self[0].id,token,budget,fetchImpl,true,{
+    personal:true,preferSinglePage:true,cached:options.cached
+  });
+  if(c.status!=="ok")return {status:c.status,requests:budget.used};
+  if(!Array.isArray(c.roster)||!c.roster.length)
+    return {status:"empty-roster",requests:budget.used};
+  const last=await request("/player/v1/alliance/members",token,budget,fetchImpl);
+  if(last.status!=="ok")return {status:last.status,requests:budget.used};
+  if(!Array.isArray(last.payload.data)||
+     await membershipDigest(last.payload.data)!==digest)
+    return {status:"changed-during-read",requests:budget.used};
+  return {status:"complete",memberId:self[0].id,
+    name:typeof self[0].card.name==="string"?self[0].card.name:"",
+    chars:c.roster,asOf:c.asOf,unchanged:c.unchanged===true,
+    membershipDigest:digest,pages:c.pages,requests:budget.used};
 }
 
 function escapeHtml(x) {
