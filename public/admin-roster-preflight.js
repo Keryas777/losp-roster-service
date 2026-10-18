@@ -13,6 +13,30 @@ function rosterLine(parent,text,tag="p"){
   parent.appendChild(node);
   return node;
 }
+// Deliberately on-demand and bounded to one co-member; results stay in R2.
+async function runPrivateRosterPilot(alliance,button,status){
+  button.disabled=true;
+  status.textContent="Lecture complète du premier roster partagé de "+
+    alliance.name+" en cours…";
+  try{
+    const response=await fetch("/admin/api/roster-pilot",{
+      method:"POST",credentials:"same-origin",cache:"no-store",
+      headers:{"Content-Type":"application/json",Accept:"application/json"},
+      body:JSON.stringify({fingerprint:alliance.fingerprint})
+    });
+    const result=await response.json();
+    if(!response.ok||result.status!=="stored")
+      throw Error(typeof result.status==="string"?result.status:"unknown-error");
+    status.textContent="Pilote enregistré dans R2 privé : "+
+      result.player+" — "+result.characters+" personnages, "+
+      result.pages+" page(s), "+result.requests+
+      " appels. Expire le "+new Date(result.expiresAt).toLocaleDateString("fr-FR")+
+      ". Aucune transmission à la WebApp.";
+  }catch(e){
+    status.textContent="Pilote non enregistré : "+(e.message||"indisponible")+
+      ". Aucune donnée partielle n'a été sauvegardée.";
+  }finally{button.disabled=false;}
+}
 async function loadRosterPreflight(){
   const btn=rosterEl("roster-preflight"),status=rosterEl("roster-preflight-status"),
     parent=rosterEl("roster-preflight-list");
@@ -44,7 +68,17 @@ async function loadRosterPreflight(){
         " partages ; "+(a.captainConnections??0)+" connexion(s) ; "+
         (a.status==="available"?"API accessible":"indisponible")));
       parent.appendChild(label);
-      parent.appendChild(document.createElement("p"));
+      if(a.approved&&a.status==="available"){
+        const pilot=document.createElement("button");
+        pilot.type="button";
+        pilot.textContent="Tester 1 roster — "+a.name;
+        pilot.disabled=!report.complete;
+        const progress=document.createElement("p");
+        progress.setAttribute("role","status");
+        pilot.addEventListener("click",()=>runPrivateRosterPilot(a,pilot,progress));
+        parent.appendChild(pilot);
+        parent.appendChild(progress);
+      }else parent.appendChild(document.createElement("p"));
     }
     for(const absent of report.unobservedApproved||[])
       rosterLine(parent,"Alliance approuvée mais non retrouvée aujourd'hui : "+
