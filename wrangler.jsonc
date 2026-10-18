@@ -24,11 +24,13 @@
   ],
   "durable_objects": {
     "bindings": [
-      { "name": "CAPTAIN_REFRESH_COORDINATOR", "class_name": "CaptainRefreshCoordinator" }
+      { "name": "CAPTAIN_REFRESH_COORDINATOR", "class_name": "CaptainRefreshCoordinator" },
+      { "name": "ROSTER_BATCH_LOCK", "class_name": "RosterBatchLock" }
     ]
   },
   "migrations": [
-    { "tag": "captain-oauth-v1", "new_sqlite_classes": ["CaptainRefreshCoordinator"] }
+    { "tag": "captain-oauth-v1", "new_sqlite_classes": ["CaptainRefreshCoordinator"] },
+    { "tag": "roster-batch-v1", "new_sqlite_classes": ["RosterBatchLock"] }
   ],
   "triggers": {
     "crons": ["15 * * * *", "15 3 * * *"]
