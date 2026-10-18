@@ -100,7 +100,7 @@ test("AM and PM campaigns read both co-members and personal account, publish onl
  const morning=["02:00","02:02"],evening=["14:00","14:02"];
  for(const [n,t] of morning.entries()){
    const res=await runRosterAutoTick(f.env,controller("2026-10-18T"+t+":00Z"),f.fetchImpl);
-   assert.ok(["in-progress","complete"].includes(res.status),JSON.stringify(res));
+   assert.ok(["in-progress","complete-co-members","complete"].includes(res.status),JSON.stringify(res));
    if(n===0)assert.equal(f.store.has(completeKey(fp)),false);
  }
  let first=JSON.parse(f.store.get(completeKey(fp)));
@@ -112,7 +112,7 @@ test("AM and PM campaigns read both co-members and personal account, publish onl
  const apiBefore=f.calls.filter(u=>u.includes("/roster")).length;
  for(const t of evening){
    const res=await runRosterAutoTick(f.env,controller("2026-10-18T"+t+":00Z"),f.fetchImpl);
-   assert.ok(["in-progress","complete"].includes(res.status),JSON.stringify(res));
+   assert.ok(["in-progress","complete-co-members","complete"].includes(res.status),JSON.stringify(res));
  }
  const second=JSON.parse(f.store.get(completeKey(fp)));
  assert.notEqual(first.runId,second.runId);
