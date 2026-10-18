@@ -1,5 +1,5 @@
 import {diagnoseAdminAuth,adminReady} from "./admin-auth.js";
-import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron} from "./admin-data-api.js";
+import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron,adminMemberCard} from "./admin-data-api.js";
 
 const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<meta name="viewport" content="width=device-width,initial-scale=1">'+
@@ -17,7 +17,10 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<button id="check-coverage" type="button">Vérifier toutes les alliances</button>'+
 '<p id="coverage-status" role="status"></p><div id="coverage" class="scroll"></div></section>'+
 '<section><h2>Diagnostic du PID joueur</h2>'+
-'<p>Vérifie si la fiche Scopely du compte sélectionné contient le PID permanent visible dans MSF. Une seule lecture officielle, sans sauvegarde.</p>'+
+'<p>Compare le PID en jeu à la fiche officielle du <strong>même joueur</strong>. Le compte est choisi dans Explorer ; pour un coéquipier actuel, charge d\'abord ses membres. Les IDs d\'effectif sont temporaires.</p>'+
+'<label>Joueur à analyser<select id="pid-target"><option value="">Compte connecté</option></select></label>'+
+'<button id="pid-load-members" type="button">Charger les pseudos de l\'alliance actuelle</button>'+
+'<p id="pid-members-status" role="status"></p>'+
 '<label>PID visible dans le jeu (facultatif)<input id="pid-expected" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="12" placeholder="Ex. 12345678" autocomplete="off"></label>'+
 '<button id="pid-check" type="button">Analyser le profil du compte sélectionné</button>'+
 '<p id="pid-status" role="status"></p><div id="pid-result"></div></section>'+
@@ -63,5 +66,6 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   if(pathname==="/admin/api/coverage")return adminCoverage(env,fetchImpl);
   if(pathname==="/admin/api/refresh-cron")return adminRefreshCron(env);
   if(pathname==="/admin/api/data")return adminResource(request,env,fetchImpl);
+  if(pathname==="/admin/api/pid-member-card")return adminMemberCard(request,env,fetchImpl);
   return new Response("Not Found",{status:404});
 }

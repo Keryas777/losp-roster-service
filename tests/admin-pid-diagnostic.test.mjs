@@ -66,3 +66,65 @@ test("very large nested cards are bounded and unknown values never dumped",async
   assert.ok(result.unknownFields.length<=30);
   assert.doesNotMatch(JSON.stringify(result),/private-information/);
 });
+
+test("PID checker compares the selected member rather than the connected account, with no PID sent upstream",async()=>{
+  const js=await readFile(jsFile,"utf8"),visited=[];
+  function createElement(tag){
+    return {tag,children:[],value:"",textContent:"",
+      appendChild(child){this.children.push(child);},
+      replaceChildren(){this.children=[];},
+      addEventListener(){}};
+  }
+  const ids=Object.fromEntries(["pid-check","pid-load-members","pid-status",
+    "pid-members-status","pid-result","pid-target","session","pid-expected"]
+    .map(id=>[id,createElement("div")]));
+  ids.session.value="a".repeat(64);
+  ids["pid-expected"].value="50072723";
+  const document={createElement,getElementById:id=>ids[id]};
+  const fetch=async(url)=>{
+    visited.push(url);
+    if(url.includes("resource=alliance-members")){
+      return {ok:true,json:async()=>({resource:"alliance-members",payload:{data:[
+        {id:"self",isSelf:true,card:{name:"Keryas I"}},
+        {id:"current-member:3",isSelf:false,card:{name:"iZi",rosterShare:true}}
+      ]}})};
+    }
+    if(url.includes("pid-member-card")){
+      return {ok:true,json:async()=>({resource:"member-card",
+        payload:{data:{name:"iZi",socialState:"offline"}}})};
+    }
+    throw Error("Unexpected endpoint: "+url);
+  };
+  const {loadPidMembers,runPidDiagnostic}=runInNewContext(
+    js+"\n({loadPidMembers,runPidDiagnostic})",{document,fetch});
+  await loadPidMembers();
+  assert.equal(ids["pid-target"].children.length,2);
+  assert.equal(ids["pid-target"].children[1].textContent,"iZi");
+  ids["pid-target"].value="current-member:3";
+  await runPidDiagnostic();
+  assert.equal(ids["pid-result"].children[0].textContent,"Profil réellement lu : iZi");
+  assert.match(ids["pid-result"].children[1].textContent,/membre sélectionné : iZi/);
+  assert.equal(visited.length,2);
+  assert.match(visited[1],/pid-member-card\?session=/);
+  assert.match(visited[1],/member=current-member%3A3/);
+  assert.ok(visited.every(url=>!url.includes("50072723")));
+  assert.match(ids["pid-status"].textContent,/Diagnostic terminé/);
+  // A session change invalidates the volatile membership selection.
+  ids.session.value="b".repeat(64);
+  await runPidDiagnostic();
+  assert.match(ids["pid-status"].textContent,/Liste des membres périmée/);
+  assert.equal(visited.length,2);
+});
+
+test("PID member investigation makes mismatched profile names a hard stop",async()=>{
+  const js=await readFile(jsFile,"utf8");
+  assert.match(js,/cleanPidName\(scan.name\)!==memberName/);
+  assert.match(js,/pseudo du membre a changé/);
+  assert.match(js,/pidMemberSession!==selected/);
+  assert.match(js,/session.*addEventListener\("change",resetPidMembers\)/);
+  const page=await readFile(routesFile,"utf8");
+  assert.match(page,/id="pid-target"/);
+  assert.match(page,/id="pid-load-members"/);
+  assert.match(page,/admin\/api\/pid-member-card/);
+  assert.doesNotMatch(js,/localStorage|sessionStorage|innerHTML|console\./);
+});
