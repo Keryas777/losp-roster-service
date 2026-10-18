@@ -1,5 +1,5 @@
 import {diagnoseAdminAuth,adminReady} from "./admin-auth.js";
-import {adminSessionList,adminResource,adminCatalog} from "./admin-data-api.js";
+import {adminSessionList,adminResource,adminCatalog,adminCoverage} from "./admin-data-api.js";
 
 const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<meta name="viewport" content="width=device-width,initial-scale=1">'+
@@ -8,6 +8,10 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<header><h1>Administration LoSP — API MSF</h1><p>Données privées. Lecture seule.</p></header>'+
 '<main><section><h2>Comptes et alliances</h2><p id="summary"></p>'+
 '<button id="refresh">Actualiser</button> <button id="more" hidden>Comptes suivants</button><div id="alliances" class="scroll"></div></section>'+
+'<section><h2>Couverture des alliances</h2>'+
+'<p>Bilan privé des sessions déjà autorisées. Relecture en direct de Scopely, sans téléchargement de rosters ni activation du scan quotidien.</p>'+
+'<button id="check-coverage" type="button">Vérifier toutes les alliances</button>'+
+'<p id="coverage-status" role="status"></p><div id="coverage" class="scroll"></div></section>'+
 '<section><h2>Explorer</h2><div class="controls">'+
 '<label>Compte<select id="session"></select></label>'+
 '<label>Rubrique<select id="resource"></select></label>'+
@@ -46,6 +50,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   }
   if(pathname==="/admin/api/catalog")return adminCatalog();
   if(pathname==="/admin/api/sessions")return adminSessionList(env,fetchImpl,new URL(request.url));
+  if(pathname==="/admin/api/coverage")return adminCoverage(env,fetchImpl);
   if(pathname==="/admin/api/data")return adminResource(request,env,fetchImpl);
   return new Response("Not Found",{status:404});
 }
