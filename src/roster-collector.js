@@ -124,7 +124,7 @@ async function collectMember(memberId, token, budget, fetchImpl, withInfo = fals
     const quick=await unpagedRoster(memberId,token,budget,fetchImpl,withInfo,cache);
     if(quick.status!=="fallback")return quick;
   }
-  let perPage = DEFAULT_PAGE_SIZE;
+  let perPage = options.preferSinglePage===true?200:DEFAULT_PAGE_SIZE;
   let records = [];
   let seenIds = new Set();
   let expectedTotal = null;
@@ -237,8 +237,13 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
   if(options.includeMembershipDigest===true||options.startIndex!==undefined)
     candidates.sort((a,b)=>a.id.localeCompare(b.id));
   const selected = candidates.slice(startIndex, startIndex + maxMembers);
-  const initialDigest=options.requireStableMembership===true||options.includeMembershipDigest===true
-    ? await membershipDigest(members):null;
+  const initialDigest=options.requireStableMembership===true||options.includeMembershipDigest===true||
+    options.expectedMembershipDigest!==undefined?
+    await membershipDigest(members):null;
+  // Before reading ANY character, stop if a prior run's member roster changed.
+  if(options.expectedMembershipDigest!==undefined&&
+     initialDigest!==options.expectedMembershipDigest)
+    return {status:"membership-changed-restart-required",requests:budget.used};
   const rosters = [];
   const summary = {
     memberCount: members.length,
