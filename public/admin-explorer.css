@@ -15,6 +15,11 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
 .status{font-size:.9rem;color:#aaccf2;min-height:1.5em}
 table{width:100%;border-collapse:collapse;font-size:.85rem}th,td{padding:.55rem .4rem;text-align:left;vertical-align:top;border-bottom:1px solid #35445f}
 tr:nth-child(even){background:#1b2b44}.scroll{overflow-x:auto;max-width:100%}
+/* Same source color across label, background tint and outline; no alliance hardcode. */
+tr.alliance-themed,tr:nth-child(even).alliance-themed{background:var(--alliance-surface)}
+tr.alliance-themed td{border-bottom-color:var(--alliance-outline)}
+tr.alliance-themed td:first-child{box-shadow:inset 3px 0 var(--alliance-color)}
+select.alliance-themed{border-color:var(--alliance-color);background:linear-gradient(var(--alliance-surface),var(--alliance-surface)),#0e1829}
 pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#09101c;color:#dce9ff;padding:.7rem;border-radius:8px;font-size:.79rem;max-height:60vh;overflow:auto}
 details{margin:.4rem 0;border-radius:8px;padding:.55rem;border:1px solid #364765}summary{cursor:pointer;font-weight:600}
 .muted{color:#a7bdd6;font-size:.85rem}.badge{border:1px solid #4e78a2;border-radius:1rem;padding:.12rem .48rem;display:inline-block;font-size:.75rem}
