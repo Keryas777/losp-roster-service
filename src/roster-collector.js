@@ -181,6 +181,10 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
      members.filter(member=>member.isSelf===true).length !== 1){
     return {status:"current-membership-unverified",requests:budget.used};
   }
+  // Resume indexes must be stable even when Scopely reorders the same members.
+  // Keep legacy one-shot's upstream order when no offset/digest was requested.
+  if(options.includeMembershipDigest===true||options.startIndex!==undefined)
+    candidates.sort((a,b)=>a.id.localeCompare(b.id));
   const selected = candidates.slice(startIndex, startIndex + maxMembers);
   const initialDigest=options.requireStableMembership===true||options.includeMembershipDigest===true
     ? await membershipDigest(members):null;
