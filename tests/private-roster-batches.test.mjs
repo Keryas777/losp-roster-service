@@ -24,7 +24,7 @@ const request=(fp=fingerprint,extra={})=>
     body:JSON.stringify({fingerprint:fp,...extra})});
 const statusRequest=fp=>new Request(origin+"/admin/api/roster-batch-status?fingerprint="+fp);
 function fixture(){
- const store=new Map(),logs=[],storage=new Map(),counters={calls:0,revision:0};
+ const store=new Map(),logs=[],storage=new Map(),counters={calls:0,revision:0,reorder:false};
  store.set(ROSTER_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
    {name:"Zeus",fingerprint},
    {name:"Kronos",fingerprint:otherFinger}
@@ -61,7 +61,7 @@ function fixture(){
    if(url.endsWith("/alliance/card"))
      return Response.json({data:{id:aid+":version1",name:aid}});
    if(url.endsWith("/alliance/members"))return Response.json({data:[
-     mkMember("self",true),...users.map((x,i)=>mkMember(
+     mkMember("self",true),...(counters.reorder?[...users].reverse():users).map((x,i)=>mkMember(
        counters.revision&&i===2?x+"-changed":x)),mkMember("private",false,false)
    ]});
    if(url.includes("/roster/member/")){
@@ -121,6 +121,18 @@ test("manual resume skips previous members and reaches 'complete-co-members' aft
  const res=await handleRosterMicrobatch(request(),f.env,f.api,now+12000);
  assert.equal((await res.json()).status,"complete-co-members");
  assert.equal(f.counters.calls,callsBefore);
+});
+test("upstream member reordering does not duplicate or skip players between batches",async()=>{
+ const f=fixture(),now=Date.UTC(2026,9,18,18);
+ const first=await handleRosterMicrobatch(request(),f.env,f.api,now);
+ assert.equal(first.status,200);
+ f.counters.reorder=true;
+ const second=await handleRosterMicrobatch(request(),f.env,f.api,now+60000);
+ assert.equal(second.status,200);
+ assert.equal((await second.json()).completed,4);
+ const stored=[...f.store.keys()].filter(k=>k.includes("/member-"));
+ assert.deepEqual(stored.map(k=>JSON.parse(f.store.get(k)).name),
+   ["Player A","Player B","Player C","Player D"]);
 });
 test("a change in roster membership blocks resume and preserves old progress",async()=>{
  const f=fixture();
