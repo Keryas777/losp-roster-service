@@ -68,3 +68,17 @@ test("admin stylesheet respects hidden inputs and constrains mobile controls",as
   assert.match(css,/label\{[^}]*min-width:0\}/);
   assert.match(css,/select,input\{width:100%;min-width:0\}/);
 });
+
+test("alliance identity tokens theme rows and account selector with a subtle tint",async()=>{
+  const js=await readFile(filename,"utf8");
+  const css=await readFile(cssPath,"utf8");
+  assert.match(js,/function applyAllianceTheme\(element,color\)/);
+  assert.match(js,/applyAllianceTheme\(r,value\.color\)/);
+  assert.match(js,/applyAllianceTheme\(sessionSelect,color\)/);
+  assert.match(js,/element\.style\.setProperty\("--alliance-color",color\)/);
+  assert.match(js,/element\.style\.setProperty\("--alliance-surface",color\+"18"\)/);
+  assert.match(js,/element\.style\.setProperty\("--alliance-outline",color\+"80"\)/);
+  assert.match(css,/tr\.alliance-themed/);
+  assert.match(css,/td:first-child\{box-shadow:inset 3px 0 var\(--alliance-color\)\}/);
+  assert.match(css,/select\.alliance-themed/);
+});
