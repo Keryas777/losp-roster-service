@@ -203,7 +203,7 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
        (!campaign||previous.selfCompleted===true))
       return answer(publicState(previous,now));
     const pointer=campaign?await latestComplete(env,fp,now):null;
-    const baseline=campaign?(previous?.baseline||
+    let baseline=campaign?(previous?.baseline||
       (pointer?{runId:pointer.runId,membershipDigest:pointer.membershipDigest,
         expiresAt:pointer.expiresAt}:null)):
       refresh?{runId:previous.runId,membershipDigest:previous.membershipDigest,
@@ -230,14 +230,26 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
         return {asOf:old.asOf,chars:old.characters};
       }catch{return null;}
     };
-    const result=await collectAllianceRosterSample(selected.token,fetchImpl,{
+    const options={
       maxMembers:BATCH_SIZE,startIndex,charInfo:true,
       preferSinglePage:true,cachedForMember,
       requireCurrentMembership:true,requireStableMembership:true,
       includeMembershipDigest:true,
       ...(previous||baseline?{expectedMembershipDigest:
         previous?.membershipDigest||baseline.membershipDigest}:{})
-    });
+    };
+    let result=await collectAllianceRosterSample(selected.token,fetchImpl,options);
+    let extraRequests=0;
+    // The old valid baseline becomes unusable after a transfer/consent change.
+    // Automatically start a clean NEW campaign rather than remain stuck for 7 days.
+    if(result.status==="membership-changed-restart-required"&&
+       campaign&&!previous&&baseline){
+      extraRequests=result.requests||0;
+      baseline=null;
+      result=await collectAllianceRosterSample(selected.token,fetchImpl,{
+        ...options,cachedForMember:undefined,expectedMembershipDigest:undefined
+      });
+    }
     if(result.status!=="complete")return answer({status:result.status},409);
     if(previous&&(previous.membershipDigest!==result.membershipDigest||
        previous.totalEligible!==result.sharedCount))
@@ -285,7 +297,7 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     return answer({...publicState(updated,now),
       savedThisBatch:result.selectedCount,charactersThisBatch:result.characterCount,
       pagesThisBatch:result.pages,unchangedThisBatch:result.unchangedCount,
-      requestsThisBatch:result.requests+(selected.discoveryRequests||0)+1,
+      requestsThisBatch:result.requests+extraRequests+(selected.discoveryRequests||0)+1,
       storage:"private-r2",publiclyAvailable:false});
   }catch{return answer({status:"batch-unavailable"},503);}
   finally{if(acquired)try{await lock(env,fp,"release",holder);}catch{}}
