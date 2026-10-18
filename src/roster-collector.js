@@ -56,6 +56,8 @@ async function request(path, token, budget, fetchImpl) {
   } catch {
     return { status: "network-error" };
   }
+  // Official conditional GET: 344 UNCHANGED, only useful with a matching cached roster.
+  if (response.status === 344) return { status: "unchanged" };
   if (!response.ok) return { status: statusFor(response.status) };
   if ((Number(response.headers.get("content-length")) || 0) > MAX_RESPONSE_BYTES) {
     return { status: "response-too-large" };
@@ -72,8 +74,60 @@ async function request(path, token, budget, fetchImpl) {
   return object(payload) ? { status: "ok", payload } : { status: "invalid-data" };
 }
 
-async function collectMember(memberId, token, budget, fetchImpl, withInfo = false) {
-  let perPage = DEFAULT_PAGE_SIZE;
+// Scopely OpenAPI: omitting perPage requests all results. Try once before
+// pagination, but preserve strict bounds and gracefully fall back on 472/size.
+// Scopely's since=meta.asOf can return HTTP 344 for an unchanged roster.
+function checkedCache(cache){
+  if(!cache||typeof cache.asOf!=="string"||cache.asOf.length<1||cache.asOf.length>512||
+     !Array.isArray(cache.chars)||cache.chars.length===0||
+     cache.chars.length>MAX_CHARACTERS_PER_MEMBER)return null;
+  const seen=new Set();
+  for(const c of cache.chars){
+    if(!object(c)||!validId(c.id)||seen.has(c.id))return null;
+    seen.add(c.id);
+  }
+  return cache;
+}
+async function unpagedRoster(memberId,token,budget,fetchImpl,withInfo,cache){
+  const qs="?statsFormat=csv"+(withInfo?"&lang=fr&charInfo=full":"")+
+    (cache?"&since="+encodeURIComponent(cache.asOf):"");
+  const r=await request("/player/v1/roster/member/"+encodeURIComponent(memberId)+qs,
+    token,budget,fetchImpl);
+  if(r.status==="unchanged"){
+    return cache?{status:"ok",roster:cache.chars,pages:0,
+      asOf:cache.asOf,unchanged:true}:{status:"invalid-unchanged"};
+  }
+  if(r.status==="response-too-large")return {status:"fallback"};
+  if(r.status!=="ok")return {status:r.status};
+  const data=r.payload.data,meta=r.payload.meta;
+  if(!Array.isArray(data)||!object(meta))return {status:"invalid-data"};
+  // Provider may cap unpaged results: never accept a known partial snapshot.
+  if(meta.perTotal!==undefined&&(!nonNegativeInt(meta.perTotal)||
+      meta.perTotal!==data.length))return {status:"fallback"};
+  // Unpaged responses may use 0 as a sentinel for unlimited pagination.
+  // meta.perTotal (when supplied) is the authoritative completeness check.
+  if(meta.page!==undefined&&meta.page!==0&&meta.page!==1)
+    return {status:"invalid-pagination"};
+  if(meta.perPage!==undefined&&!nonNegativeInt(meta.perPage))
+    return {status:"invalid-pagination"};
+  if(data.length===0||data.length>MAX_CHARACTERS_PER_MEMBER)
+    return {status:"invalid-pagination"};
+  const ids=new Set();
+  for(const c of data){
+    if(!object(c)||!validId(c.id))return {status:"invalid-character"};
+    if(ids.has(c.id))return {status:"duplicate-character"};
+    ids.add(c.id);
+  }
+  return {status:"ok",roster:data,pages:1,
+    asOf:typeof meta.asOf==="string"?meta.asOf:null,unchanged:false};
+}
+async function collectMember(memberId, token, budget, fetchImpl, withInfo = false, options = {}) {
+  const cache=checkedCache(options.cached);
+  if(options.preferSinglePage===true){
+    const quick=await unpagedRoster(memberId,token,budget,fetchImpl,withInfo,cache);
+    if(quick.status!=="fallback")return quick;
+  }
+  let perPage = options.preferSinglePage===true?200:DEFAULT_PAGE_SIZE;
   let records = [];
   let seenIds = new Set();
   let expectedTotal = null;
@@ -133,11 +187,11 @@ async function collectMember(memberId, token, budget, fetchImpl, withInfo = fals
       return { status: "invalid-pagination" };
     }
     if (expectedTotal !== null && records.length === expectedTotal) {
-      return { status: "ok", roster: records, pages };
+      return { status: "ok", roster: records, pages, asOf:observedAsOf,unchanged:false };
     }
     // Without reliable perTotal, the first short/empty page closes pagination.
     if (expectedTotal === null && data.length < perPage) {
-      return { status: "ok", roster: records, pages };
+      return { status: "ok", roster: records, pages, asOf:observedAsOf,unchanged:false };
     }
     if (data.length === 0) return { status: "invalid-pagination" };
   }
@@ -186,8 +240,13 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
   if(options.includeMembershipDigest===true||options.startIndex!==undefined)
     candidates.sort((a,b)=>a.id.localeCompare(b.id));
   const selected = candidates.slice(startIndex, startIndex + maxMembers);
-  const initialDigest=options.requireStableMembership===true||options.includeMembershipDigest===true
-    ? await membershipDigest(members):null;
+  const initialDigest=options.requireStableMembership===true||options.includeMembershipDigest===true||
+    options.expectedMembershipDigest!==undefined?
+    await membershipDigest(members):null;
+  // Before reading ANY character, stop if a prior run's member roster changed.
+  if(options.expectedMembershipDigest!==undefined&&
+     initialDigest!==options.expectedMembershipDigest)
+    return {status:"membership-changed-restart-required",requests:budget.used};
   const rosters = [];
   const summary = {
     memberCount: members.length,
@@ -195,19 +254,27 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
     selectedCount: selected.length,
     completedCount: 0,
     characterCount: 0,
-    pages: 0
+    pages: 0,
+    unchangedCount: 0
   };
   for (const candidate of selected) {
-    const result = await collectMember(candidate.id, token, budget, fetchImpl, withInfo);
+    // Only internally validated, member-bound snapshots may be supplied here.
+    const cached=typeof options.cachedForMember==="function"?
+      await options.cachedForMember(candidate,startIndex+rosters.length):null;
+    const result = await collectMember(candidate.id, token, budget, fetchImpl, withInfo,{
+      preferSinglePage:options.preferSinglePage===true,cached
+    });
     if (result.status !== "ok") {
       // Fail closed: discard all partial rosters and never return their contents.
       return { status: result.status, ...summary, requests: budget.used };
     }
     // Kept exclusively in this invocation's memory for future privately approved storage.
-    rosters.push({ memberId: candidate.id, name: candidate.card.name, chars: result.roster });
+    rosters.push({ memberId: candidate.id, name: candidate.card.name,
+      chars: result.roster,asOf:result.asOf,unchanged:result.unchanged===true });
     summary.completedCount++;
     summary.characterCount += result.roster.length;
     summary.pages += result.pages;
+    if(result.unchanged===true)summary.unchangedCount++;
   }
   if(options.requireStableMembership===true){
     // A memberId is volatile when the alliance roster version changes.

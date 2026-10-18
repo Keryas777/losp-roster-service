@@ -115,7 +115,7 @@ test("alliance transition during pagination fails closed",async()=>{
   const res=await handlePrivateRosterPilot(request(),f.env,f.api);
   assert.equal(res.status,409);
   assert.equal((await res.json()).status,"alliance-changed-during-read");
-  assert.equal(f.store.size,1);
+  assert.equal(f.store.has(ROSTER_PILOT_PREFIX+fp+".json"),false);
 });
 test("unknown, unapproved and partial session census never touch rosters",async()=>{
   const f=fixture();

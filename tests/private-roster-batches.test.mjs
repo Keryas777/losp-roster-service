@@ -24,7 +24,7 @@ const request=(fp=fingerprint,extra={})=>
     body:JSON.stringify({fingerprint:fp,...extra})});
 const statusRequest=fp=>new Request(origin+"/admin/api/roster-batch-status?fingerprint="+fp);
 function fixture(){
- const store=new Map(),logs=[],storage=new Map(),counters={calls:0,revision:0,reorder:false};
+ const store=new Map(),logs=[],storage=new Map(),counters={calls:0,revision:0,reorder:false,changedRosters:false,conditionalHits:0};
  store.set(ROSTER_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
    {name:"Zeus",fingerprint},
    {name:"Kronos",fingerprint:otherFinger}
@@ -67,12 +67,21 @@ function fixture(){
    if(url.includes("/roster/member/")){
      const u=new URL(url),id=u.pathname.split("/").at(-1);
      assert.notEqual(id,"private");assert.notEqual(id,"self");
-     const page=Number(u.searchParams.get("page")),perPage=Number(u.searchParams.get("perPage"));
+     const conditional=u.searchParams.get("since");
+     if(conditional==="2026-10-18"&&!counters.changedRosters){
+       counters.conditionalHits++;
+       return new Response(null,{status:344});
+     }
+     const page=Number(u.searchParams.get("page")||1);
+     const perPage=u.searchParams.has("perPage")?Number(u.searchParams.get("perPage")):207;
      const chars=Array.from({length:207},(_,i)=>({
-       id:id+"_c"+i,power:200000+i,gear:20,iso8:{class:"striker"}
+       id:id+"_c"+i,power:200000+i+(counters.changedRosters?100:0),gear:20,
+       iso8:{class:"striker"}
      }));
+     const paged=u.searchParams.has("perPage");
      return Response.json({data:chars.slice((page-1)*perPage,page*perPage),
-       meta:{page,perPage,perTotal:207,asOf:"2026-10-18"}});
+       meta:{...(paged?{page,perPage}:{}),perTotal:207,
+         asOf:counters.changedRosters?"2026-10-19":"2026-10-18"}});
    }
    throw Error("Bad provider URL "+url);
  };
@@ -90,7 +99,7 @@ test("a two-player batch persists only complete separate R2 objects and advances
  assert.equal(body.charactersThisBatch,414);
  assert.equal(body.completed,2);assert.equal(body.eligibleCoMembers,5);
  assert.equal(body.remaining,3);
- assert.equal(body.pagesThisBatch,6);
+ assert.equal(body.pagesThisBatch,2);
  assert.equal(body.publiclyAvailable,false);
  const state=JSON.parse(f.store.get(BATCH_PREFIX+fingerprint+"/progress.json"));
  assert.equal(state.completed,2);
@@ -133,6 +142,58 @@ test("upstream member reordering does not duplicate or skip players between batc
  const stored=[...f.store.keys()].filter(k=>k.includes("/member-"));
  assert.deepEqual(stored.map(k=>JSON.parse(f.store.get(k)).name),
    ["Player A","Player B","Player C","Player D"]);
+});
+test("completed baseline refresh uses one since/344 call per unchanged member",async()=>{
+ const f=fixture(),now=Date.UTC(2026,9,18,18);
+ for(const expected of [2,4,5]){
+   const a=await handleRosterMicrobatch(request(),f.env,f.api,now+expected*1000);
+   assert.equal((await a.json()).completed,expected);
+ }
+ const oldState=JSON.parse(f.store.get(BATCH_PREFIX+fingerprint+"/progress.json"));
+ const res=await handleRosterMicrobatch(request(fingerprint,{refresh:true}),f.env,f.api,now+3600000);
+ assert.equal(res.status,200);
+ const data=await res.json();
+ assert.equal(data.unchangedThisBatch,2);
+ assert.equal(data.pagesThisBatch,0);
+ assert.equal(data.savedThisBatch,2);
+ assert.equal(f.counters.conditionalHits,2);
+ const refreshed=JSON.parse(f.store.get(BATCH_PREFIX+fingerprint+"/progress.json"));
+ assert.notEqual(refreshed.runId,oldState.runId);
+ assert.equal(refreshed.baseline.runId,oldState.runId);
+ assert.equal(refreshed.completed,2);
+ const newRecords=[...f.store.keys()].filter(k=>k.includes("/"+refreshed.runId+"/member-"));
+ assert.equal(newRecords.length,2);
+ assert.equal(JSON.parse(f.store.get(newRecords[0])).characters.length,207);
+ assert.ok(f.counters.calls<40);
+});
+test("since returns changed roster: fetch full result once, never preserve stale cached power",async()=>{
+ const f=fixture(),now=Date.UTC(2026,9,18,18);
+ for(const expected of [2,4,5])await handleRosterMicrobatch(request(),f.env,f.api,now+expected*1000);
+ f.counters.changedRosters=true;
+ const res=await handleRosterMicrobatch(request(fingerprint,{refresh:true}),f.env,f.api,now+7200000);
+ assert.equal(res.status,200);
+ const result=await res.json();
+ assert.equal(result.unchangedThisBatch,0);
+ assert.equal(result.pagesThisBatch,2);
+ assert.equal(result.charactersThisBatch,414);
+ const next=JSON.parse(f.store.get(BATCH_PREFIX+fingerprint+"/progress.json"));
+ const newObj=JSON.parse(f.store.get(BATCH_PREFIX+fingerprint+"/"+next.runId+"/member-0.json"));
+ assert.equal(newObj.characters[0].power,200100);
+});
+test("refresh cannot start with incomplete baseline or changed membership",async()=>{
+ const f=fixture();
+ const invalid=await handleRosterMicrobatch(request(fingerprint,{refresh:true}),f.env,f.api);
+ assert.equal(invalid.status,409);
+ assert.equal((await invalid.json()).status,"refresh-requires-complete-run");
+ for(const expected of [2,4,5])await handleRosterMicrobatch(request(),f.env,f.api);
+ const before=f.store.get(BATCH_PREFIX+fingerprint+"/progress.json");
+ const countBefore=f.counters.calls;
+ f.counters.revision=1;
+ const changed=await handleRosterMicrobatch(request(fingerprint,{refresh:true}),f.env,f.api);
+ assert.equal(changed.status,409);
+ assert.equal((await changed.json()).status,"membership-changed-restart-required");
+ assert.equal(f.store.get(BATCH_PREFIX+fingerprint+"/progress.json"),before);
+ assert.ok(f.counters.calls-countBefore<=4);
 });
 test("a change in roster membership blocks resume and preserves old progress",async()=>{
  const f=fixture();
