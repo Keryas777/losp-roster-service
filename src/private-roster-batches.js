@@ -95,7 +95,7 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     acquired=true;
     let previous=restart?null:await readState(env,fp);
     if(previous&&Date.parse(previous.expiresAt)<=now)
-      return answer({status:"expired-restart-required",...publicState(previous,now)},409);
+      return answer({...publicState(previous,now),status:"expired-restart-required"},409);
     if(previous&&previous.completed===previous.totalEligible)
       return answer(publicState(previous,now));
     const selected=await chooseAccount(env,fp,fetchImpl);
