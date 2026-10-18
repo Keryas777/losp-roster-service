@@ -162,6 +162,35 @@ export async function adminSessionList(env,fetchImpl=fetch,url){
   }
   return json({sessions,nextCursor:listing.truncated?listing.cursor:null});
 }
+// PID investigation only: retrieve the public PlayerCard of a CURRENT alliance
+// member, resolving the volatile member ID again on every request. No roster
+// sharing permission is implied or bypassed by this read-only card endpoint.
+export async function adminMemberCard(request,env,fetchImpl=fetch){
+  if(!captainConfigReady(env))return json({error:"storage-unavailable"},503);
+  const url=new URL(request.url);
+  const sid=url.searchParams.get("session"),member=url.searchParams.get("member");
+  if(!sid||!/^[a-f0-9]{64}$/.test(sid)||!validId(member))
+    return json({error:"invalid-request"},400);
+  const key=CAPTAIN_PREFIX+sid;
+  if(!validCaptainKey(key))return json({error:"invalid-session"},400);
+  const token=await tokenForKey(env,key);
+  if(!token)return json({error:"session-unavailable"},503);
+  const current=await getProvider("/player/v1/alliance/members",token,fetchImpl);
+  if(current.error)return json({error:current.error},502);
+  const members=current.payload?.data;
+  if(!Array.isArray(members)||members.filter(m=>m?.isSelf===true).length!==1)
+    return json({error:"invalid-current-membership"},502);
+  const matches=members.filter(m=>m?.id===member&&m?.isSelf!==true);
+  if(matches.length!==1)return json({error:"not-a-current-member"},403);
+  const result=await getProvider("/player/v1/card/member/"+encodeURIComponent(member),token,fetchImpl);
+  if(result.error)return json({error:result.error},502);
+  const card=result.payload?.data;
+  if(!card||typeof card!=="object"||Array.isArray(card)||
+    typeof card.name!=="string"||!card.name.trim())
+    return json({error:"invalid-provider-response"},502);
+  return json({resource:"member-card",receivedAt:new Date().toISOString(),
+    payload:result.payload});
+}
 export async function adminResource(request,env,fetchImpl=fetch){
   if(!captainConfigReady(env))return json({error:"storage-unavailable"},503);
   const url=new URL(request.url);
