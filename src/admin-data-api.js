@@ -191,6 +191,46 @@ export async function adminMemberCard(request,env,fetchImpl=fetch){
   return json({resource:"member-card",receivedAt:new Date().toISOString(),
     payload:result.payload});
 }
+// Exploratory OIDC identity check of the CONNECTED account only.
+// /userinfo is a standard Hydra route, not a confirmed MSF PID API route.
+// Never return an access token, raw OIDC claims, opaque subject or identities.
+const OIDC_USERINFO="https://hydra-public.prod.m3.scopelypv.com/userinfo";
+export async function adminOidcIdentity(request,env,fetchImpl=fetch){
+  if(!captainConfigReady(env))return json({error:"storage-unavailable"},503);
+  const url=new URL(request.url);
+  const sid=url.searchParams.get("session");
+  if(!sid||!/^[a-f0-9]{64}$/.test(sid))return json({error:"invalid-request"},400);
+  // No arbitrary userID, PID or alternate endpoint is accepted.
+  if([...url.searchParams.keys()].some(k=>k!=="session"))
+    return json({error:"invalid-request"},400);
+  const token=await tokenForKey(env,CAPTAIN_PREFIX+sid);
+  if(!token)return json({error:"session-unavailable"},503);
+  try{
+    const res=await fetchImpl(OIDC_USERINFO,{
+      method:"GET",cache:"no-store",redirect:"manual",
+      signal:AbortSignal.timeout(12000),
+      headers:{Authorization:"Bearer "+token,Accept:"application/json"}
+    });
+    // Do not forward provider redirects, bodies, headers or error details.
+    if(res.status===404||res.status===405)return json({status:"not-supported"});
+    if(!res.ok)return json({status:"provider-rejected",httpStatus:res.status},200);
+    const size=Number(res.headers.get("content-length")||0);
+    if(!Number.isFinite(size)||size>32768)return json({status:"invalid-response"});
+    const raw=await res.text();
+    if(raw.length>32768)return json({status:"invalid-response"});
+    const claims=JSON.parse(raw);
+    if(!claims||Array.isArray(claims)||typeof claims!=="object"||
+       typeof claims.sub!=="string"||claims.sub.length<1||claims.sub.length>256)
+      return json({status:"no-sub-claim"});
+    const numeric=/^\d{5,12}$/.test(claims.sub);
+    return json({status:"ok",
+      subjectType:numeric?"numeric-candidate":"opaque",
+      ...(numeric?{numericCandidate:claims.sub}:{}),
+      // 'sub' identifies an OIDC subject; it is NOT proven to be a MSF PID.
+      claimNames:Object.keys(claims).filter(k=>/^(sub|acr|amr|iss|aud)$/.test(k))
+    });
+  }catch{return json({status:"provider-unavailable"});}
+}
 export async function adminResource(request,env,fetchImpl=fetch){
   if(!captainConfigReady(env))return json({error:"storage-unavailable"},503);
   const url=new URL(request.url);
