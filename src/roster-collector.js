@@ -14,6 +14,14 @@ const object = v => v !== null && typeof v === "object" && !Array.isArray(v);
 const validId = v => typeof v === "string" && v.length > 0 && v.length <= 256;
 const nonNegativeInt = v => Number.isSafeInteger(v) && v >= 0;
 
+async function membershipDigest(members){
+  // A version marker for ONE scan, never a permanent player identity.
+  const normalized=members.map(m=>[m.id,m.isSelf===true,m.card?.rosterShare===true])
+    .sort((a,b)=>a[0].localeCompare(b[0]));
+  const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(JSON.stringify(normalized)));
+  return [...new Uint8Array(bytes)].map(n=>n.toString(16).padStart(2,"0")).join("");
+}
+
 function statusFor(code) {
   if (code === 401) return "unauthorized";
   if (code === 403) return "forbidden";
@@ -145,7 +153,9 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
   if (typeof token !== "string" || !token) return { status: "missing-token" };
   const maxMembers = options.maxMembers === undefined ? MAX_PILOT_MEMBERS : options.maxMembers;
   const withInfo = options.charInfo === true;
-  if (!Number.isInteger(maxMembers) || maxMembers < 1 || maxMembers > MAX_ALLIANCE_MEMBERS) {
+  const startIndex=options.startIndex===undefined?0:options.startIndex;
+  if (!Number.isInteger(maxMembers) || maxMembers < 1 || maxMembers > MAX_ALLIANCE_MEMBERS ||
+      !Number.isInteger(startIndex) || startIndex < 0 || startIndex > MAX_ALLIANCE_MEMBERS) {
     return { status: "invalid-configuration" };
   }
   const budget = { used: 0 };
@@ -171,7 +181,9 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
      members.filter(member=>member.isSelf===true).length !== 1){
     return {status:"current-membership-unverified",requests:budget.used};
   }
-  const selected = candidates.slice(0, maxMembers);
+  const selected = candidates.slice(startIndex, startIndex + maxMembers);
+  const initialDigest=options.requireStableMembership===true||options.includeMembershipDigest===true
+    ? await membershipDigest(members):null;
   const rosters = [];
   const summary = {
     memberCount: members.length,
@@ -210,10 +222,13 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
       freshById.set(m.id,m);
     }
     if(members.some(m=>!freshById.has(m.id))||
-       selected.some(m=>freshById.get(m.id)?.card?.rosterShare!==true))
+       selected.some(m=>freshById.get(m.id)?.card?.rosterShare!==true)||
+       await membershipDigest(current)!==initialDigest)
       return {status:"changed-during-read",requests:budget.used};
   }
-  return { status: "complete", ...summary, requests: budget.used, rosters };
+  return { status: "complete", ...summary, requests: budget.used, rosters,
+    ...(options.includeMembershipDigest===true?{membershipDigest:initialDigest}:{}),
+    ...(options.startIndex!==undefined?{startIndex}:{} ) };
 }
 
 function escapeHtml(x) {
