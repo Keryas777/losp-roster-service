@@ -1,5 +1,5 @@
 import {diagnoseAdminAuth,adminReady} from "./admin-auth.js";
-import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron,adminMemberCard} from "./admin-data-api.js";
+import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron,adminMemberCard,adminOidcIdentity} from "./admin-data-api.js";
 
 const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<meta name="viewport" content="width=device-width,initial-scale=1">'+
@@ -25,6 +25,10 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<label>PID visible dans le jeu (facultatif)<input id="pid-expected" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="12" placeholder="Ex. 12345678" autocomplete="off"></label>'+
 '<button id="pid-check" type="button" disabled>Analyser le joueur choisi</button>'+
 '<p id="pid-status" role="status"></p><div id="pid-result"></div></section>'+
+'<section><h2>Identité OAuth — recherche complémentaire</h2>'+
+'<p>Test ponctuel OpenID Connect pour le <strong>compte connecté uniquement</strong>, jamais pour un coéquipier. Le sujet OAuth n\'est pas nécessairement le PID MSF.</p>'+
+'<button id="oidc-probe" type="button">Vérifier le sujet OAuth du compte</button>'+
+'<p id="oidc-status" role="status"></p><div id="oidc-result"></div></section>'+
 '<section><h2>Explorer</h2><div class="controls">'+
 '<label>Compte<select id="session"></select></label>'+
 '<label>Rubrique<select id="resource"></select></label>'+
@@ -36,7 +40,8 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<button id="load">Afficher les données</button><p id="status" role="status"></p></section>'+
 '<section id="output">Choisis un compte et une rubrique.</section></main>'+
 '<script src="/admin-explorer.js" defer></script>'+
-'<script src="/admin-pid-diagnostic.js" defer></script></body></html>';
+'<script src="/admin-pid-diagnostic.js" defer></script>'+
+'<script src="/admin-oidc-probe.js" defer></script></body></html>';
 
 export async function handleAdmin(request,env,fetchImpl=fetch){
   if(request.method!=="GET")return new Response("Method Not Allowed",{status:405});
@@ -68,5 +73,6 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   if(pathname==="/admin/api/refresh-cron")return adminRefreshCron(env);
   if(pathname==="/admin/api/data")return adminResource(request,env,fetchImpl);
   if(pathname==="/admin/api/pid-member-card")return adminMemberCard(request,env,fetchImpl);
+  if(pathname==="/admin/api/oidc-identity")return adminOidcIdentity(request,env,fetchImpl);
   return new Response("Not Found",{status:404});
 }
