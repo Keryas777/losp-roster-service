@@ -1,4 +1,5 @@
 import {diagnoseAdminAuth,adminReady} from "./admin-auth.js";
+import {rosterSyncPreflight,saveRosterSyncApprovals} from "./roster-sync-preflight.js";
 import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron,adminMemberCard} from "./admin-data-api.js";
 
 const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
@@ -16,6 +17,12 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<p>Bilan privé des sessions déjà autorisées. Relecture en direct de Scopely, sans téléchargement de rosters ni activation du scan quotidien.</p>'+
 '<button id="check-coverage" type="button">Vérifier toutes les alliances</button>'+
 '<p id="coverage-status" role="status"></p><div id="coverage" class="scroll"></div></section>'+
+'<section><h2>Préparation de la collecte automatique des rosters</h2>'+
+'<p>Registre privé des alliances autorisées : aucun roster n\'est collecté ni publié ici. Sélectionner uniquement les alliances LoSP contrôlées après lecture Scopely en direct.</p>'+
+'<button id="roster-preflight" type="button">Vérifier les alliances connectées</button>'+
+'<p id="roster-preflight-status" role="status"></p><div id="roster-preflight-list"></div>'+
+'<button id="roster-approve" type="button" disabled>Enregistrer les alliances approuvées</button>'+
+'<p id="roster-approve-status" role="status"></p></section>'+
 '<section><h2>Diagnostic du PID joueur</h2>'+
 '<p>Compare le PID en jeu à la fiche officielle du <strong>même joueur</strong>. Le compte est choisi dans Explorer ; pour un coéquipier actuel, charge d\'abord ses membres. Les IDs d\'effectif sont temporaires.</p>'+
 '<label>Joueur à analyser (choix obligatoire)<select id="pid-target"><option value="">Choisir un joueur…</option></select></label>'+
@@ -36,10 +43,14 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<button id="load">Afficher les données</button><p id="status" role="status"></p></section>'+
 '<section id="output">Choisis un compte et une rubrique.</section></main>'+
 '<script src="/admin-explorer.js" defer></script>'+
-'<script src="/admin-pid-diagnostic.js" defer></script></body></html>';
+'<script src="/admin-pid-diagnostic.js" defer></script>'+
+'<script src="/admin-roster-preflight.js" defer></script></body></html>';
 
 export async function handleAdmin(request,env,fetchImpl=fetch){
-  if(request.method!=="GET")return new Response("Method Not Allowed",{status:405});
+  const endpoint=new URL(request.url).pathname;
+  if(request.method!=="GET"&&!(request.method==="POST"&&
+       endpoint==="/admin/api/roster-approvals"))
+    return new Response("Method Not Allowed",{status:405});
   if(!adminReady(env))return new Response("Administration désactivée",{
     status:503,headers:{"Cache-Control":"no-store"}
   });
@@ -68,5 +79,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   if(pathname==="/admin/api/refresh-cron")return adminRefreshCron(env);
   if(pathname==="/admin/api/data")return adminResource(request,env,fetchImpl);
   if(pathname==="/admin/api/pid-member-card")return adminMemberCard(request,env,fetchImpl);
+  if(pathname==="/admin/api/roster-preflight")return rosterSyncPreflight(env,fetchImpl);
+  if(pathname==="/admin/api/roster-approvals")return saveRosterSyncApprovals(request,env,fetchImpl);
   return new Response("Not Found",{status:404});
 }
