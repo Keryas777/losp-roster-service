@@ -1,6 +1,7 @@
 // Read-only admin UI. All values rendered through textContent, never HTML.
 const el=id=>document.getElementById(id);
 let sessions=[],nextCursor=null,catalog=[],lastPayload=null;
+let memberChoiceSession=null; // Transient current membership only; IDs are never persisted.
 const output=el("output"),info=el("status"),sessionSelect=el("session"),resourceSelect=el("resource");
 const status=message=>{info.textContent=message;};
 async function request(path){
@@ -46,6 +47,71 @@ function applyAllianceTheme(element,color){
     element.style.setProperty("--alliance-color",color);
     element.style.setProperty("--alliance-surface",color+"18");
     element.style.setProperty("--alliance-outline",color+"80");
+  }
+}
+// Alliance member IDs contain a changing membership version. Display the
+// current Scopely player name instead and never use these IDs as stable keys.
+function displayPlayerName(value){
+  const name=typeof value==="string"?
+    value.replace(/<#[a-f0-9]{6}>/gi,"").trim():"";
+  return name||"Pseudo indisponible";
+}
+function sharedMemberChoices(members){
+  return members.filter(m=>m?.card?.rosterShare===true &&
+    m?.isSelf!==true && typeof m?.id==="string" && m.id.length>0)
+    .map(m=>({id:m.id,name:displayPlayerName(m.card?.name)}));
+}
+function fillMemberOptions(members){
+  const select=el("member");clear(select);
+  memberChoiceSession=sessionSelect.value;
+  const choices=sharedMemberChoices(members);
+  const placeholder=node("option",choices.length?"Choisir un joueur…":"Aucun roster partagé",select);
+  placeholder.value="";
+  for(const member of choices){
+    const option=node("option",member.name,select);
+    option.value=member.id;
+  }
+  select.value="";
+}
+function resetMemberOptions(){
+  memberChoiceSession=null;
+  const select=el("member");clear(select);
+  const option=node("option","Charger d'abord les membres de l'alliance",select);
+  option.value="";
+  select.value="";
+}
+function renderAllianceMembers(members,parent){
+  const missing=members.filter(m=>m?.card?.rosterShare===false);
+  node("p",members.length+" membres — "+missing.length+
+    " partage(s) désactivé(s).",parent);
+  if(missing.length){
+    node("p","Partage désactivé : "+
+      missing.map(m=>displayPlayerName(m.card?.name)).join(", "),parent,"share-warning");
+  }
+  const grid=node("div",null,parent,"members-grid");
+  // Unshared members first; original API order and data remain untouched.
+  const sorted=[...members].sort((a,b)=>
+    Number(b?.card?.rosterShare===false)-Number(a?.card?.rosterShare===false));
+  for(const member of sorted){
+    const shared=member?.card?.rosterShare;
+    const card=node("article",null,grid,"member-card"+(shared===false?" member-unshared":""));
+    node("strong",displayPlayerName(member?.card?.name),card,"member-name");
+    const role=member?.rank==="leader"?"Chef d'alliance":
+      member?.rank==="captain"?"Capitaine":"Membre";
+    node("span",role+(member?.isSelf===true?" (compte connecté)":""),card,"member-role");
+    node("span",shared===true?"Roster partagé":shared===false?
+      "Partage désactivé":"Partage indéterminé",card,
+      "member-sharing"+(shared===false?" member-sharing-off":""));
+    if(shared===true && member?.isSelf!==true && typeof member?.id==="string" &&
+       memberChoiceSession===sessionSelect.value){
+      button("Voir son roster",()=>{
+        resourceSelect.value="alliance-roster";
+        toggleMember();
+        el("member").value=member.id;
+        loadResource();
+      },card);
+    }
+    jsonDetails(member,card,"Détails techniques");
   }
 }
 function jsonDetails(value,parent,label="Tous les champs"){
@@ -116,8 +182,13 @@ function renderPayload(response){
     setTimeout(()=>URL.revokeObjectURL(url),1000);
   },controls);
   if(Array.isArray(data)){
-    node("p",data.length+" entrées renvoyées dans cette page.",output);
-    tableFor(data.map(v=>v&&typeof v==="object"?v:{valeur:v}),output);
+    if(response.resource==="alliance-members"){
+      fillMemberOptions(data);
+      renderAllianceMembers(data,output);
+    }else{
+      node("p",data.length+" entrées renvoyées dans cette page.",output);
+      tableFor(data.map(v=>v&&typeof v==="object"?v:{valeur:v}),output);
+    }
   }else if(data&&typeof data==="object"){
     const rows=Object.entries(data).map(([champ,valeur])=>({champ,
       valeur:typeof valeur==="object"?JSON.stringify(valeur):valeur}));
@@ -198,6 +269,8 @@ function toggleMember(){
     "game-characters","game-events"].includes(resourceSelect.value);
 }
 resourceSelect.addEventListener("change",toggleMember);
+sessionSelect.addEventListener("change",resetMemberOptions);
+resetMemberOptions();
 function updateSelectedAllianceColor(){
   const selected=sessions.find(s=>s.id===sessionSelect.value);
   const color=allianceColor(selected?.allianceName);
@@ -222,6 +295,7 @@ async function loadSessions(reset=true){
       option.style.color=allianceColor(session.allianceName)||"";
     }
     if(selected&&sessions.some(s=>s.id===selected))sessionSelect.value=selected;
+    if(memberChoiceSession!==sessionSelect.value)resetMemberOptions();
     updateSelectedAllianceColor();
     el("more").hidden=!nextCursor;
     const count=new Set(sessions.filter(s=>s.allianceId).map(s=>s.allianceId)).size;
@@ -233,6 +307,7 @@ async function loadSessions(reset=true){
 }
 async function loadResource(){
   if(!sessionSelect.value){status("Aucune session disponible.");return;}
+  const currentSession=sessionSelect.value;
   const resource=resourceSelect.value,query=new URLSearchParams({
     session:sessionSelect.value,resource
   });
@@ -248,11 +323,18 @@ async function loadResource(){
   }
   if(resource==="alliance-roster"){
     const member=el("member").value.trim();
-    if(!member){status("Indique l'identifiant officiel d'un membre actuellement partageant son roster.");return;}
+    if(memberChoiceSession!==currentSession || !member){
+      status("Charge d'abord les membres de cette alliance et choisis un pseudo.");
+      return;
+    }
     query.set("member",member);
   }
   el("load").disabled=true;
   try{status("Lecture de l’API officielle…");const res=await request("/admin/api/data?"+query);
+    if(currentSession!==sessionSelect.value){
+      status("Compte changé pendant la requête : recharge les membres de la nouvelle alliance.");
+      return;
+    }
     renderPayload(res);status("Réponse complète reçue. Pagination manuelle si nécessaire.");}
   catch(err){status("Requête impossible : "+err.message);}
   finally{el("load").disabled=false;}
