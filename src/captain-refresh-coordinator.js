@@ -63,7 +63,8 @@ export class CaptainRefreshCoordinator {
         return safeResponse({status:"exists"},409);
       const record={version:2,createdAt:now,expiresAt:now+CAPTAIN_MAX_AGE,
         accessExpiresAt:now+value.expiresIn*1000,accessToken:value.accessToken,
-        refreshToken:value.refreshToken,scope:value.scope};
+        refreshToken:value.refreshToken,scope:value.scope,
+        observedRotations:0,lastRotatedAt:null};
       await putCaptainRecord(bucket,key,payload.key,record);
       return safeResponse({status:"stored"});
     }
@@ -81,8 +82,14 @@ export class CaptainRefreshCoordinator {
     if(!["status","refresh","access"].includes(payload.action))
       return safeResponse({status:"invalid"},400);
     if(!record)return safeResponse({status:"absent"});
+    // Optional fields are absent in grants issued before refresh monitoring.
+    const metadata=r=>({
+      observedRotations:Number.isSafeInteger(r.observedRotations)?r.observedRotations:null,
+      lastRotatedAt:Number.isSafeInteger(r.lastRotatedAt)?r.lastRotatedAt:null
+    });
     if(record.accessExpiresAt>now+SOON)
       return safeResponse({status:"active",accessExpiresAt:record.accessExpiresAt,
+        ...metadata(record),rotated:false,
         ...(payload.action==="access"?{accessToken:record.accessToken}:{})});
     try {
       const {res,data,error}=await tokenPost(this.env,TOKEN_URL,{
@@ -112,9 +119,13 @@ export class CaptainRefreshCoordinator {
       await putCaptainRecord(bucket,key,payload.key,{
         version:2,createdAt:now,expiresAt:now+CAPTAIN_MAX_AGE,
         accessExpiresAt:now+data.expires_in*1000,accessToken:data.access_token,
-        refreshToken:data.refresh_token,scope:issuedScope
+        refreshToken:data.refresh_token,scope:issuedScope,
+        observedRotations:Math.min(1000000000,(Number.isSafeInteger(record.observedRotations)
+          ?record.observedRotations:0)+1),lastRotatedAt:now
       });
       return safeResponse({status:"active",accessExpiresAt:now+data.expires_in*1000,
+        observedRotations:Math.min(1000000000,(Number.isSafeInteger(record.observedRotations)
+          ?record.observedRotations:0)+1),lastRotatedAt:now,rotated:true,
         ...(payload.action==="access"?{accessToken:data.access_token}:{})});
     }catch{
       return safeResponse({status:"retry-later"},503);
