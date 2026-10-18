@@ -9,6 +9,7 @@ export const ROSTER_PILOT_PREFIX="roster-pilot/v1/latest/";
 export const ROSTER_PILOT_MAX_AGE_MS=7*24*60*60*1000;
 const fingerprintPattern=/^[0-9a-f]{64}$/;
 const MAX_PILOT_BYTES=3_000_000;
+const SESSION_HINT_PREFIX="roster-session-hint/v1/";
 const secureHeaders={
   "Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff",
   "X-Robots-Tag":"noindex","Referrer-Policy":"no-referrer"
@@ -33,7 +34,26 @@ async function accessToken(env,key){
 export function approvedFingerprint(approval,fp){
   return approval.status==="configured"&&approval.alliances.some(a=>a.fingerprint===fp);
 }
+// The hint contains only an opaque hashed R2 session key, never an OAuth token.
+// We always recheck Scopely membership before trusting a cached account hint.
 export async function chooseAccount(env,requested,fetchImpl){
+  const hintKey=SESSION_HINT_PREFIX+requested+".json";
+  let probes=0,hint=null;
+  try{
+    const obj=await env.CAPTAIN_BUCKET.get(hintKey);
+    if(obj){const value=JSON.parse(await obj.text());
+      if(validCaptainKey(value?.key))hint=value.key;}
+  }catch{}
+  if(hint){
+    const token=await accessToken(env,hint).catch(()=>null);
+    if(token){
+      const current=await discoverAlliance(token,fetchImpl);probes++;
+      if(current.ok&&await fingerprint(current.aid)===requested)
+        return {status:"ok",token,aid:current.aid,name:current.name,
+          discoveryRequests:probes};
+    }
+    try{await env.CAPTAIN_BUCKET.delete(hintKey);}catch{}
+  }
   const listed=await env.CAPTAIN_BUCKET.list({
     prefix:CAPTAIN_PREFIX,limit:MAX_COVERAGE_SESSIONS+1
   });
@@ -42,12 +62,19 @@ export async function chooseAccount(env,requested,fetchImpl){
   const keys=(listed.objects||[]).filter(o=>validCaptainKey(o.key))
     .map(o=>o.key).sort();
   for(const key of keys){
+    if(key===hint)continue;
     const token=await accessToken(env,key).catch(()=>null);
     if(!token)continue;
-    const current=await discoverAlliance(token,fetchImpl);
+    const current=await discoverAlliance(token,fetchImpl);probes++;
     if(!current.ok)continue;
-    if(await fingerprint(current.aid)===requested)
-      return {status:"ok",token,aid:current.aid,name:current.name};
+    if(await fingerprint(current.aid)===requested){
+      try{await env.CAPTAIN_BUCKET.put(hintKey,
+        JSON.stringify({version:1,key}),{
+          httpMetadata:{contentType:"application/json",cacheControl:"no-store"}
+        });}catch{}
+      return {status:"ok",token,aid:current.aid,name:current.name,
+        discoveryRequests:probes};
+    }
   }
   return {status:"approved-alliance-unavailable"};
 }
@@ -78,7 +105,7 @@ async function collectPilot(env,selected,fp,fetchImpl,now){
     playerName:typeof roster.name==="string"?roster.name.slice(0,140):"",
     // Not a permanent identity! Never use memberId as a long-term player key.
     memberIdVolatile:roster.memberId,
-    characters:roster.chars
+    asOf:roster.asOf||null,characters:roster.chars
   };
   const raw=JSON.stringify(record);
   if(raw.length>MAX_PILOT_BYTES)return {status:"snapshot-too-large"};
@@ -86,7 +113,7 @@ async function collectPilot(env,selected,fp,fetchImpl,now){
     httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
   });
   return {status:"stored",alliance:after.name,player:record.playerName,
-    characters:roster.chars.length,pages:result.pages,requests:result.requests+2,
+    characters:roster.chars.length,pages:result.pages,requests:result.requests+(selected.discoveryRequests||0)+1,
     capturedAt:record.capturedAt,expiresAt:record.expiresAt,
     storage:"private-r2",publiclyAvailable:false};
 }
