@@ -23,7 +23,7 @@ const request=(fp=fingerprint,extra={})=>
     headers:{Origin:origin,"Content-Type":"application/json"},
     body:JSON.stringify({fingerprint:fp,...extra})});
 const statusRequest=fp=>new Request(origin+"/admin/api/roster-batch-status?fingerprint="+fp);
-function fixture(){
+function fixture({noOptout=false}={}){
  const store=new Map(),logs=[],storage=new Map(),counters={calls:0,revision:0,reorder:false,changedRosters:false,conditionalHits:0};
  store.set(ROSTER_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
    {name:"Zeus",fingerprint},
@@ -62,7 +62,7 @@ function fixture(){
      return Response.json({data:{id:aid+":version1",name:aid}});
    if(url.endsWith("/alliance/members"))return Response.json({data:[
      mkMember("self",true),...(counters.reorder?[...users].reverse():users).map((x,i)=>mkMember(
-       counters.revision&&i===2?x+"-changed":x)),mkMember("private",false,false)
+       counters.revision&&i===2?x+"-changed":x)),...(noOptout?[]:[mkMember("private",false,false)])
    ]});
    if(new URL(url).pathname==="/player/v1/roster"){
      const u=new URL(url),since=u.searchParams.get("since");
@@ -281,7 +281,7 @@ test("foreign Origin, unknown fingerprint, forged admin and public access fail c
 });
 
 test("automatic campaign finalizes only after the captain personal roster and all co-members",async()=>{
- const f=fixture(),now=Date.UTC(2026,9,18,18);
+ const f=fixture({noOptout:true}),now=Date.UTC(2026,9,18,18);
  const internal=i=>({campaign:"2026-10-18-pm",tick:"2026-10-18T"+(16+i)+":00Z"});
  for(const expected of [2,4,5]){
    const response=await handleRosterMicrobatch(request(),f.env,f.api,now+expected*1000,internal(expected));
