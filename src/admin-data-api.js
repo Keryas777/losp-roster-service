@@ -3,6 +3,7 @@
 // No POST/PUT/DELETE, arbitrary paths, session cookies or tokens exposed.
 import {API_KEY} from "./player-card.js";
 import {CAPTAIN_PREFIX,validCaptainKey,captainConfigReady} from "./captain-vault.js";
+import {scanPrivateCoverage} from "./alliance-coverage.js";
 const API="https://api.marvelstrikeforce.com";
 const PAGE_IDS=new Set(["personal-roster","personal-inventory","personal-wishlist",
   "personal-events","alliance-roster","game-characters","game-events"]);
@@ -93,6 +94,15 @@ async function tokenForKey(env,key){
   const body=await res.json();
   return body.status==="active"&&typeof body.accessToken==="string"?
     body.accessToken:null;
+}
+// Private, bounded, read-only census across stored captain grants.
+// Admin authentication is enforced for this route by handleAdmin.
+export async function adminCoverage(env,fetchImpl=fetch){
+  if(!captainConfigReady(env))return json({error:"storage-unavailable"},503);
+  try{
+    const snapshot=await scanPrivateCoverage(env,fetchImpl);
+    return snapshot?json(snapshot):json({error:"coverage-unavailable"},503);
+  }catch{return json({error:"coverage-unavailable"},503);}
 }
 export async function adminSessionList(env,fetchImpl=fetch,url){
   if(!captainConfigReady(env))return json({error:"storage-unavailable"},503);
