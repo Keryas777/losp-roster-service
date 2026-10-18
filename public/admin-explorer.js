@@ -113,6 +113,35 @@ function renderAllianceOverview(){
   }));
   tableFor(rows,target);
 }
+async function loadCoverage(){
+  const button=el("check-coverage"),message=el("coverage-status"),target=el("coverage");
+  button.disabled=true;
+  message.textContent="Vérification des sessions et des membres en cours…";
+  clear(target);
+  try{
+    const scan=await request("/admin/api/coverage");
+    const confirmed=scan.alliances.filter(a=>a.status==="available").length;
+    const count=scan.alliances.length;
+    const complete=scan.complete===true;
+    message.textContent=scan.scannedSessions+" session(s) vérifiée(s), "+
+      count+" alliance(s) distincte(s), "+confirmed+" disponible(s). "+
+      (complete?"Bilan complet des sessions enregistrées.":"Bilan partiel : sessions indisponibles ou limite atteinte.");
+    const rows=scan.alliances.map(a=>({
+      Alliance:a.name,
+      "Connexions autorisées":a.captainConnections,
+      Membres:a.memberCount??"—",
+      "Rosters partagés":a.sharedCount??"—",
+      "Partages désactivés":a.notSharedCount??"—",
+      Statut:a.status==="available"?"Disponible":a.status
+    }));
+    tableFor(rows,target);
+    node("p","Relevé du "+scan.observedAt+" (UTC). Aucun roster de personnage n'a été téléchargé ni sauvegardé.",target);
+    if(scan.unavailableSessions){
+      node("p",scan.unavailableSessions+" session(s) indisponible(s). La couverture ne peut pas être considérée comme exhaustive.",target);
+    }
+  }catch(error){message.textContent="Couverture indisponible : "+error.message;}
+  finally{button.disabled=false;}
+}
 function makeOptions(){
   clear(resourceSelect);
   for(const item of catalog){
@@ -183,6 +212,7 @@ async function loadResource(){
 }
 el("load").onclick=loadResource;
 el("refresh").onclick=()=>loadSessions(true);
+el("check-coverage").onclick=loadCoverage;
 el("more").onclick=()=>loadSessions(false);
 async function init(){
   try{
