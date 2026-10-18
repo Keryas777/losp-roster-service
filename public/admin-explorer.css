@@ -5,7 +5,9 @@ main{max-width:1120px;margin:auto;padding:1rem;display:grid;gap:1rem}
 h1{font-size:1.35rem;margin:.1rem 0}h2{font-size:1.12rem;margin:0 0 .6rem}
 p{margin:.3rem 0 .65rem;color:#bdcce2}
 section{background:#152238;border:1px solid #34435b;border-radius:12px;padding:1rem;min-width:0}
-label{display:grid;gap:.3rem;font-weight:600}
+[hidden]{display:none!important}
+label{display:grid;gap:.3rem;font-weight:600;min-width:0}
+select,input{width:100%;min-width:0}
 button,select,input{font:inherit;min-height:40px;border:1px solid #6b89b1;border-radius:8px;padding:.5rem .65rem;background:#0e1829;color:#fff;max-width:100%}
 button{cursor:pointer;background:#214a79}button:disabled{opacity:.55;cursor:not-allowed}
 button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid #8acbff}
