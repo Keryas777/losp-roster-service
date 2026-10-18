@@ -3,6 +3,13 @@
   "main": "src/index.js",
   "compatibility_date": "2026-10-08",
   "workers_dev": true,
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true,
+      "head_sampling_rate": 1
+    }
+  },
   "vars": {
     "CAPTAIN_SESSIONS_ENABLED": "true",
     "CAPTAIN_COVERAGE_ENABLED": "false",
