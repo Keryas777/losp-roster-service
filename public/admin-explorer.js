@@ -25,6 +25,16 @@ function displayAllianceName(value){
   const name=String(value??"").replace(/<#[a-f0-9]{6}>/gi,"").replace(/\s+/g," ").trim();
   return name.replace(/^(LoSP\s+){2,}/i,"LoSP ");
 }
+// The last official color marker belongs to the alliance name, not the LoSP prefix.
+function allianceColor(value){
+  const tags=String(value??"").match(/<#[a-f0-9]{6}>/gi);
+  return tags?.length?"#"+tags[tags.length-1].slice(2,-1):null;
+}
+function allianceDisplay(value){
+  return {__adminAlliance:true,
+    label:displayAllianceName(value),
+    color:allianceColor(value)};
+}
 function jsonDetails(value,parent,label="Tous les champs"){
   const details=node("details",null,parent),summary=node("summary",label,details);
   const pre=node("pre",JSON.stringify(value,null,2),details);
@@ -42,8 +52,14 @@ function tableFor(rows,parent){
     const r=node("tr",null,body);
     for(const c of columns){
       const value=row[c];
-      node("td",value===null?"null":value===undefined?"—":
-        typeof value==="object"?"[…]" : String(value),r);
+      const cell=node("td",null,r);
+      if(c==="Alliance" && value?.__adminAlliance===true){
+        const name=node("span",value.label,cell,"alliance-name");
+        if(value.color)name.style.color=value.color;
+      }else{
+        node("span",value===null?"null":value===undefined?"—":
+          typeof value==="object"?"[…]" : String(value),cell);
+      }
     }
     const cell=node("td",null,r);
     jsonDetails(row,cell,"Ligne "+(idx+1));
@@ -101,14 +117,14 @@ function renderAllianceOverview(){
   for(const account of sessions){
     const id=account.allianceId||"inconnue:"+account.id;
     const prev=groups.get(id)||{
-      name:account.allianceName?displayAllianceName(account.allianceName):"Alliance indisponible",
+      name:account.allianceName||"Alliance indisponible",
       card:account.allianceDetails||{},accounts:[]
     };
     prev.accounts.push(account);
     groups.set(id,prev);
   }
   const rows=[...groups.values()].map(group=>({
-    Alliance:group.name,
+    Alliance:allianceDisplay(group.name),
     Comptes:group.accounts.length,
     "Comptes MSF":group.accounts.map(a=>a.playerName||"(inconnu)").join(", "),
     warRank:group.card.warRank??"—",
@@ -133,7 +149,7 @@ async function loadCoverage(){
       count+" alliance(s) distincte(s), "+confirmed+" disponible(s). "+
       (complete?"Bilan complet des sessions enregistrées.":"Bilan partiel : sessions indisponibles ou limite atteinte.");
     const rows=scan.alliances.map(a=>({
-      Alliance:displayAllianceName(a.name),
+      Alliance:allianceDisplay(a.name),
       "Connexions autorisées":a.captainConnections,
       Membres:a.memberCount??"—",
       "Rosters partagés":a.sharedCount??"—",
@@ -166,6 +182,11 @@ function toggleMember(){
     "game-characters","game-events"].includes(resourceSelect.value);
 }
 resourceSelect.addEventListener("change",toggleMember);
+function updateSelectedAllianceColor(){
+  const selected=sessions.find(s=>s.id===sessionSelect.value);
+  sessionSelect.style.color=allianceColor(selected?.allianceName)||"";
+}
+sessionSelect.addEventListener("change",updateSelectedAllianceColor);
 async function loadSessions(reset=true){
   try{
     if(reset){sessions=[];nextCursor=null;}
@@ -180,8 +201,10 @@ async function loadSessions(reset=true){
       option.value=session.id;
       option.textContent=(session.allianceName?displayAllianceName(session.allianceName):"Alliance non identifiée")+" / "+
         (session.playerName||"Compte non identifié")+" — "+session.status;
+      option.style.color=allianceColor(session.allianceName)||"";
     }
     if(selected&&sessions.some(s=>s.id===selected))sessionSelect.value=selected;
+    updateSelectedAllianceColor();
     el("more").hidden=!nextCursor;
     const count=new Set(sessions.filter(s=>s.allianceId).map(s=>s.allianceId)).size;
     el("summary").textContent=sessions.length+" connexion(s) analysée(s), "+count+
