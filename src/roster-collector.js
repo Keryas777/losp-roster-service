@@ -193,6 +193,26 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
     summary.characterCount += result.roster.length;
     summary.pages += result.pages;
   }
+  if(options.requireStableMembership===true){
+    // A memberId is volatile when the alliance roster version changes.
+    // Re-read membership *after* every collected page and reject changes
+    // of roster sharing or membership: no partial records may escape.
+    const check=await request("/player/v1/alliance/members",token,budget,fetchImpl);
+    if(check.status!=="ok")return {status:check.status,requests:budget.used};
+    const current=check.payload.data;
+    if(!Array.isArray(current)||current.length!==members.length||
+       current.filter(m=>m?.isSelf===true).length!==1)
+      return {status:"changed-during-read",requests:budget.used};
+    const freshById=new Map();
+    for(const m of current){
+      if(!object(m)||!validId(m.id)||freshById.has(m.id))
+        return {status:"changed-during-read",requests:budget.used};
+      freshById.set(m.id,m);
+    }
+    if(members.some(m=>!freshById.has(m.id))||
+       selected.some(m=>freshById.get(m.id)?.card?.rosterShare!==true))
+      return {status:"changed-during-read",requests:budget.used};
+  }
   return { status: "complete", ...summary, requests: budget.used, rosters };
 }
 

@@ -6,6 +6,7 @@ import { handleCaptainSession, handleCaptainLogout, handleCaptainLanding, handle
 export { CaptainRefreshCoordinator } from "./captain-refresh-coordinator.js";
 import { buildPrivateCoverage } from "./alliance-coverage.js";
 import { handleAdmin } from "./admin-routes.js";
+import { prunePrivateRosterPilots } from "./private-roster-pilot.js";
 
 const SCOPELY_AUTH_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/auth";
 const APP_ORIGIN = "https://losp-roster-service.deliriousfan7.workers.dev";
@@ -161,6 +162,10 @@ export default {
       }
     } catch {
       console.warn("captain-refresh-cron",JSON.stringify({status:"unavailable"}));
+    }
+    // Daily private pilot retention cleanup. No Scopely roster reads.
+    if(controller?.cron==="15 3 * * *"){
+      try{await prunePrivateRosterPilots(env);}catch{}
     }
     // Separate daily opt-in discovery; disabled by default. No roster sync.
     if (controller?.cron === "15 3 * * *" && env?.CAPTAIN_COVERAGE_ENABLED === "true") {

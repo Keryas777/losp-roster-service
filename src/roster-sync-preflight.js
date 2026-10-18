@@ -23,7 +23,7 @@ function validApprovals(value){
   return value.alliances;
 }
 
-async function readApproval(env){
+export async function readApproval(env){
   const item=await env.CAPTAIN_BUCKET.get(ROSTER_APPROVAL_KEY);
   if(!item)return {status:"not-configured",alliances:[]};
   const raw=await item.text();
