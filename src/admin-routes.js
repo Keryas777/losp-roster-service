@@ -2,6 +2,7 @@ import {diagnoseAdminAuth,adminReady} from "./admin-auth.js";
 import {rosterSyncPreflight,saveRosterSyncApprovals} from "./roster-sync-preflight.js";
 import {handlePrivateRosterPilot} from "./private-roster-pilot.js";
 import {handleRosterMicrobatch,getRosterBatchStatus} from "./private-roster-batches.js";
+import {rosterAutoStatus} from "./automatic-roster-scheduler.js";
 import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron,adminMemberCard} from "./admin-data-api.js";
 
 const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
@@ -20,7 +21,8 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<button id="check-coverage" type="button">Vérifier toutes les alliances</button>'+
 '<p id="coverage-status" role="status"></p><div id="coverage" class="scroll"></div></section>'+
 '<section><h2>Préparation de la collecte automatique des rosters</h2>'+
-'<p>Choisir les alliances LoSP approuvées. Le pilote peut collecter manuellement un seul roster partagé par alliance et l\'enregistrer sept jours dans R2 privé. Aucun téléchargement automatique ni publication.</p>'+
+'<p>Collecte privée des alliances approuvées, par lots avec reprise. Planification automatique conditionnée à la règle R2 de rétention et au paramètre d’activation. Aucune publication vers la WebApp.</p>'+
+'<p id="roster-auto-status" role="status">État de l’automatisation : chargement…</p>'+
 '<button id="roster-preflight" type="button">Vérifier les alliances connectées</button>'+
 '<p id="roster-preflight-status" role="status"></p><div id="roster-preflight-list"></div>'+
 '<button id="roster-approve" type="button" disabled>Enregistrer les alliances approuvées</button>'+
@@ -87,5 +89,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   if(pathname==="/admin/api/roster-pilot")return handlePrivateRosterPilot(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-batch")return handleRosterMicrobatch(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-batch-status")return getRosterBatchStatus(request,env);
+  if(pathname==="/admin/api/roster-auto-status")return Response.json(
+    await rosterAutoStatus(env),{headers:{"Cache-Control":"private, no-store"}});
   return new Response("Not Found",{status:404});
 }
