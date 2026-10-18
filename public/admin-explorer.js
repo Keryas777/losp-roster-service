@@ -151,6 +151,47 @@ function renderAllianceOverview(){
   }));
   tableFor(rows,target);
 }
+// The encrypted grant never reaches the browser. Only provider-free timestamps
+// and counts returned by the protected admin API are displayed.
+function localTime(value){
+  const date=typeof value==="number"?value:Date.parse(value);
+  return Number.isFinite(date)&&date>0?new Date(date).toLocaleString("fr-FR"):"—";
+}
+function renderRefreshSessions(){
+  const area=el("refresh-sessions");clear(area);
+  const cards=node("div",null,area,"health-cards");
+  for(const session of sessions){
+    const card=node("article",null,cards,"health-card");
+    const color=allianceColor(session.allianceName);
+    applyAllianceTheme(card,color);
+    const title=node("strong",session.allianceName?
+      displayAllianceName(session.allianceName):"Alliance indisponible",card);
+    if(color)title.style.color=color;
+    node("p",(session.playerName||"Compte non identifié")+" — "+session.status,card);
+    node("p","Expiration de l'accès actuel : "+localTime(session.accessExpiresAt),card);
+    const rotations=session.observedRotations;
+    node("p","Renouvellements confirmés depuis instrumentation : "+
+      (Number.isSafeInteger(rotations)?String(rotations):"Non mesuré"),card);
+    node("p","Dernier renouvellement confirmé : "+localTime(session.lastRotatedAt),card);
+  }
+  if(!sessions.length)node("p","Aucune session disponible.",area);
+}
+async function loadRefreshInfo(){
+  const button=el("check-refresh"),message=el("refresh-status");
+  button.disabled=true;
+  message.textContent="Lecture des sessions et du dernier cron…";
+  try{
+    await loadSessions(true);
+    const cron=await request("/admin/api/refresh-cron");
+    message.textContent=cron.status==="not-yet-observed"?
+      "Aucun cron enregistré depuis l'activation du suivi.":
+      "Dernier contrôle : "+localTime(cron.checkedAt)+
+      " — sessions contrôlées : "+cron.checked+
+      ", renouvellements confirmés : "+cron.rotated+
+      ", erreurs temporaires : "+cron.failed+".";
+  }catch(error){message.textContent="Suivi des renouvellements indisponible : "+error.message;}
+  finally{button.disabled=false;}
+}
 async function loadCoverage(){
   const button=el("check-coverage"),message=el("coverage-status"),target=el("coverage");
   button.disabled=true;
@@ -228,6 +269,7 @@ async function loadSessions(reset=true){
     el("summary").textContent=sessions.length+" connexion(s) analysée(s), "+count+
       " alliance(s) distincte(s) identifiée(s). Les changements d’alliance sont relus en direct.";
     renderAllianceOverview();
+    renderRefreshSessions();
     status("Sessions prêtes.");
   }catch(err){status("Accès impossible : "+err.message);}
 }
@@ -260,6 +302,7 @@ async function loadResource(){
 el("load").onclick=loadResource;
 el("refresh").onclick=()=>loadSessions(true);
 el("check-coverage").onclick=loadCoverage;
+el("check-refresh").onclick=loadRefreshInfo;
 el("more").onclick=()=>loadSessions(false);
 async function init(){
   try{
