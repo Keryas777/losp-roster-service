@@ -2,7 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {createSign,generateKeyPairSync,webcrypto} from "node:crypto";
 import {adminReady,authenticateAdmin} from "../src/admin-auth.js";
-import {adminCatalog,adminSessionList,adminResource,adminCoverage,adminRefreshCron,API_RESOURCES} from "../src/admin-data-api.js";
+import {adminCatalog,adminSessionList,adminResource,adminCoverage,adminRefreshCron,adminMemberCard,API_RESOURCES} from "../src/admin-data-api.js";
 import {handleAdmin} from "../src/admin-routes.js";
 import worker from "../src/index.js";
 
@@ -279,4 +279,80 @@ test("admin session list exposes refresh dates and counts but no token",async()=
   assert.equal(payload.sessions[0].lastRotatedAt,stamp-1000);
   assert.equal(payload.sessions[0].accessExpiresAt,stamp+600000);
   assert.doesNotMatch(JSON.stringify(payload),/PRIVATE_ACCESS_TOKEN|PRIVATE_REFRESH/);
+});
+
+test("admin PID member-card lookup revalidates live membership without requiring roster sharing",async()=>{
+  const env=apiEnv(),calls=[];
+  const provider=async(url,opts)=>{
+    calls.push(url);
+    if(url.endsWith("/player/v1/card/member/member-2"))
+      return Response.json({data:{name:"Not shared",socialState:"offline"},meta:{source:"MSF"}});
+    return dataFetch(url,opts);
+  };
+  const response=await handleAdmin(adminRequest(
+    "/admin/api/pid-member-card?session="+sid+"&member=member-2",assertion()),
+    env,async(url,opts)=>url.endsWith("/cdn-cgi/access/certs")?certs():provider(url,opts));
+  assert.equal(response.status,200);
+  assert.match(response.headers.get("cache-control"),/no-store/);
+  const body=await response.json();
+  assert.equal(body.resource,"member-card");
+  assert.equal(body.payload.data.name,"Not shared");
+  assert.equal(body.payload.data.socialState,"offline");
+  assert.doesNotMatch(JSON.stringify(body),/PRIVATE_ACCESS_TOKEN|PRIVATE_REFRESH_TOKEN|member-2/);
+  assert.equal(calls.filter(x=>x.endsWith("/alliance/members")).length,1);
+  assert.equal(calls.filter(x=>x.includes("/card/member/")).length,1);
+});
+
+test("PID member-card rejects outsiders, former members, self and malformed IDs before reading profile",async()=>{
+  const env=apiEnv();
+  for(const member of ["outsider","self","../member"]){
+    const calls=[];
+    const provider=async(url,opts)=>{
+      calls.push(url);
+      assert.ok(!url.includes("/card/member/"));
+      return dataFetch(url,opts);
+    };
+    const response=await adminMemberCard(adminRequest(
+      "/admin/api/pid-member-card?session="+sid+"&member="+encodeURIComponent(member)),
+      env,provider);
+    assert.equal(response.status,member==="../member"?400:403);
+    assert.ok(calls.length<=1);
+  }
+  const missing=await adminMemberCard(adminRequest(
+    "/admin/api/pid-member-card?session="+sid+"&member=member-1"),
+    {...env,CAPTAIN_BUCKET:null},async()=>{throw Error("No requests allowed");});
+  assert.equal(missing.status,503);
+});
+
+test("PID member-card is restricted to cryptographically authenticated admin",async()=>{
+  const env=apiEnv();
+  let providerCalls=0;
+  const fake=async()=>{providerCalls++;throw Error("Should not call provider");};
+  const res=await handleAdmin(adminRequest(
+    "/admin/api/pid-member-card?session="+sid+"&member=member-1"),
+    env,fake);
+  assert.equal(res.status,403);
+  assert.equal(providerCalls,0);
+});
+
+test("PID member-card rejects ambiguous or changed membership without member lookup",async()=>{
+  const env=apiEnv();
+  const cases=[
+    {data:[]},
+    {data:[{id:"member-1",isSelf:false},{id:"member-2",isSelf:false}]},
+    {data:[{id:"self",isSelf:true},{id:"self-two",isSelf:true},{id:"member-1",isSelf:false}]},
+    {data:[{id:"self",isSelf:true},{id:"member-1",isSelf:false},{id:"member-1",isSelf:false}]}
+  ];
+  for(const payload of cases){
+    let calls=0;
+    const fake=async(url)=>{
+      calls++;
+      assert.ok(!url.includes("/card/member/"));
+      return Response.json(payload);
+    };
+    const response=await adminMemberCard(adminRequest(
+      "/admin/api/pid-member-card?session="+sid+"&member=member-1"),env,fake);
+    assert.ok([403,502].includes(response.status));
+    assert.equal(calls,1);
+  }
 });
