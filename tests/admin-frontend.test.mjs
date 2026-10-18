@@ -82,3 +82,63 @@ test("alliance identity tokens theme rows and account selector with a subtle tin
   assert.match(css,/td:first-child\{box-shadow:inset 3px 0 var\(--alliance-color\)\}/);
   assert.match(css,/select\.alliance-themed/);
 });
+
+test("member list uses official nicknames, shows missing shares first, never presents volatile IDs as player names",async()=>{
+  const js=await readFile(filename,"utf8");
+  const start=js.indexOf("function displayPlayerName(");
+  const end=js.indexOf("\nfunction jsonDetails(",start);
+  assert.ok(start>=0 && end>start);
+  const code=js.slice(start,end);
+  const nickname=runInNewContext(code+"\ndisplayPlayerName");
+  const choices=runInNewContext(code+"\nsharedMemberChoices");
+  assert.equal(nickname("<#00D0FF>Jaxx"),"Jaxx");
+  assert.equal(nickname(" Keryas IV "),"Keryas IV");
+  assert.equal(nickname(""),"Pseudo indisponible");
+  const members=[
+    {id:"aid:v1",rank:"member",isSelf:false,card:{name:"Jaxx",rosterShare:false}},
+    {id:"aid:v2",rank:"member",isSelf:false,card:{name:"Coéquipier",rosterShare:true}},
+    {id:"aid:v3",rank:"leader",isSelf:true,card:{name:"Capitaine",rosterShare:true}}
+  ];
+  assert.equal(JSON.stringify(choices(members)),JSON.stringify([{id:"aid:v2",name:"Coéquipier"}]));
+  assert.equal(choices(members.map(m=>({...m,id:m.id.replace(":v",":vNEXT")})))[0].name,"Coéquipier");
+  assert.equal(choices(members.map(m=>({...m,id:m.id.replace(":v",":vNEXT")})))[0].id,"aid:vNEXT2");
+
+  const node=(tag,text,parent,cls)=>{
+    const item={tag,text,cls,children:[]};
+    if(parent)parent.children.push(item);
+    return item;
+  };
+  const rendered=[];
+  const sandbox={
+    node, jsonDetails:()=>{}, button:(label,fn,parent)=>{
+      rendered.push({label,parent});return node("button",label,parent);
+    },
+    sessionSelect:{value:"current"},memberChoiceSession:"current"
+  };
+  const render=runInNewContext(code+"\nrenderAllianceMembers",sandbox);
+  const root={children:[]};
+  render(members,root);
+  assert.equal(root.children[1].text,"Partage désactivé : Jaxx");
+  const cards=root.children[2].children;
+  assert.equal(cards[0].children[0].text,"Jaxx");
+  assert.equal(cards[0].children[2].text,"Partage désactivé");
+  assert.equal(cards[1].children[0].text,"Coéquipier");
+  assert.equal(rendered.length,1);
+  assert.equal(rendered[0].label,"Voir son roster");
+  assert.ok(!cards.some(card=>card.children.some(v=>typeof v.text==="string"&&v.text.startsWith("aid:"))));
+});
+
+test("admin HTML uses current-member nickname picker instead of an ID text field",async()=>{
+  // Front-end wiring remains in the authenticated admin source.
+  const route=await readFile(new URL("../src/admin-routes.js",import.meta.url),"utf8");
+  const js=await readFile(filename,"utf8");
+  const css=await readFile(cssPath,"utf8");
+  assert.match(route,/<select id=\\"member\\"><\\/select>/);
+  assert.doesNotMatch(route,/<input id=\\"member\\"/);
+  assert.match(js,/memberChoiceSession!==currentSession/);
+  assert.match(js,/sessionSelect\.addEventListener\("change",resetMemberOptions\)/);
+  assert.match(js,/response\.resource==="alliance-members"/);
+  assert.match(css,/\.members-grid/);
+  assert.match(css,/\.member-unshared/);
+  assert.doesNotMatch(js,/localStorage|sessionStorage|innerHTML/);
+});
