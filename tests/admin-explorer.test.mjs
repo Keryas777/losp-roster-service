@@ -2,7 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {createSign,generateKeyPairSync,webcrypto} from "node:crypto";
 import {adminReady,authenticateAdmin} from "../src/admin-auth.js";
-import {adminCatalog,adminSessionList,adminResource,adminCoverage,adminRefreshCron,adminMemberCard,API_RESOURCES} from "../src/admin-data-api.js";
+import {adminCatalog,adminSessionList,adminResource,adminCoverage,adminRefreshCron,adminMemberCard,adminOidcIdentity,API_RESOURCES} from "../src/admin-data-api.js";
 import {handleAdmin} from "../src/admin-routes.js";
 import worker from "../src/index.js";
 
