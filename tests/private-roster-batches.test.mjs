@@ -64,6 +64,14 @@ function fixture(){
      mkMember("self",true),...(counters.reorder?[...users].reverse():users).map((x,i)=>mkMember(
        counters.revision&&i===2?x+"-changed":x)),mkMember("private",false,false)
    ]});
+   if(new URL(url).pathname==="/player/v1/roster"){
+     const u=new URL(url),since=u.searchParams.get("since");
+     if(since==="2026-10-18")return new Response(null,{status:344});
+     const chars=Array.from({length:207},(_,i)=>({
+       id:"self_char_"+i,power:220000+i,gear:20,iso8:{class:"striker"}
+     }));
+     return Response.json({data:chars,meta:{perTotal:207,asOf:"2026-10-18"}});
+   }
    if(url.includes("/roster/member/")){
      const u=new URL(url),id=u.pathname.split("/").at(-1);
      assert.notEqual(id,"private");assert.notEqual(id,"self");
@@ -270,4 +278,31 @@ test("foreign Origin, unknown fingerprint, forged admin and public access fail c
  const js=await readFile(new URL("../public/admin-roster-preflight.js",import.meta.url),"utf8");
  assert.doesNotThrow(()=>new Script(js));
  assert.doesNotMatch(js,/localStorage|sessionStorage|innerHTML|indexedDB/);
+});
+
+test("automatic campaign finalizes only after the captain personal roster and all co-members",async()=>{
+ const f=fixture(),now=Date.UTC(2026,9,18,18);
+ const internal=i=>({campaign:"2026-10-18-pm",tick:"2026-10-18T"+(16+i)+":00Z"});
+ for(const expected of [2,4,5]){
+   const response=await handleRosterMicrobatch(request(),f.env,f.api,now+expected*1000,internal(expected));
+   assert.equal(response.status,200);
+   assert.equal((await response.json()).completed,expected);
+ }
+ const pointer=BATCH_PREFIX+fingerprint+"/latest-complete.json";
+ assert.equal(f.store.has(pointer),false);
+ const selfRes=await handleRosterMicrobatch(request(),f.env,f.api,now+11000,internal(8));
+ assert.equal(selfRes.status,200);
+ const selfBody=await selfRes.json();
+ assert.equal(selfBody.status,"complete");
+ assert.equal(selfBody.personalRosterCollected,true);
+ assert.equal(selfBody.personalRoster,true);
+ const manifest=JSON.parse(f.store.get(pointer));
+ assert.equal(manifest.total,6);
+ assert.equal(manifest.coMembers,5);
+ assert.equal(manifest.includesPersonal,true);
+ const selfRecord=JSON.parse(f.store.get(BATCH_PREFIX+fingerprint+"/"+manifest.runId+"/member-self.json"));
+ assert.equal(selfRecord.characters.length,207);
+ assert.equal(selfRecord.volatileMemberId,"self");
+ const reRun=await handleRosterMicrobatch(request(),f.env,f.api,now+12000,internal(8));
+ assert.equal((await reRun.json()).status,"already-processed-tick");
 });
