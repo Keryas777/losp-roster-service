@@ -58,7 +58,7 @@ test("MSF alliance colors are extracted from the last valid marker, for display 
   assert.equal(display("LoSP <#FFFFFF>LoSP <#E10D17>Kronos").label,"LoSP Kronos");
   assert.equal(display("LoSP <#F8FF00>Ζευς").color,"#F8FF00");
   assert.match(js,/name\.style\.color=value\.color/);
-  assert.match(js,/sessionSelect\.style\.color=allianceColor/);
+  assert.match(js,/sessionSelect\.style\.color=color\|\|""/);
   assert.doesNotMatch(js,/innerHTML/);
 });
 
