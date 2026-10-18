@@ -22,5 +22,10 @@ tr.alliance-themed td:first-child{box-shadow:inset 3px 0 var(--alliance-color)}
 select.alliance-themed{border-color:var(--alliance-color);background:linear-gradient(var(--alliance-surface),var(--alliance-surface)),#0e1829}
 pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#09101c;color:#dce9ff;padding:.7rem;border-radius:8px;font-size:.79rem;max-height:60vh;overflow:auto}
 details{margin:.4rem 0;border-radius:8px;padding:.55rem;border:1px solid #364765}summary{cursor:pointer;font-weight:600}
+.health-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:.7rem}
+.health-card{background:#122039;border:1px solid #384860;border-radius:10px;padding:.8rem;min-width:0;overflow-wrap:anywhere}
+.health-card p{font-size:.88rem;margin:.35rem 0}
+.health-card.alliance-themed{background:linear-gradient(var(--alliance-surface),var(--alliance-surface)),#122039;border-color:var(--alliance-outline)}
+.health-card strong{display:block}
 .muted{color:#a7bdd6;font-size:.85rem}.badge{border:1px solid #4e78a2;border-radius:1rem;padding:.12rem .48rem;display:inline-block;font-size:.75rem}
 @media(min-width:720px){.controls{grid-template-columns:2fr 2fr 1fr 1fr}.panels{display:grid;grid-template-columns:1fr 1fr;gap:1rem}}

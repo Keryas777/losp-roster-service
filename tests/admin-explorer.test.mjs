@@ -2,7 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {createSign,generateKeyPairSync,webcrypto} from "node:crypto";
 import {adminReady,authenticateAdmin} from "../src/admin-auth.js";
-import {adminCatalog,adminSessionList,adminResource,adminCoverage,API_RESOURCES} from "../src/admin-data-api.js";
+import {adminCatalog,adminSessionList,adminResource,adminCoverage,adminRefreshCron,API_RESOURCES} from "../src/admin-data-api.js";
 import {handleAdmin} from "../src/admin-routes.js";
 import worker from "../src/index.js";
 
@@ -233,4 +233,50 @@ test("admin coverage cannot be accessed with a captain cookie or forged Access h
   assert.equal(calls,0);
   const missing=await adminCoverage({...env,CAPTAIN_BUCKET:null},provider);
   assert.equal(missing.status,503);
+});
+
+test("admin health endpoint reveals only safe hourly aggregate after signed Access authentication",async()=>{
+  const env=apiEnv();
+  const stamp=new Date().toISOString();
+  env.CAPTAIN_BUCKET.get=async(key)=>{
+    assert.equal(key,"oauth-monitoring/v1/last-refresh-check.json");
+    return {text:async()=>JSON.stringify({version:1,checkedAt:stamp,status:"ok",
+      checked:8,rotated:3,failed:0,
+      accessToken:"PRIVATE_ACCESS_TOKEN",refreshToken:"PRIVATE_REFRESH_TOKEN",
+      playerName:"Captain Alpha"})};
+  };
+  const endpoint="/admin/api/refresh-cron";
+  const ok=await handleAdmin(adminRequest(endpoint,assertion()),env,certs);
+  assert.equal(ok.status,200);
+  assert.match(ok.headers.get("cache-control"),/no-store/);
+  const parsed=await ok.json();
+  assert.deepEqual(parsed,{status:"ok",checkedAt:stamp,checked:8,failed:0,rotated:3});
+  assert.doesNotMatch(JSON.stringify(parsed),/PRIVATE_|Captain Alpha/);
+  const denied=await handleAdmin(adminRequest(endpoint),env,certs);
+  assert.equal(denied.status,403);
+});
+
+test("admin health monitoring does not fabricate historical rotations",async()=>{
+  const env=apiEnv();
+  env.CAPTAIN_BUCKET.get=async()=>null;
+  const report=await adminRefreshCron(env);
+  assert.deepEqual(await report.json(),{status:"not-yet-observed",checkedAt:null});
+  env.CAPTAIN_BUCKET.get=async()=>({text:async()=>JSON.stringify({version:1,
+    checkedAt:new Date().toISOString(),status:"ok",checked:1,rotated:2,failed:0})});
+  assert.equal((await adminRefreshCron(env)).status,503);
+});
+
+test("admin session list exposes refresh dates and counts but no token",async()=>{
+  const env=apiEnv();
+  const stamp=Date.now();
+  env.CAPTAIN_REFRESH_COORDINATOR.get=()=>({fetch:async()=>Response.json({
+    status:"active",accessToken:"PRIVATE_ACCESS_TOKEN",accessExpiresAt:stamp+600000,
+    lastRotatedAt:stamp-1000,observedRotations:3
+  })});
+  const result=await adminSessionList(env,dataFetch,new URL(origin+"/admin/api/sessions"));
+  const payload=await result.json();
+  assert.equal(payload.sessions[0].observedRotations,3);
+  assert.equal(payload.sessions[0].lastRotatedAt,stamp-1000);
+  assert.equal(payload.sessions[0].accessExpiresAt,stamp+600000);
+  assert.doesNotMatch(JSON.stringify(payload),/PRIVATE_ACCESS_TOKEN|PRIVATE_REFRESH/);
 });

@@ -147,7 +147,21 @@ export default {
   async scheduled(controller, env) {
     // Scheduled refresh is disabled unless all private storage bindings exist.
     // No player or roster information is fetched or logged.
-    try { await renewCaptainGrants(env); } catch {}
+    try {
+      const result=await renewCaptainGrants(env);
+      // Global counts only: never log token values, player names, IDs or grants.
+      const report={version:1,checkedAt:new Date().toISOString(),
+        status:result.status,checked:result.checked,failed:result.failed||0,
+        rotated:result.rotated||0};
+      console.info("captain-refresh-cron",JSON.stringify(report));
+      if(result.status!=="disabled" && env?.CAPTAIN_BUCKET?.put){
+        // One private aggregate record, overwritten on every scheduled check.
+        try {await env.CAPTAIN_BUCKET.put("oauth-monitoring/v1/last-refresh-check.json",
+          JSON.stringify(report));} catch {}
+      }
+    } catch {
+      console.warn("captain-refresh-cron",JSON.stringify({status:"unavailable"}));
+    }
     // Separate daily opt-in discovery; disabled by default. No roster sync.
     if (controller?.cron === "15 3 * * *" && env?.CAPTAIN_COVERAGE_ENABLED === "true") {
       try { await buildPrivateCoverage(env); } catch {}

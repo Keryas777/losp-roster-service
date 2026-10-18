@@ -84,7 +84,7 @@ function queryFor(resource,url){
   if(resource.id==="personal-events")qs.set("eventInfo","full");
   return qs.toString();
 }
-async function tokenForKey(env,key){
+async function grantForKey(env,key){
   const stub=env.CAPTAIN_REFRESH_COORDINATOR.get(env.CAPTAIN_REFRESH_COORDINATOR.idFromName(key));
   const res=await stub.fetch(new Request("https://captain-coordinator.internal/",{
     method:"POST",headers:{"Content-Type":"application/json"},
@@ -93,7 +93,32 @@ async function tokenForKey(env,key){
   if(!res.ok)return null;
   const body=await res.json();
   return body.status==="active"&&typeof body.accessToken==="string"?
-    body.accessToken:null;
+    {accessToken:body.accessToken,
+      accessExpiresAt:Number.isSafeInteger(body.accessExpiresAt)?body.accessExpiresAt:null,
+      lastRotatedAt:Number.isSafeInteger(body.lastRotatedAt)?body.lastRotatedAt:null,
+      observedRotations:Number.isSafeInteger(body.observedRotations)?body.observedRotations:null
+    }:null;
+}
+async function tokenForKey(env,key){
+  return (await grantForKey(env,key))?.accessToken||null;
+}
+// Private aggregate only. Never forward arbitrary contents from R2.
+export async function adminRefreshCron(env){
+  if(!captainConfigReady(env))return json({error:"storage-unavailable"},503);
+  try{
+    const obj=await env.CAPTAIN_BUCKET.get("oauth-monitoring/v1/last-refresh-check.json");
+    if(!obj)return json({status:"not-yet-observed",checkedAt:null});
+    const data=JSON.parse(await obj.text());
+    if(data?.version!==1||!["ok","partial"].includes(data.status)||
+      !Number.isSafeInteger(data.checked)||data.checked<0||
+      !Number.isSafeInteger(data.failed)||data.failed<0||
+      !Number.isSafeInteger(data.rotated)||data.rotated<0||
+      data.failed>data.checked||data.rotated>data.checked||
+      typeof data.checkedAt!=="string"||Number.isNaN(Date.parse(data.checkedAt)))
+      return json({error:"invalid-monitoring-data"},503);
+    return json({status:data.status,checkedAt:data.checkedAt,
+      checked:data.checked,failed:data.failed,rotated:data.rotated});
+  }catch{return json({error:"monitoring-unavailable"},503);}
 }
 // Private, bounded, read-only census across stored captain grants.
 // Admin authentication is enforced for this route by handleAdmin.
@@ -114,12 +139,12 @@ export async function adminSessionList(env,fetchImpl=fetch,url){
   const sessions=[];
   for(const item of listing.objects||[]){
     if(!validCaptainKey(item.key))continue;
-    const token=await tokenForKey(env,item.key);
-    if(!token){sessions.push({id:item.key.slice(CAPTAIN_PREFIX.length),
+    const grant=await grantForKey(env,item.key);
+    if(!grant){sessions.push({id:item.key.slice(CAPTAIN_PREFIX.length),
       status:"unavailable"});continue;}
     const [profile,alliance]=await Promise.all([
-      getProvider("/player/v1/card",token,fetchImpl),
-      getProvider("/player/v1/alliance/card",token,fetchImpl)
+      getProvider("/player/v1/card",grant.accessToken,fetchImpl),
+      getProvider("/player/v1/alliance/card",grant.accessToken,fetchImpl)
     ]);
     const card=alliance.payload?.data,player=profile.payload?.data;
     // Only provide labels in the admin response; raw fields remain available
@@ -130,6 +155,9 @@ export async function adminSessionList(env,fetchImpl=fetch,url){
       allianceName:typeof card?.name==="string"?card.name:null,
       allianceId:typeof card?.id==="string"?card.id.split(":")[0]:null,
       allianceDetails:card&&typeof card==="object"?card:null,
+      accessExpiresAt:grant.accessExpiresAt,
+      lastRotatedAt:grant.lastRotatedAt,
+      observedRotations:grant.observedRotations,
       profileError:profile.error||null,allianceError:alliance.error||null});
   }
   return json({sessions,nextCursor:listing.truncated?listing.cursor:null});

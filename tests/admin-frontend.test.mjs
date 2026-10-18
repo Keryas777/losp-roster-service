@@ -82,3 +82,18 @@ test("alliance identity tokens theme rows and account selector with a subtle tin
   assert.match(css,/td:first-child\{box-shadow:inset 3px 0 var\(--alliance-color\)\}/);
   assert.match(css,/select\.alliance-themed/);
 });
+
+test("admin token health display is mobile first, read-only and clearly distinguishes unmeasured history",async()=>{
+  const js=await readFile(filename,"utf8");
+  const css=await readFile(cssPath,"utf8");
+  assert.match(js,/function renderRefreshSessions\(/);
+  assert.match(js,/function loadRefreshInfo\(/);
+  assert.match(js,/Non mesuré/);
+  assert.match(js,/admin\/api\/refresh-cron/);
+  assert.match(js,/lastRotatedAt/);
+  assert.match(js,/observedRotations/);
+  assert.match(js,/applyAllianceTheme\(card,color\)/);
+  assert.match(css,/\.health-cards/);
+  assert.match(css,/\.health-card\.alliance-themed/);
+  assert.doesNotMatch(js,/innerHTML/);
+});
