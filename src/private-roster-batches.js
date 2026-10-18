@@ -4,7 +4,7 @@ import {captainConfigReady} from "./captain-vault.js";
 import {chooseAccount,approvedFingerprint} from "./private-roster-pilot.js";
 import {readApproval} from "./roster-sync-preflight.js";
 import {discoverAlliance} from "./alliance-coverage.js";
-import {collectAllianceRosterSample} from "./roster-collector.js";
+import {collectAllianceRosterSample,collectPersonalRoster} from "./roster-collector.js";
 
 export const BATCH_PREFIX="roster-batches/v1/";
 export const BATCH_MAX_AGE_MS=7*86400000;
@@ -18,6 +18,8 @@ const answer=(v,status=200)=>Response.json(v,{status,headers:{
 }});
 const stateKey=fp=>BATCH_PREFIX+fp+"/progress.json";
 const playerKey=(fp,id,index)=>BATCH_PREFIX+fp+"/"+id+"/member-"+index+".json";
+export const completeKey=fp=>BATCH_PREFIX+fp+"/latest-complete.json";
+const selfKey=(fp,id)=>BATCH_PREFIX+fp+"/"+id+"/member-self.json";
 async function lock(env,fp,action,holder){
   const binding=env?.ROSTER_BATCH_LOCK;
   if(!binding?.idFromName||!binding?.get)return "not-configured";
@@ -43,6 +45,8 @@ async function readState(env,fp){
      !Number.isFinite(Date.parse(s.expiresAt))||
      !Number.isFinite(Date.parse(s.startedAt))||
      Date.parse(s.expiresAt)-Date.parse(s.startedAt)!==BATCH_MAX_AGE_MS||
+     (s.campaign!==undefined&&typeof s.campaign!=="string")||
+     (s.selfCompleted!==undefined&&typeof s.selfCompleted!=="boolean")||
      (s.baseline!==undefined&&(!s.baseline||!RUN.test(s.baseline.runId)||
         !/^[0-9a-f]{64}$/.test(s.baseline.membershipDigest)||
         !Number.isFinite(Date.parse(s.baseline.expiresAt)))))
@@ -54,10 +58,11 @@ function publicState(state,now=Date.now()){
   const expired=Date.parse(state.expiresAt)<=now;
   return {
     status:expired?"expired":state.completed===state.totalEligible?
-      "complete-co-members":"in-progress",
+      (state.selfCompleted===true?"complete":"complete-co-members"):"in-progress",
     completed:state.completed,eligibleCoMembers:state.totalEligible,
     remaining:state.totalEligible-state.completed,startedAt:state.startedAt,
-    expiresAt:state.expiresAt,collectionEnabled:false
+    expiresAt:state.expiresAt,personalRosterCollected:state.selfCompleted===true,
+    collectionEnabled:false
   };
 }
 export async function getRosterBatchStatus(request,env,now=Date.now()){
@@ -71,7 +76,80 @@ export async function getRosterBatchStatus(request,env,now=Date.now()){
     return answer(publicState(await readState(env,fp),now));
   }catch{return answer({status:"unavailable"},503);}
 }
-export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Date.now()){
+async function latestComplete(env,fp,now){
+  try{
+    const obj=await env.CAPTAIN_BUCKET.get(completeKey(fp));
+    if(!obj)return null;
+    const raw=await obj.text();
+    if(raw.length>30000)return null;
+    const value=JSON.parse(raw);
+    return value.version===1&&value.fingerprint===fp&&RUN.test(value.runId)&&
+      /^[0-9a-f]{64}$/.test(value.membershipDigest)&&
+      Number.isInteger(value.total)&&value.total>=1&&value.total<=100&&
+      Number.isFinite(Date.parse(value.expiresAt))&&
+      Date.parse(value.expiresAt)>now?value:null;
+  }catch{return null;}
+}
+async function oldSelf(env,fp,base,now){
+  if(!base||Date.parse(base.expiresAt)<=now)return null;
+  try{
+    const obj=await env.CAPTAIN_BUCKET.get(selfKey(fp,base.runId));
+    if(!obj)return null;
+    const raw=await obj.text();
+    if(raw.length>MAX_SNAPSHOT_BYTES)return null;
+    const value=JSON.parse(raw);
+    if(value.version!==1||value.runId!==base.runId||
+       value.allianceFingerprint!==fp||typeof value.asOf!=="string"||
+       !Array.isArray(value.characters)||Date.parse(value.expiresAt)<=now)
+      return null;
+    return {asOf:value.asOf,chars:value.characters,memberId:value.volatileMemberId};
+  }catch{return null;}
+}
+async function finishSelf(env,fp,previous,selected,baseline,now,fetchImpl){
+  const old=await oldSelf(env,fp,baseline,now);
+  // Only reuse the old personal roster when Scopely confirms the same
+  // membership snapshot; collectPersonalRoster validates isSelf both times.
+  const report=await collectPersonalRoster(selected.token,fetchImpl,{
+    expectedMembershipDigest:previous.membershipDigest,
+    cached:old&&baseline?.membershipDigest===previous.membershipDigest?
+      {asOf:old.asOf,chars:old.chars}:null
+  });
+  if(report.status!=="complete")return answer({status:report.status},409);
+  if(old&&report.unchanged&&old.memberId!==report.memberId)
+    return answer({status:"identity-changed-during-read"},409);
+  const after=await discoverAlliance(selected.token,fetchImpl);
+  if(!after.ok||after.aid!==selected.aid)
+    return answer({status:"alliance-changed-during-read"},409);
+  if(!approvedFingerprint(await readApproval(env),fp))
+    return answer({status:"approval-withdrawn"},409);
+  const record={version:1,kind:"private-staged-personal-roster",
+    allianceFingerprint:fp,runId:previous.runId,memberIndex:"self",
+    name:report.name,volatileMemberId:report.memberId,
+    capturedAt:new Date(now).toISOString(),expiresAt:previous.expiresAt,
+    asOf:report.asOf||null,characters:report.chars};
+  const raw=JSON.stringify(record);
+  if(raw.length>MAX_SNAPSHOT_BYTES)return answer({status:"snapshot-too-large"},409);
+  await env.CAPTAIN_BUCKET.put(selfKey(fp,previous.runId),raw,{
+    httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
+  });
+  // Only after the LAST expected player is durable: atomic manifest pointer.
+  const complete={version:1,fingerprint:fp,runId:previous.runId,
+    membershipDigest:previous.membershipDigest,total:previous.totalEligible+1,
+    coMembers:previous.totalEligible,includesPersonal:true,
+    capturedAt:new Date(now).toISOString(),expiresAt:previous.expiresAt};
+  await env.CAPTAIN_BUCKET.put(completeKey(fp),JSON.stringify(complete),{
+    httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
+  });
+  await env.CAPTAIN_BUCKET.put(stateKey(fp),JSON.stringify({
+    ...previous,selfCompleted:true
+  }),{httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}});
+  return answer({...publicState({...previous,selfCompleted:true},now),
+    savedThisBatch:1,charactersThisBatch:report.chars.length,
+    pagesThisBatch:report.pages,unchangedThisBatch:report.unchanged?1:0,
+    requestsThisBatch:report.requests+(selected.discoveryRequests||0)+1,
+    personalRoster:true,storage:"private-r2",publiclyAvailable:false});
+}
+export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Date.now(),internal={}){
   if(request.method!=="POST")return answer({status:"method-not-allowed"},405);
   if(!captainConfigReady(env)||!env?.ROSTER_BATCH_LOCK)
     return answer({status:"not-configured"},503);
@@ -98,21 +176,29 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     const status=await lock(env,fp,"acquire",holder);
     if(status!=="acquired")return answer({status:status==="busy"?"busy":"lock-unavailable"},409);
     acquired=true;
+    const campaign=typeof internal?.campaign==="string"&&
+      /^\\d{4}-\\d{2}-\\d{2}-(?:am|pm)$/.test(internal.campaign)?
+      internal.campaign:null;
     let previous=restart?null:await readState(env,fp);
+    if(campaign&&previous?.campaign!==campaign)previous=null;
     if(previous&&Date.parse(previous.expiresAt)<=now)
       return answer({...publicState(previous,now),status:"expired-restart-required"},409);
-    // Only an explicitly completed previous run is a safe cache baseline.
     if(refresh&&(!previous||previous.completed!==previous.totalEligible))
       return answer({status:"refresh-requires-complete-run"},409);
-    if(previous&&previous.completed===previous.totalEligible&&!refresh)
+    if(previous&&previous.completed===previous.totalEligible&&!refresh&&
+       (!campaign||previous.selfCompleted===true))
       return answer(publicState(previous,now));
-    const baseline=refresh?{
-      runId:previous.runId,membershipDigest:previous.membershipDigest,
-      expiresAt:previous.expiresAt
-    }:previous?.baseline;
-    if(refresh)previous=null; // New isolated run, old complete objects stay private.
+    const pointer=campaign?await latestComplete(env,fp,now):null;
+    const baseline=campaign?(previous?.baseline||
+      (pointer?{runId:pointer.runId,membershipDigest:pointer.membershipDigest,
+        expiresAt:pointer.expiresAt}:null)):
+      refresh?{runId:previous.runId,membershipDigest:previous.membershipDigest,
+        expiresAt:previous.expiresAt}:previous?.baseline;
+    if(refresh)previous=null;
     const selected=await chooseAccount(env,fp,fetchImpl);
     if(selected.status!=="ok")return answer({status:selected.status},409);
+    if(campaign&&previous&&previous.completed===previous.totalEligible)
+      return finishSelf(env,fp,previous,selected,baseline,now,fetchImpl);
     const startIndex=previous?.completed||0;
     const cachedForMember=async(member,index)=>{
       if(!baseline||Date.parse(baseline.expiresAt)<=now)return null;
@@ -175,6 +261,7 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
       version:1,fingerprint:fp,runId,membershipDigest:result.membershipDigest,
       startedAt,expiresAt,totalEligible:result.sharedCount,
       completed:startIndex+result.selectedCount,
+      ...(campaign?{campaign,selfCompleted:false}:{}),
       ...(baseline?{baseline}:{})
     };
     await env.CAPTAIN_BUCKET.put(stateKey(fp),JSON.stringify(updated),{
