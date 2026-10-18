@@ -53,14 +53,15 @@ async function rosterBatchStatus(alliance,status){
     return null;
   }
 }
-async function rosterBatchStart(alliance,button,status,restart=false){
+async function rosterBatchStart(alliance,button,status,restart=false,refresh=false){
   button.disabled=true;
   status.textContent="Collecte de deux coéquipiers maximum en cours…";
   try{
     const response=await fetch("/admin/api/roster-batch",{
       method:"POST",credentials:"same-origin",cache:"no-store",
       headers:{"Content-Type":"application/json",Accept:"application/json"},
-      body:JSON.stringify({fingerprint:alliance.fingerprint,...(restart?{restart:true}:{})})
+      body:JSON.stringify({fingerprint:alliance.fingerprint,
+        ...(restart?{restart:true}:{}),...(refresh?{refresh:true}:{})})
     });
     const result=await response.json();
     if(!response.ok){
@@ -79,11 +80,15 @@ async function rosterBatchStart(alliance,button,status,restart=false){
       }
       throw Error(result.status||"batch-error");
     }
-    await rosterBatchStatus(alliance,status);
+    const state=await rosterBatchStatus(alliance,status);
+    const refreshButton=status.parentNode.querySelector(".roster-refresh");
+    if(refreshButton)refreshButton.disabled=state?.status!=="complete-co-members";
     if(result.savedThisBatch)
       status.textContent+=" — dernier lot : "+result.savedThisBatch+
         " roster(s), "+result.charactersThisBatch+" personnages, "+
-        result.pagesThisBatch+" page(s) ; aucun transfert à la WebApp.";
+        result.pagesThisBatch+" page(s), "+result.requestsThisBatch+
+        " appels Scopely (dont "+result.unchangedThisBatch+
+        " roster(s) inchangé(s)) ; aucune transmission à la WebApp.";
   }catch(e){
     status.textContent="Lot non validé : "+(e.message||"indisponible")+
       ". Progression précédente conservée.";
@@ -138,8 +143,17 @@ async function loadRosterPreflight(){
         advance.disabled=!report.complete;
         advance.addEventListener("click",()=>rosterBatchStart(a,advance,batchProgress));
         parent.appendChild(advance);
+        const refresh=document.createElement("button");
+        refresh.type="button";
+        refresh.className="roster-refresh";
+        refresh.textContent="Vérifier les changements (since / 344) — "+a.name;
+        refresh.disabled=true;
+        refresh.addEventListener("click",()=>rosterBatchStart(a,refresh,batchProgress,false,true));
+        parent.appendChild(refresh);
         parent.appendChild(batchProgress);
-        void rosterBatchStatus(a,batchProgress);
+        void rosterBatchStatus(a,batchProgress).then(state=>{
+          refresh.disabled=state?.status!=="complete-co-members"||!report.complete;
+        });
       }else parent.appendChild(document.createElement("p"));
     }
     for(const absent of report.unobservedApproved||[])
