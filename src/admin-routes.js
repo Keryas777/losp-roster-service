@@ -1,5 +1,6 @@
 import {diagnoseAdminAuth,adminReady} from "./admin-auth.js";
 import {rosterSyncPreflight,saveRosterSyncApprovals} from "./roster-sync-preflight.js";
+import {handlePrivateRosterPilot} from "./private-roster-pilot.js";
 import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron,adminMemberCard} from "./admin-data-api.js";
 
 const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
@@ -18,7 +19,7 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<button id="check-coverage" type="button">Vérifier toutes les alliances</button>'+
 '<p id="coverage-status" role="status"></p><div id="coverage" class="scroll"></div></section>'+
 '<section><h2>Préparation de la collecte automatique des rosters</h2>'+
-'<p>Registre privé des alliances autorisées : aucun roster n\'est collecté ni publié ici. Sélectionner uniquement les alliances LoSP contrôlées après lecture Scopely en direct.</p>'+
+'<p>Choisir les alliances LoSP approuvées. Le pilote peut collecter manuellement un seul roster partagé par alliance et l\'enregistrer sept jours dans R2 privé. Aucun téléchargement automatique ni publication.</p>'+
 '<button id="roster-preflight" type="button">Vérifier les alliances connectées</button>'+
 '<p id="roster-preflight-status" role="status"></p><div id="roster-preflight-list"></div>'+
 '<button id="roster-approve" type="button" disabled>Enregistrer les alliances approuvées</button>'+
@@ -49,7 +50,7 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 export async function handleAdmin(request,env,fetchImpl=fetch){
   const endpoint=new URL(request.url).pathname;
   if(request.method!=="GET"&&!(request.method==="POST"&&
-       endpoint==="/admin/api/roster-approvals"))
+       ["/admin/api/roster-approvals","/admin/api/roster-pilot"].includes(endpoint)))
     return new Response("Method Not Allowed",{status:405});
   if(!adminReady(env))return new Response("Administration désactivée",{
     status:503,headers:{"Cache-Control":"no-store"}
@@ -81,5 +82,6 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   if(pathname==="/admin/api/pid-member-card")return adminMemberCard(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-preflight")return rosterSyncPreflight(env,fetchImpl);
   if(pathname==="/admin/api/roster-approvals")return saveRosterSyncApprovals(request,env,fetchImpl);
+  if(pathname==="/admin/api/roster-pilot")return handlePrivateRosterPilot(request,env,fetchImpl);
   return new Response("Not Found",{status:404});
 }
