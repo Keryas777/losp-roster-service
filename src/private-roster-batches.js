@@ -47,6 +47,8 @@ async function readState(env,fp){
      Date.parse(s.expiresAt)-Date.parse(s.startedAt)!==BATCH_MAX_AGE_MS||
      (s.campaign!==undefined&&typeof s.campaign!=="string")||
      (s.selfCompleted!==undefined&&typeof s.selfCompleted!=="boolean")||
+     (s.observedMembers!==undefined&&(!Number.isInteger(s.observedMembers)||
+       s.observedMembers<1||s.observedMembers>100))||
      (s.baseline!==undefined&&(!s.baseline||!RUN.test(s.baseline.runId)||
         !/^[0-9a-f]{64}$/.test(s.baseline.membershipDigest)||
         !Number.isFinite(Date.parse(s.baseline.expiresAt)))))
@@ -58,9 +60,12 @@ function publicState(state,now=Date.now()){
   const expired=Date.parse(state.expiresAt)<=now;
   return {
     status:expired?"expired":state.completed===state.totalEligible?
-      (state.selfCompleted===true?"complete":"complete-co-members"):"in-progress",
+      (state.selfCompleted===true?
+        (state.totalEligible+1===state.observedMembers?"complete":"partial-consent"):
+        "complete-co-members"):"in-progress",
     completed:state.completed,eligibleCoMembers:state.totalEligible,
-    remaining:state.totalEligible-state.completed,startedAt:state.startedAt,
+    remaining:state.totalEligible-state.completed,
+    observedMembers:state.observedMembers??null,startedAt:state.startedAt,
     expiresAt:state.expiresAt,personalRosterCollected:state.selfCompleted===true,
     collectionEnabled:false
   };
@@ -132,14 +137,21 @@ async function finishSelf(env,fp,previous,selected,baseline,now,fetchImpl,tick){
   await env.CAPTAIN_BUCKET.put(selfKey(fp,previous.runId),raw,{
     httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
   });
-  // Only after the LAST expected player is durable: atomic manifest pointer.
-  const complete={version:1,fingerprint:fp,runId:previous.runId,
-    membershipDigest:previous.membershipDigest,total:previous.totalEligible+1,
-    coMembers:previous.totalEligible,includesPersonal:true,
-    capturedAt:new Date(now).toISOString(),expiresAt:previous.expiresAt};
-  await env.CAPTAIN_BUCKET.put(completeKey(fp),JSON.stringify(complete),{
-    httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
-  });
+  // Never advertise full coverage when a player opted out of sharing.
+  const coverageComplete=previous.totalEligible+1===previous.observedMembers;
+  if(coverageComplete){
+    const complete={version:1,fingerprint:fp,runId:previous.runId,
+      membershipDigest:previous.membershipDigest,total:previous.totalEligible+1,
+      observedMembers:previous.observedMembers,
+      coMembers:previous.totalEligible,includesPersonal:true,
+      capturedAt:new Date(now).toISOString(),expiresAt:previous.expiresAt};
+    await env.CAPTAIN_BUCKET.put(completeKey(fp),JSON.stringify(complete),{
+      httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
+    });
+  }else{
+    // A previously complete pointer must not remain usable after consent loss.
+    await env.CAPTAIN_BUCKET.delete(completeKey(fp));
+  }
   await env.CAPTAIN_BUCKET.put(stateKey(fp),JSON.stringify({
     ...previous,selfCompleted:true,lastAutoTick:tick
   }),{httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}});
@@ -263,6 +275,7 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
       version:1,fingerprint:fp,runId,membershipDigest:result.membershipDigest,
       startedAt,expiresAt,totalEligible:result.sharedCount,
       completed:startIndex+result.selectedCount,
+      observedMembers:result.memberCount,
       ...(campaign?{campaign,selfCompleted:false,lastAutoTick:internal.tick}:{}),
       ...(baseline?{baseline}:{})
     };
