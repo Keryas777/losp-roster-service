@@ -133,8 +133,8 @@ test("admin HTML uses current-member nickname picker instead of an ID text field
   const route=await readFile(new URL("../src/admin-routes.js",import.meta.url),"utf8");
   const js=await readFile(filename,"utf8");
   const css=await readFile(cssPath,"utf8");
-  assert.match(route,/<select id=\\"member\\"><\\/select>/);
-  assert.doesNotMatch(route,/<input id=\\"member\\"/);
+  assert.ok(route.includes('<select id="member"></select>'));
+  assert.ok(!route.includes('<input id="member"'));
   assert.match(js,/memberChoiceSession!==currentSession/);
   assert.match(js,/sessionSelect\.addEventListener\("change",resetMemberOptions\)/);
   assert.match(js,/response\.resource==="alliance-members"/);
