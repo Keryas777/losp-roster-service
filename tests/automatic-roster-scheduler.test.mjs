@@ -157,3 +157,23 @@ test("daily API request budget stops new batches without spending the reserve",a
  assert.equal(result.status,"daily-budget-reached");
  assert.equal(f.calls.length,0);
 });
+
+test("a crash after Scopely requests preserves the pessimistically reserved daily budget",async()=>{
+ const f=fixture(),key="roster-auto/v1/days/2026-10-18.json";
+ const original=f.env.CAPTAIN_BUCKET.put;
+ f.env.CAPTAIN_BUCKET.put=async(k,v)=>{
+   if(k===key&&JSON.parse(v).lastOutcome!=="reserved")
+     throw Error("simulate Worker interruption before final counter commit");
+   return original(k,v);
+ };
+ const first=await runRosterAutoTick(f.env,controller("2026-10-18T02:00:00Z"),f.fetchImpl);
+ assert.equal(first.status,"unavailable");
+ assert.ok(f.calls.length>0);
+ const stored=JSON.parse(f.store.get(key));
+ assert.equal(stored.used,18);
+ assert.equal(stored.lastOutcome,"reserved");
+ const before=f.calls.length;
+ const repeat=await runRosterAutoTick(f.env,controller("2026-10-18T02:00:00Z"),f.fetchImpl);
+ assert.equal(repeat.status,"already-processed");
+ assert.equal(f.calls.length,before);
+});
