@@ -8,6 +8,7 @@ export { RosterBatchLock } from "./roster-batch-lock.js";
 import { buildPrivateCoverage } from "./alliance-coverage.js";
 import { handleAdmin } from "./admin-routes.js";
 import { prunePrivateRosterPilots } from "./private-roster-pilot.js";
+import { ROSTER_CRON, runRosterAutoTick } from "./automatic-roster-scheduler.js";
 
 const SCOPELY_AUTH_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/auth";
 const APP_ORIGIN = "https://losp-roster-service.deliriousfan7.workers.dev";
@@ -147,6 +148,15 @@ async function startLogin(request, env, url) {
 
 export default {
   async scheduled(controller, env) {
+    if(controller?.cron===ROSTER_CRON){
+      const report=await runRosterAutoTick(env,controller);
+      // Aggregate status and request counts only; no roster data, tokens or IDs.
+      console.info("roster-auto-cron",JSON.stringify({
+        status:report.status,requestsThisTick:report.requestsThisTick||0,
+        requestsToday:report.requestsToday||0
+      }));
+      return;
+    }
     // Scheduled refresh is disabled unless all private storage bindings exist.
     // No player or roster information is fetched or logged.
     try {
