@@ -76,7 +76,7 @@ test("PID checker compares the selected member rather than the connected account
       addEventListener(){}};
   }
   const ids=Object.fromEntries(["pid-check","pid-load-members","pid-status",
-    "pid-members-status","pid-result","pid-target","session","pid-expected"]
+    "pid-members-status","pid-choice-status","pid-result","pid-target","session","pid-expected"]
     .map(id=>[id,createElement("div")]));
   ids.session.value="a".repeat(64);
   ids["pid-expected"].value="50072723";
@@ -95,12 +95,22 @@ test("PID checker compares the selected member rather than the connected account
     }
     throw Error("Unexpected endpoint: "+url);
   };
-  const {loadPidMembers,runPidDiagnostic}=runInNewContext(
-    js+"\n({loadPidMembers,runPidDiagnostic})",{document,fetch});
+  const {loadPidMembers,runPidDiagnostic,updatePidTarget}=runInNewContext(
+    js+"\n({loadPidMembers,runPidDiagnostic,updatePidTarget})",{document,fetch});
   await loadPidMembers();
-  assert.equal(ids["pid-target"].children.length,2);
-  assert.equal(ids["pid-target"].children[1].textContent,"iZi");
+  assert.equal(ids["pid-target"].children.length,3);
+  assert.equal(ids["pid-target"].children[0].textContent,"Choisir un joueur…");
+  assert.equal(ids["pid-target"].children[1].textContent,"Compte connecté (choix explicite)");
+  assert.equal(ids["pid-target"].children[2].textContent,"iZi");
+  assert.equal(ids["pid-target"].value,"");
+  assert.equal(ids["pid-check"].disabled,true);
+  await runPidDiagnostic();
+  assert.match(ids["pid-status"].textContent,/Choisis d'abord explicitement un joueur/);
+  assert.equal(visited.length,1); // Member-list fetch only; no accidental self-card lookup.
   ids["pid-target"].value="current-member:3";
+  updatePidTarget();
+  assert.equal(ids["pid-check"].disabled,false);
+  assert.match(ids["pid-choice-status"].textContent,/iZi/);
   await runPidDiagnostic();
   assert.equal(ids["pid-result"].children[0].textContent,"Profil réellement lu : iZi");
   assert.match(ids["pid-result"].children[1].textContent,/membre sélectionné : iZi/);
@@ -125,6 +135,10 @@ test("PID member investigation makes mismatched profile names a hard stop",async
   const page=await readFile(routesFile,"utf8");
   assert.match(page,/id="pid-target"/);
   assert.match(page,/id="pid-load-members"/);
+  assert.match(page,/id="pid-check"[^>]*disabled/);
+  assert.match(page,/Joueur à analyser \(choix obligatoire\)/);
+  assert.match(js,/pid-target"\)\.addEventListener\("change",updatePidTarget\)/);
+  assert.match(js,/connected\.value="__self__"/);
   assert.match(page,/admin\/api\/pid-member-card/);
   assert.doesNotMatch(js,/localStorage|sessionStorage|innerHTML|console\./);
 });
