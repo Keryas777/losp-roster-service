@@ -32,7 +32,7 @@ Origine de production enregistrée chez Scopely : **https://losp-roster-service.
 | `GET /login/captain` | Consentement complet et création d'une session durable si les conditions sont réunies ; réutilisation d'une session active | Consentement Scopely |
 | `GET /captain` | Espace de la session persistante | Cookie capitaine |
 | `GET /session` | État de connexion sans identité ni jeton | Cookie capitaine |
-| `GET /captain/rosters` | Ros­ters partagés de l'alliance **actuelle** | Session capitaine active |
+| `GET /captain/rosters` | Rosters partagés de l'alliance **actuelle** | Session capitaine active |
 | `GET /captain/coverage` | Membres et état du partage de l'alliance actuelle | Session capitaine active |
 | `POST /logout` | Suppression de la session LoSP et tentative de révocation Scopely | Cookie + contrôle `Origin` |
 | `GET /admin` | Explorateur privé de l'API MSF | Cloudflare Access + autorisation administrateur |
