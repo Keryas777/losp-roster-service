@@ -35,6 +35,19 @@ function allianceDisplay(value){
     label:displayAllianceName(value),
     color:allianceColor(value)};
 }
+// Shared display tokens for future alliance cards, borders and tinted backgrounds.
+// Color is strictly parsed from Scopely's #RRGGBB marker, never arbitrary CSS.
+function applyAllianceTheme(element,color){
+  element.classList.toggle("alliance-themed",Boolean(color));
+  for(const property of ["--alliance-color","--alliance-surface","--alliance-outline"]){
+    element.style.removeProperty(property);
+  }
+  if(color){
+    element.style.setProperty("--alliance-color",color);
+    element.style.setProperty("--alliance-surface",color+"18");
+    element.style.setProperty("--alliance-outline",color+"80");
+  }
+}
 function jsonDetails(value,parent,label="Tous les champs"){
   const details=node("details",null,parent),summary=node("summary",label,details);
   const pre=node("pre",JSON.stringify(value,null,2),details);
@@ -55,7 +68,10 @@ function tableFor(rows,parent){
       const cell=node("td",null,r);
       if(c==="Alliance" && value?.__adminAlliance===true){
         const name=node("span",value.label,cell,"alliance-name");
-        if(value.color)name.style.color=value.color;
+        if(value.color){
+          name.style.color=value.color;
+          applyAllianceTheme(r,value.color);
+        }
       }else{
         node("span",value===null?"null":value===undefined?"—":
           typeof value==="object"?"[…]" : String(value),cell);
@@ -184,7 +200,9 @@ function toggleMember(){
 resourceSelect.addEventListener("change",toggleMember);
 function updateSelectedAllianceColor(){
   const selected=sessions.find(s=>s.id===sessionSelect.value);
-  sessionSelect.style.color=allianceColor(selected?.allianceName)||"";
+  const color=allianceColor(selected?.allianceName);
+  sessionSelect.style.color=color||"";
+  applyAllianceTheme(sessionSelect,color);
 }
 sessionSelect.addEventListener("change",updateSelectedAllianceColor);
 async function loadSessions(reset=true){
