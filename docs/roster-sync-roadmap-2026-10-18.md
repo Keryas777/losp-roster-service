@@ -4,6 +4,8 @@
 Le fait de fusionner cette PR ne déclenche **aucune collecte des personnages**.
 Aucun cron supplémentaire, publication GitHub, écriture Google Sheets ou PID.
 
+**Règle d'architecture absolue : le service ne pousse JAMAIS de données vers la WebApp ou son dépôt. Seule la WebApp initie la récupération par des requêtes GET de lecture.**
+
 ## Source de vérité et périmètre
 
 - Les sessions Scopely OAuth existantes sont attachées aux comptes, **pas** aux alliances.
@@ -28,10 +30,19 @@ La limite interne existante `MAX_REQUESTS=35` et le plafond de pagination du col
 
 1. **Pilote privé** : collecter de manière explicitement déclenchée un seul roster complet, tester les pages et autorisations en production, sans exposition publique.
 2. **Stockage privé** : snapshots horodatés et isolés par alliance et lot, expiration stricte (maximum 30 jours) y compris règle de purge R2, idempotence et suppression lorsqu'un consentement est retiré. Ne jamais indexer l'historique sur les seuls pseudo ou `memberId`.
-3. **Orchestration des cinq alliances** : réévaluer les alliés approuvés, répartir les appels dans des lots bornés, sauvegarder les checkpoints vérifiables et ignorer toute transition de version d'effectif non revalidée. Plusieurs sessions de la même alliance ne doivent pas produire de doublons. Les erreurs partielles ne sont pas publiées.
+3. **Orchestration des cinq alliances** : une collecte logique indépendante par alliance, découpée en micro-lots de **1 à 3 joueurs selon la pagination et le budget d'appels réel** (et non un unique lot de 24). Réévaluer à chaque lot l'alliance approuvée, les membres courants et les droits de partage ; sauvegarder les checkpoints privés, contrôler les changements de version d'effectif et dédupliquer plusieurs sessions OAuth. Un roster n'est validé qu'une fois toutes ses pages reçues. Ne jamais promouvoir une alliance partiellement collectée.
 4. **Validation métier** : comparer les snapshots à un export CSV officiel de référence ; vérifier les évolutions `power`, `gear`, étoiles rouges/diamants et ISO orange avant toute conversion.
-5. **Publication distincte** : alimenter les sources de `Keryas777/msf/docs/data/rosters_<alliance>.json` via un mécanisme autorisé, revoir `scripts/merge-rosters.mjs`, contrôler les CI, puis seulement permettre la promotion. Aucune écriture directe dans `docs/data/rosters.json` depuis le Worker.
+5. **Exposition en lecture seule — pull exclusivement** : LoSP Roster Service met à disposition un manifeste de versions par alliance et des ressources HTTP GET de lecture, après validation d'un snapshot complet. La **WebApp LoSP interroge elle-même ces endpoints**, télécharge les données nécessaires et les exploite localement selon son architecture statique. Le Worker ne déclenche aucun webhook vers la WebApp, aucune GitHub Action du dépôt `Keryas777/msf`, aucun commit, aucun upload et aucune écriture dans `rosters_<alliance>.json` ou `rosters.json`. Toute conversion / mise en cache côté WebApp lui appartient exclusivement et ne doit pas être un effet de la collecte.
 6. **Registre PID** : Google Sheets reste la source des PID saisis manuellement. Ne jamais modifier sa colonne C et ne jamais rattacher automatiquement un historique sur un pseudo ambigu.
+
+## Contrat de récupération par la WebApp — non implémenté
+
+- LoSP Roster Service possède les données officielles collectées et les snapshots privés R2. Une promotion **atomique par alliance** rend visible uniquement la dernière version complète et contrôlée ; les lots intermédiaires restent inaccessibles à la WebApp.
+- La WebApp est **l'unique initiatrice** de chaque lecture. Proposition de contrat : `GET /api/rosters/manifest` (versions et état par alliance), puis `GET /api/rosters/{allianceKey}?version=...&page=...` (lecture paginée). Ce sont des noms d'API **proposés**, pas des routes existantes.
+- Le découpage côté récupération (par alliance et pages bornées) est indépendant du découpage de collecte Scopely en petits lots de joueurs. La WebApp peut ne relire que les versions modifiées ; version/ETag et gestion de cache doivent être spécifiés et testés.
+- Le Worker ne connaît pas l'URL de la WebApp pour transmettre ses données. Il ne stocke aucun token d'écriture GitHub et n'effectue aucune opération sur le dépôt WebApp.
+- Les rosters sont des données de joueurs : valider le mode d'accès aux GET avant exposition. Un site GitHub Pages public **ne doit jamais embarquer de secret** ; les réponses privées doivent être protégées par une authentification adaptée et des CORS limités à l'origine autorisée. Une origine CORS n'est pas une authentification. L'accès public n'est possible que si sa publication est explicitement autorisée.
+- En cas d'échec ou de permission retirée, aucune donnée partielle n'est diffusée ; la révocation et l'expiration maximale de 30 jours s'appliquent aussi aux données précédemment collectées. L'âge du dernier snapshot validé est visible dans le manifeste.
 
 ## Consultation
 
