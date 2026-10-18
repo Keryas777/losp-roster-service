@@ -37,6 +37,58 @@ async function runPrivateRosterPilot(alliance,button,status){
       ". Aucune donnée partielle n'a été sauvegardée.";
   }finally{button.disabled=false;}
 }
+async function rosterBatchStatus(alliance,status){
+  try{
+    const response=await fetch("/admin/api/roster-batch-status?fingerprint="+
+      encodeURIComponent(alliance.fingerprint),{credentials:"same-origin",cache:"no-store"});
+    const state=await response.json();
+    if(!response.ok)throw Error("status");
+    if(state.status==="not-started")status.textContent="Aucun micro-lot enregistré.";
+    else status.textContent="Progression des coéquipiers partagés : "+
+      state.completed+"/"+state.eligibleCoMembers+" ; état : "+state.status+
+      (state.expiresAt?" ; expiration "+new Date(state.expiresAt).toLocaleDateString("fr-FR"):"");
+    return state;
+  }catch{
+    status.textContent="État de progression indisponible.";
+    return null;
+  }
+}
+async function rosterBatchStart(alliance,button,status,restart=false){
+  button.disabled=true;
+  status.textContent="Collecte de deux coéquipiers maximum en cours…";
+  try{
+    const response=await fetch("/admin/api/roster-batch",{
+      method:"POST",credentials:"same-origin",cache:"no-store",
+      headers:{"Content-Type":"application/json",Accept:"application/json"},
+      body:JSON.stringify({fingerprint:alliance.fingerprint,...(restart?{restart:true}:{})})
+    });
+    const result=await response.json();
+    if(!response.ok){
+      if(["membership-changed-restart-required","expired-restart-required"].includes(result.status)){
+        status.textContent="Effectif modifié ou collecte expirée : redémarrage nécessaire.";
+        const reset=document.createElement("button");
+        reset.type="button";
+        reset.textContent="Recommencer cette alliance depuis zéro";
+        reset.addEventListener("click",async()=>{
+          reset.disabled=true;
+          await rosterBatchStart(alliance,button,status,true);
+          reset.remove();
+        },{once:true});
+        status.parentNode.appendChild(reset);
+        return;
+      }
+      throw Error(result.status||"batch-error");
+    }
+    await rosterBatchStatus(alliance,status);
+    if(result.savedThisBatch)
+      status.textContent+=" — dernier lot : "+result.savedThisBatch+
+        " roster(s), "+result.charactersThisBatch+" personnages, "+
+        result.pagesThisBatch+" page(s) ; aucun transfert à la WebApp.";
+  }catch(e){
+    status.textContent="Lot non validé : "+(e.message||"indisponible")+
+      ". Progression précédente conservée.";
+  }finally{button.disabled=false;}
+}
 async function loadRosterPreflight(){
   const btn=rosterEl("roster-preflight"),status=rosterEl("roster-preflight-status"),
     parent=rosterEl("roster-preflight-list");
@@ -78,6 +130,16 @@ async function loadRosterPreflight(){
         pilot.addEventListener("click",()=>runPrivateRosterPilot(a,pilot,progress));
         parent.appendChild(pilot);
         parent.appendChild(progress);
+        const advance=document.createElement("button");
+        advance.type="button";
+        advance.textContent="Collecter le prochain lot (2) — "+a.name;
+        const batchProgress=document.createElement("p");
+        batchProgress.setAttribute("role","status");
+        advance.disabled=!report.complete;
+        advance.addEventListener("click",()=>rosterBatchStart(a,advance,batchProgress));
+        parent.appendChild(advance);
+        parent.appendChild(batchProgress);
+        void rosterBatchStatus(a,batchProgress);
       }else parent.appendChild(document.createElement("p"));
     }
     for(const absent of report.unobservedApproved||[])

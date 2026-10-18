@@ -30,10 +30,10 @@ async function accessToken(env,key){
   return data.status==="active"&&typeof data.accessToken==="string"&&data.accessToken?
     data.accessToken:null;
 }
-function approvedFingerprint(approval,fp){
+export function approvedFingerprint(approval,fp){
   return approval.status==="configured"&&approval.alliances.some(a=>a.fingerprint===fp);
 }
-async function chooseAccount(env,requested,fetchImpl){
+export async function chooseAccount(env,requested,fetchImpl){
   const listed=await env.CAPTAIN_BUCKET.list({
     prefix:CAPTAIN_PREFIX,limit:MAX_COVERAGE_SESSIONS+1
   });

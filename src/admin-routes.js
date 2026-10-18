@@ -1,6 +1,7 @@
 import {diagnoseAdminAuth,adminReady} from "./admin-auth.js";
 import {rosterSyncPreflight,saveRosterSyncApprovals} from "./roster-sync-preflight.js";
 import {handlePrivateRosterPilot} from "./private-roster-pilot.js";
+import {handleRosterMicrobatch,getRosterBatchStatus} from "./private-roster-batches.js";
 import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron,adminMemberCard} from "./admin-data-api.js";
 
 const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
@@ -50,7 +51,8 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 export async function handleAdmin(request,env,fetchImpl=fetch){
   const endpoint=new URL(request.url).pathname;
   if(request.method!=="GET"&&!(request.method==="POST"&&
-       ["/admin/api/roster-approvals","/admin/api/roster-pilot"].includes(endpoint)))
+       ["/admin/api/roster-approvals","/admin/api/roster-pilot",
+        "/admin/api/roster-batch"].includes(endpoint)))
     return new Response("Method Not Allowed",{status:405});
   if(!adminReady(env))return new Response("Administration désactivée",{
     status:503,headers:{"Cache-Control":"no-store"}
@@ -83,5 +85,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   if(pathname==="/admin/api/roster-preflight")return rosterSyncPreflight(env,fetchImpl);
   if(pathname==="/admin/api/roster-approvals")return saveRosterSyncApprovals(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-pilot")return handlePrivateRosterPilot(request,env,fetchImpl);
+  if(pathname==="/admin/api/roster-batch")return handleRosterMicrobatch(request,env,fetchImpl);
+  if(pathname==="/admin/api/roster-batch-status")return getRosterBatchStatus(request,env);
   return new Response("Not Found",{status:404});
 }

@@ -4,6 +4,7 @@ import { CAPTAIN_SCOPES } from "./captain-scopes.js";
 import { captainConfigReady } from "./captain-vault.js";
 import { handleCaptainSession, handleCaptainLogout, handleCaptainLanding, handleCaptainRosters, handleCaptainCoverage, renewCaptainGrants } from "./captain-session-routes.js";
 export { CaptainRefreshCoordinator } from "./captain-refresh-coordinator.js";
+export { RosterBatchLock } from "./roster-batch-lock.js";
 import { buildPrivateCoverage } from "./alliance-coverage.js";
 import { handleAdmin } from "./admin-routes.js";
 import { prunePrivateRosterPilots } from "./private-roster-pilot.js";
