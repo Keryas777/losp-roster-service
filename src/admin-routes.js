@@ -18,11 +18,12 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<p id="coverage-status" role="status"></p><div id="coverage" class="scroll"></div></section>'+
 '<section><h2>Diagnostic du PID joueur</h2>'+
 '<p>Compare le PID en jeu à la fiche officielle du <strong>même joueur</strong>. Le compte est choisi dans Explorer ; pour un coéquipier actuel, charge d\'abord ses membres. Les IDs d\'effectif sont temporaires.</p>'+
-'<label>Joueur à analyser<select id="pid-target"><option value="">Compte connecté</option></select></label>'+
+'<label>Joueur à analyser (choix obligatoire)<select id="pid-target"><option value="">Choisir un joueur…</option></select></label>'+
+'<p id="pid-choice-status" role="status">Sélectionne explicitement le compte connecté ou un membre de son alliance.</p>'+
 '<button id="pid-load-members" type="button">Charger les pseudos de l\'alliance actuelle</button>'+
 '<p id="pid-members-status" role="status"></p>'+
 '<label>PID visible dans le jeu (facultatif)<input id="pid-expected" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="12" placeholder="Ex. 12345678" autocomplete="off"></label>'+
-'<button id="pid-check" type="button">Analyser le profil du compte sélectionné</button>'+
+'<button id="pid-check" type="button" disabled>Analyser le joueur choisi</button>'+
 '<p id="pid-status" role="status"></p><div id="pid-result"></div></section>'+
 '<section><h2>Explorer</h2><div class="controls">'+
 '<label>Compte<select id="session"></select></label>'+

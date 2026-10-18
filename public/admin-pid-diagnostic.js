@@ -60,11 +60,21 @@ function resetPidMembers(){
   pidMemberOptions=new Map();
   const select=document.getElementById("pid-target");
   select.replaceChildren();
-  const option=document.createElement("option");
-  option.value="";
-  option.textContent="Compte connecté";
-  select.appendChild(option);
+  const placeholder=document.createElement("option");
+  placeholder.value="";
+  placeholder.textContent="Choisir un joueur…";
+  placeholder.disabled=true;
+  select.appendChild(placeholder);
+  const connected=document.createElement("option");
+  connected.value="__self__";
+  connected.textContent="Compte connecté (choix explicite)";
+  select.appendChild(connected);
   select.value="";
+  document.getElementById("pid-check").disabled=true;
+  document.getElementById("pid-result").replaceChildren();
+  document.getElementById("pid-status").textContent="";
+  document.getElementById("pid-choice-status").textContent=
+    "Aucun joueur sélectionné. Un PID seul ne désigne pas automatiquement le bon compte.";
   document.getElementById("pid-members-status").textContent=
     "Pour comparer un coéquipier, charge les membres de l'alliance du compte sélectionné.";
 }
@@ -113,6 +123,20 @@ async function loadPidMembers(){
     status.textContent="Impossible de charger les membres actuels ; réessaie.";
   }finally{button.disabled=false;}
 }
+function updatePidTarget(){
+  const select=document.getElementById("pid-target");
+  const selected=select.value;
+  const name=selected==="__self__"?"le compte OAuth connecté":
+    pidMemberOptions.get(selected);
+  const valid=Boolean(selected && name &&
+    (selected==="__self__"||pidMemberSession===document.getElementById("session")?.value));
+  document.getElementById("pid-check").disabled=!valid;
+  document.getElementById("pid-result").replaceChildren();
+  document.getElementById("pid-status").textContent="";
+  document.getElementById("pid-choice-status").textContent=valid?
+    "Joueur choisi : "+name+". Vérifie que le PID saisi appartient bien à ce joueur.":
+    "Aucun joueur sélectionné. Choisis un pseudo avant l'analyse.";
+}
 function pidText(tag,text,parent){
   const elem=document.createElement(tag);
   elem.textContent=text;
@@ -125,9 +149,14 @@ async function runPidDiagnostic(){
   const result=document.getElementById("pid-result");
   const selected=document.getElementById("session")?.value;
   const raw=document.getElementById("pid-expected").value.trim();
-  const memberId=document.getElementById("pid-target").value;
+  const choice=document.getElementById("pid-target").value;
+  const memberId=choice==="__self__"?"":choice;
   const memberName=memberId?pidMemberOptions.get(memberId):null;
   result.replaceChildren();
+  if(!choice){
+    status.textContent="Choisis d'abord explicitement un joueur à analyser, même pour le compte connecté.";
+    return;
+  }
   if(!selected || !/^[a-f0-9]{64}$/.test(selected)){
     status.textContent="Sélectionne d'abord un compte dans la rubrique Explorer.";
     return;
@@ -157,7 +186,7 @@ async function runPidDiagnostic(){
       throw Error("Profil indisponible (HTTP "+response.status+").");
     }
     if(selected!==document.getElementById("session")?.value ||
-      memberId!==document.getElementById("pid-target").value){
+      choice!==document.getElementById("pid-target").value){
       status.textContent="Le compte sélectionné a changé : relance le diagnostic.";
       return;
     }
@@ -195,5 +224,6 @@ async function runPidDiagnostic(){
 }
 document.getElementById("pid-check").addEventListener("click",runPidDiagnostic);
 document.getElementById("pid-load-members").addEventListener("click",loadPidMembers);
+document.getElementById("pid-target").addEventListener("change",updatePidTarget);
 document.getElementById("session").addEventListener("change",resetPidMembers);
 resetPidMembers();
