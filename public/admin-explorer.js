@@ -19,6 +19,12 @@ function node(tag,contents,parent,cls){
   if(parent)parent.appendChild(n);return n;
 }
 function button(label,fn,parent){const b=node("button",label,parent);b.type="button";b.onclick=fn;return b;}
+// Display-only cleanup: MSF alliance labels contain markup-like color tags.
+// Never modify the original API name, identifiers or official payloads.
+function displayAllianceName(value){
+  const name=String(value??"").replace(/<#[a-f0-9]{6}>/gi,"").replace(/\s+/g," ").trim();
+  return name.replace(/^(LoSP\s+){2,}/i,"LoSP ");
+}
 function jsonDetails(value,parent,label="Tous les champs"){
   const details=node("details",null,parent),summary=node("summary",label,details);
   const pre=node("pre",JSON.stringify(value,null,2),details);
@@ -95,7 +101,7 @@ function renderAllianceOverview(){
   for(const account of sessions){
     const id=account.allianceId||"inconnue:"+account.id;
     const prev=groups.get(id)||{
-      name:account.allianceName||"Alliance indisponible",
+      name:account.allianceName?displayAllianceName(account.allianceName):"Alliance indisponible",
       card:account.allianceDetails||{},accounts:[]
     };
     prev.accounts.push(account);
@@ -104,7 +110,7 @@ function renderAllianceOverview(){
   const rows=[...groups.values()].map(group=>({
     Alliance:group.name,
     Comptes:group.accounts.length,
-    Capitaines:group.accounts.map(a=>a.playerName||"(inconnu)").join(", "),
+    "Comptes MSF":group.accounts.map(a=>a.playerName||"(inconnu)").join(", "),
     warRank:group.card.warRank??"—",
     warLeague:typeof group.card.warLeague==="object"?
       JSON.stringify(group.card.warLeague):group.card.warLeague??"—",
@@ -127,7 +133,7 @@ async function loadCoverage(){
       count+" alliance(s) distincte(s), "+confirmed+" disponible(s). "+
       (complete?"Bilan complet des sessions enregistrées.":"Bilan partiel : sessions indisponibles ou limite atteinte.");
     const rows=scan.alliances.map(a=>({
-      Alliance:a.name,
+      Alliance:displayAllianceName(a.name),
       "Connexions autorisées":a.captainConnections,
       Membres:a.memberCount??"—",
       "Rosters partagés":a.sharedCount??"—",
@@ -172,7 +178,7 @@ async function loadSessions(reset=true){
     for(const session of sessions){
       const option=node("option",null,sessionSelect);
       option.value=session.id;
-      option.textContent=(session.allianceName||"Alliance non identifiée")+" / "+
+      option.textContent=(session.allianceName?displayAllianceName(session.allianceName):"Alliance non identifiée")+" / "+
         (session.playerName||"Compte non identifié")+" — "+session.status;
     }
     if(selected&&sessions.some(s=>s.id===selected))sessionSelect.value=selected;
