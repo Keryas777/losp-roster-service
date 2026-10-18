@@ -126,6 +126,8 @@ test("refresh token rotates once under concurrent browser and scheduled requests
   const id=newCaptainSessionId();
   const {key}=await store(env,id);
   const old=await getCaptainRecord(bucket,secret,key);
+  assert.equal(old.observedRotations,0);
+  assert.equal(old.lastRotatedAt,null);
   await putCaptainRecord(bucket,secret,key,{...old,accessExpiresAt:Date.now()-1000});
   const status1=handleCaptainSession(req("/session",id),env);
   // Deterministically wait until the provider call starts (crypto is async).
@@ -141,6 +143,10 @@ test("refresh token rotates once under concurrent browser and scheduled requests
   const updated=await getCaptainRecord(bucket,secret,key);
   assert.equal(updated.refreshToken,"PRIVATE_REFRESH_B");
   assert.equal(updated.accessToken,"PRIVATE_ACCESS_B");
+  assert.equal(updated.observedRotations,1);
+  assert.ok(Number.isSafeInteger(updated.lastRotatedAt));
+  assert.ok(updated.lastRotatedAt>=old.createdAt);
+  assert.doesNotMatch(bucket.map.get(key),/PRIVATE_ACCESS_B|PRIVATE_REFRESH_B/);
 });
 
 test("invalid_grant deletes grant, transient failures preserve encrypted grant",async()=>{
@@ -190,7 +196,10 @@ test("cron touches only private refresh endpoint and no game/roster data",async(
   const id=newCaptainSessionId(),{key}=await store(env,id);
   const record=await getCaptainRecord(bucket,secret,key);
   await putCaptainRecord(bucket,secret,key,{...record,accessExpiresAt:Date.now()-2000});
-  assert.equal((await renewCaptainGrants(env)).checked,1);
+  const report=await renewCaptainGrants(env);
+  assert.equal(report.checked,1);
+  assert.equal(report.rotated,1);
+  assert.equal(report.failed,0);
   assert.equal(calls,1);
   assert.equal((await getCaptainRecord(bucket,secret,key)).refreshToken,"PRIVATE_NEW_REFRESH");
 });
@@ -445,4 +454,22 @@ test("captain coverage without session redirects, without attempting a game API 
   assert.equal(res.status,303);
   assert.equal(res.headers.get("location"),origin+"/captain");
   assert.equal(touched,false);
+});
+
+test("hourly cron writes only one private aggregate summary without tokens or identities",async()=>{
+  const {env,bucket}=setup();
+  const id=newCaptainSessionId();
+  await store(env,id);
+  await worker.scheduled({cron:"15 * * * *"},env);
+  const raw=bucket.map.get("oauth-monitoring/v1/last-refresh-check.json");
+  assert.equal(typeof raw,"string");
+  const report=JSON.parse(raw);
+  assert.equal(report.version,1);
+  assert.equal(report.status,"ok");
+  assert.equal(report.checked,1);
+  assert.equal(report.rotated,0);
+  assert.equal(report.failed,0);
+  assert.ok(!Number.isNaN(Date.parse(report.checkedAt)));
+  assert.doesNotMatch(raw,/PRIVATE_ACCESS|PRIVATE_REFRESH|oauth-captains|session|member|player/i);
+  assert.ok([...bucket.map.keys()].some(k=>k.startsWith(CAPTAIN_PREFIX)));
 });

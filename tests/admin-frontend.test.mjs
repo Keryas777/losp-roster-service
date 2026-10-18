@@ -83,6 +83,21 @@ test("alliance identity tokens theme rows and account selector with a subtle tin
   assert.match(css,/select\.alliance-themed/);
 });
 
+test("admin token health display is mobile first, read-only and clearly distinguishes unmeasured history",async()=>{
+  const js=await readFile(filename,"utf8");
+  const css=await readFile(cssPath,"utf8");
+  assert.match(js,/function renderRefreshSessions\(/);
+  assert.match(js,/function loadRefreshInfo\(/);
+  assert.match(js,/Non mesuré/);
+  assert.match(js,/admin\/api\/refresh-cron/);
+  assert.match(js,/lastRotatedAt/);
+  assert.match(js,/observedRotations/);
+  assert.match(js,/applyAllianceTheme\(card,color\)/);
+  assert.match(css,/\.health-cards/);
+  assert.match(css,/\.health-card\.alliance-themed/);
+  assert.doesNotMatch(js,/innerHTML/);
+});
+
 test("member list uses official nicknames, shows missing shares first, never presents volatile IDs as player names",async()=>{
   const js=await readFile(filename,"utf8");
   const start=js.indexOf("function displayPlayerName(");

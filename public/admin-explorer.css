@@ -22,6 +22,11 @@ tr.alliance-themed td:first-child{box-shadow:inset 3px 0 var(--alliance-color)}
 select.alliance-themed{border-color:var(--alliance-color);background:linear-gradient(var(--alliance-surface),var(--alliance-surface)),#0e1829}
 pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#09101c;color:#dce9ff;padding:.7rem;border-radius:8px;font-size:.79rem;max-height:60vh;overflow:auto}
 details{margin:.4rem 0;border-radius:8px;padding:.55rem;border:1px solid #364765}summary{cursor:pointer;font-weight:600}
+.health-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:.7rem}
+.health-card{background:#122039;border:1px solid #384860;border-radius:10px;padding:.8rem;min-width:0;overflow-wrap:anywhere}
+.health-card p{font-size:.88rem;margin:.35rem 0}
+.health-card.alliance-themed{background:linear-gradient(var(--alliance-surface),var(--alliance-surface)),#122039;border-color:var(--alliance-outline)}
+.health-card strong{display:block}
 .members-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr));gap:.65rem}
 .member-card{display:grid;align-content:start;gap:.35rem;padding:.75rem;border:1px solid #35445f;border-radius:10px;background:#101d31;min-width:0;overflow-wrap:anywhere}
 .member-card .member-name{font-size:1rem}
