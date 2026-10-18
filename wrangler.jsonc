@@ -14,8 +14,8 @@
     "CAPTAIN_SESSIONS_ENABLED": "true",
     "CAPTAIN_COVERAGE_ENABLED": "false",
     "MSF_ADMIN_ENABLED": "true",
-    "ROSTER_AUTO_ENABLED": "false",
-    "ROSTER_RETENTION_CONFIRMED": "false"
+    "ROSTER_AUTO_ENABLED": "true",
+    "ROSTER_RETENTION_CONFIRMED": "true"
   },
   "assets": {
     "directory": "./public",
