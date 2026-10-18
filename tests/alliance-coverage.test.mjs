@@ -1,7 +1,7 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {
-  stableAllianceId,discoverAlliance,readAllianceCoverage,buildPrivateCoverage,
+  stableAllianceId,discoverAlliance,readAllianceCoverage,scanPrivateCoverage,buildPrivateCoverage,
   COVERAGE_KEY,MAX_COVERAGE_SESSIONS
 } from "../src/alliance-coverage.js";
 import {CAPTAIN_PREFIX} from "../src/captain-vault.js";
@@ -177,4 +177,24 @@ test("bounded daily discovery reports incomplete snapshots instead of falsely cl
   assert.equal(snap.complete,false);
   assert.equal(snap.scannedSessions,MAX_COVERAGE_SESSIONS);
   assert.equal(snap.alliances.length,MAX_COVERAGE_SESSIONS);
+});
+
+test("on-demand admin scan is read-only, independent of disabled daily cron and deduplicates alliances",async()=>{
+  const fx=fixture({
+    1:{card:card("aid:v1","Zeus"),members:[member("self1",true,true),member("one",false,true)]},
+    2:{card:card("aid:v2","Zeus"),members:[member("self2",true,true),member("two",false,false)]},
+    3:{card:card("aid2:v1","Athéna"),members:[member("self3",true,false)]}
+  });
+  fx.env.CAPTAIN_COVERAGE_ENABLED="false";
+  const snapshot=await scanPrivateCoverage(fx.env,fx.fetchImpl);
+  assert.equal(snapshot.complete,true);
+  assert.equal(snapshot.scannedSessions,3);
+  assert.equal(snapshot.alliances.length,2);
+  assert.equal(snapshot.alliances.find(a=>a.name==="Zeus").captainConnections,2);
+  assert.equal(snapshot.alliances.find(a=>a.name==="Zeus").sharedCount,2);
+  assert.equal(fx.contents.size,0);
+  assert.equal(fx.requests.filter(x=>x.url.endsWith("/alliance/card")).length,3);
+  assert.equal(fx.requests.filter(x=>x.url.endsWith("/alliance/members")).length,2);
+  assert.ok(fx.requests.every(x=>!x.url.includes("/roster/member/")));
+  assert.doesNotMatch(JSON.stringify(snapshot),/TOKEN_|self1|self2|self3|private-one|private-two/);
 });

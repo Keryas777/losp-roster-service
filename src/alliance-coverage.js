@@ -85,9 +85,10 @@ async function grant(env,key){
     return fail(d.status==="revoked"?"revoked":"session-unavailable");
   return {ok:true,token:d.accessToken};
 }
-export async function buildPrivateCoverage(env,fetchImpl=fetch){
-  if(!captainConfigReady(env)||env.CAPTAIN_COVERAGE_ENABLED!=="true")
-    return {status:"disabled"};
+// A read-only version of multi-alliance discovery for authorized admin requests.
+// It does not persist any results or depend on the daily cron flag.
+export async function scanPrivateCoverage(env,fetchImpl=fetch){
+  if(!captainConfigReady(env))return null;
   const listed=await env.CAPTAIN_BUCKET.list({
     prefix:CAPTAIN_PREFIX,limit:MAX_COVERAGE_SESSIONS+1
   });
@@ -138,10 +139,17 @@ export async function buildPrivateCoverage(env,fetchImpl=fetch){
       && unavailable===0&&alliances.every(a=>a.status==="available"),
     alliances
   };
-  // Only aggregated data; no player roster, name, token or membership identifier
-  // is written to R2. R2 bucket remains private (public access disabled).
+  return snapshot;
+}
+export async function buildPrivateCoverage(env,fetchImpl=fetch){
+  if(!captainConfigReady(env)||env.CAPTAIN_COVERAGE_ENABLED!=="true")
+    return {status:"disabled"};
+  const snapshot=await scanPrivateCoverage(env,fetchImpl);
+  if(!snapshot)return {status:"disabled"};
+  // Daily snapshots remain opt-in, private and aggregated.
   await env.CAPTAIN_BUCKET.put(COVERAGE_KEY,JSON.stringify(snapshot),{
     httpMetadata:{contentType:"application/json",cacheControl:"no-store"}
   });
-  return {status:"stored",sessions:keys.length,alliances:alliances.length};
+  return {status:"stored",sessions:snapshot.scannedSessions,
+    alliances:snapshot.alliances.length};
 }
