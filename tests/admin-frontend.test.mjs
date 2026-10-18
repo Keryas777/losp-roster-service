@@ -42,6 +42,26 @@ test("MSF alliance color markup is removed only from admin display labels",async
   assert.equal(formatter("<#broken>LoSP"),"<#broken>LoSP");
 });
 
+test("MSF alliance colors are extracted from the last valid marker, for display only",async()=>{
+  const js=await readFile(filename,"utf8");
+  const start=js.indexOf("function displayAllianceName(");
+  const end=js.indexOf("\nfunction jsonDetails(",start);
+  assert.ok(start>=0 && end>start);
+  const colors=runInNewContext(js.slice(start,end)+"\nallianceColor");
+  const display=runInNewContext(js.slice(start,end)+"\nallianceDisplay");
+  assert.equal(colors("LoSP <#F8FF00>Ζευς"),"#F8FF00");
+  assert.equal(colors("LoSP <#93328E>Διονυσος"),"#93328E");
+  assert.equal(colors("LoSP <#FFFFFF>LoSP <#E10D17>Kronos"),"#E10D17");
+  assert.equal(colors("LoSP <#00D0FF>Poseidon"),"#00D0FF");
+  assert.equal(colors("LoSP Athéna"),null);
+  assert.equal(colors("LoSP <#bad>Zeus"),null);
+  assert.equal(display("LoSP <#FFFFFF>LoSP <#E10D17>Kronos").label,"LoSP Kronos");
+  assert.equal(display("LoSP <#F8FF00>Ζευς").color,"#F8FF00");
+  assert.match(js,/name\.style\.color=value\.color/);
+  assert.match(js,/sessionSelect\.style\.color=allianceColor/);
+  assert.doesNotMatch(js,/innerHTML/);
+});
+
 test("admin stylesheet respects hidden inputs and constrains mobile controls",async()=>{
   const css=await readFile(cssPath,"utf8");
   assert.match(css,/\[hidden\]\{display:none!important\}/);
