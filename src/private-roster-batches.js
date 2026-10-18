@@ -96,7 +96,7 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     let previous=restart?null:await readState(env,fp);
     if(previous&&Date.parse(previous.expiresAt)<=now)
       return answer({status:"expired-restart-required",...publicState(previous,now)},409);
-    if(previous?.completed===previous?.totalEligible)
+    if(previous&&previous.completed===previous.totalEligible)
       return answer(publicState(previous,now));
     const selected=await chooseAccount(env,fp,fetchImpl);
     if(selected.status!=="ok")return answer({status:selected.status},409);
@@ -148,7 +148,7 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     });
     return answer({...publicState(updated,now),
       savedThisBatch:result.selectedCount,charactersThisBatch:result.characterCount,
-      pagesThisBatch:result.pages,requestsThisBatch:result.requests+2,
+      pagesThisBatch:result.pages,requestsThisBatch:result.requests,
       storage:"private-r2",publiclyAvailable:false});
   }catch{return answer({status:"batch-unavailable"},503);}
   finally{if(acquired)try{await lock(env,fp,"release",holder);}catch{}}
