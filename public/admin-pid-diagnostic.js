@@ -1,6 +1,7 @@
 // Administrator-only, on-demand PID investigation.
 // No persistence, analytics or logging; the expected in-game PID stays local.
-// Uses an already-authorized, read-only API route for the selected OAuth account.
+// Uses read-only, admin-authenticated APIs. Member IDs are transient and
+// server-revalidated on each targeted PlayerCard request.
 const PID_SCHEMA_FIELDS=new Set([
   "name","icon","frame","level","tcp","stp","warMvp",
   "charactersCollected","charactersAtMaxStarRank","bestArena",
@@ -49,6 +50,69 @@ function analyzePidCard(card,expectedPid=""){
   walk(card,"data",0);
   return {name,unknownFields,candidates,matches,examined};
 }
+let pidMemberSession=null;
+let pidMemberOptions=new Map();
+function cleanPidName(name){
+  return typeof name==="string"?name.replace(/<#[a-f0-9]{6}>/gi,"").trim():"";
+}
+function resetPidMembers(){
+  pidMemberSession=null;
+  pidMemberOptions=new Map();
+  const select=document.getElementById("pid-target");
+  select.replaceChildren();
+  const option=document.createElement("option");
+  option.value="";
+  option.textContent="Compte connecté";
+  select.appendChild(option);
+  select.value="";
+  document.getElementById("pid-members-status").textContent=
+    "Pour comparer un coéquipier, charge les membres de l'alliance du compte sélectionné.";
+}
+async function loadPidMembers(){
+  const button=document.getElementById("pid-load-members");
+  const status=document.getElementById("pid-members-status");
+  const session=document.getElementById("session")?.value;
+  resetPidMembers();
+  if(!session || !/^[a-f0-9]{64}$/.test(session)){
+    status.textContent="Sélectionne un compte dans Explorer avant de charger ses membres.";
+    return;
+  }
+  button.disabled=true;
+  status.textContent="Chargement des joueurs de l'alliance actuelle…";
+  try{
+    const response=await fetch("/admin/api/data?resource=alliance-members&session="+
+      encodeURIComponent(session),{credentials:"same-origin",cache:"no-store",
+        headers:{Accept:"application/json"}});
+    const result=await response.json();
+    if(!response.ok || result.resource!=="alliance-members" ||
+      !Array.isArray(result.payload?.data))throw Error("members-unavailable");
+    if(document.getElementById("session")?.value!==session)return;
+    const members=result.payload.data;
+    if(members.filter(m=>m?.isSelf===true).length!==1)throw Error("invalid-members");
+    const list=members.filter(m=>m?.isSelf!==true &&
+        typeof m?.id==="string" && /^[A-Za-z0-9:_-]{1,256}$/.test(m.id) &&
+        cleanPidName(m.card?.name))
+      .map(m=>({id:m.id,name:cleanPidName(m.card.name)}))
+      .sort((a,b)=>a.name.localeCompare(b.name,"fr"));
+    const choices=new Map();
+    const select=document.getElementById("pid-target");
+    for(const m of list){
+      if(choices.has(m.id))continue;
+      const option=document.createElement("option");
+      option.value=m.id;
+      option.textContent=m.name;
+      select.appendChild(option);
+      choices.set(m.id,m.name);
+    }
+    pidMemberOptions=choices;
+    pidMemberSession=session;
+    status.textContent=list.length+" membre(s) proposé(s), selon l'effectif actuel. "+
+      "Un joueur qui a quitté l'alliance ne peut pas être interrogé ici.";
+  }catch{
+    resetPidMembers();
+    status.textContent="Impossible de charger les membres actuels ; réessaie.";
+  }finally{button.disabled=false;}
+}
 function pidText(tag,text,parent){
   const elem=document.createElement(tag);
   elem.textContent=text;
@@ -61,9 +125,15 @@ async function runPidDiagnostic(){
   const result=document.getElementById("pid-result");
   const selected=document.getElementById("session")?.value;
   const raw=document.getElementById("pid-expected").value.trim();
+  const memberId=document.getElementById("pid-target").value;
+  const memberName=memberId?pidMemberOptions.get(memberId):null;
   result.replaceChildren();
   if(!selected || !/^[a-f0-9]{64}$/.test(selected)){
     status.textContent="Sélectionne d'abord un compte dans la rubrique Explorer.";
+    return;
+  }
+  if(memberId && (!memberName || pidMemberSession!==selected)){
+    status.textContent="Liste des membres périmée. Recharge les membres du compte sélectionné.";
     return;
   }
   if(raw && !/^\d{5,12}$/.test(raw)){
@@ -75,21 +145,33 @@ async function runPidDiagnostic(){
   try{
     // Only the opaque session selector reaches our authenticated server.
     // The manually entered PID is NEVER sent in a URL, request body or header.
-    const url="/admin/api/data?resource=player-card&session="+encodeURIComponent(selected);
+    const url=memberId?
+      "/admin/api/pid-member-card?session="+encodeURIComponent(selected)+
+        "&member="+encodeURIComponent(memberId):
+      "/admin/api/data?resource=player-card&session="+encodeURIComponent(selected);
     const response=await fetch(url,{credentials:"same-origin",cache:"no-store",
       headers:{Accept:"application/json"}});
     const data=await response.json();
-    if(!response.ok || data?.resource!=="player-card" ||
+    if(!response.ok || data?.resource!==(memberId?"member-card":"player-card") ||
        typeof data?.payload?.data!=="object"){
       throw Error("Profil indisponible (HTTP "+response.status+").");
     }
-    if(selected!==document.getElementById("session")?.value){
+    if(selected!==document.getElementById("session")?.value ||
+      memberId!==document.getElementById("pid-target").value){
       status.textContent="Le compte sélectionné a changé : relance le diagnostic.";
       return;
     }
     const scan=analyzePidCard(data.payload.data,raw);
     if(scan.error)throw Error("Format de profil inattendu.");
-    pidText("p","Profil lu : "+(scan.name||"pseudo indisponible"),result);
+    if(memberId && cleanPidName(scan.name)!==memberName){
+      status.textContent="Le pseudo du membre a changé depuis la liste. "+
+        "Recharge les membres avant toute comparaison de PID.";
+      return;
+    }
+    pidText("p","Profil réellement lu : "+(scan.name||"pseudo indisponible"),result);
+    pidText("p",memberId?
+      "Comparaison avec le membre sélectionné : "+memberName:
+      "Attention : la fiche est celle du COMPTE CONNECTÉ, pas celle d'un coéquipier.",result);
     pidText("p","Champs non documentés de premier niveau : "+
       (scan.unknownFields.length?scan.unknownFields.join(", "):"aucun"),result);
     pidText("p","Champs susceptibles de contenir un identifiant : "+
@@ -112,3 +194,6 @@ async function runPidDiagnostic(){
   }finally{button.disabled=false;}
 }
 document.getElementById("pid-check").addEventListener("click",runPidDiagnostic);
+document.getElementById("pid-load-members").addEventListener("click",loadPidMembers);
+document.getElementById("session").addEventListener("change",resetPidMembers);
+resetPidMembers();
