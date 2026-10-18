@@ -99,6 +99,12 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch){
     let used=0,outcome="cooldown",statusCode=200;
     if(!pause||!Number.isFinite(Date.parse(pause.until))||
        Date.parse(pause.until)<=timestamp){
+      // Reserve the full tick budget BEFORE any Scopely call. A Worker crash
+      // then overcounts rather than losing calls and exceeding the daily cap.
+      await write(bucket,dayKey(slot.date),{
+        date:slot.date,used:d.used+TICK_API_BUDGET,ticks:d.ticks+1,
+        lastTick:slot.stamp,lastOutcome:"reserved"
+      });
       const limitedFetch=async(url,options)=>{
         // Count every attempted provider API request, including 344, 429 and 472.
         if(new URL(url).hostname==="api.marvelstrikeforce.com"){
