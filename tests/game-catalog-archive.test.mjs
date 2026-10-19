@@ -202,7 +202,7 @@ test("documented object-map details for upgrades, ISO-8 and team order are disco
   assert.ok(paths.includes("/game/v1/upgradeData/playerLevelTotalXp"));
   assert.ok(paths.includes("/game/v1/iso8Abilities/striker"));
   assert.ok(paths.includes("/game/v1/analysis/teamOrder/roster"));
-  assert.equal((await gameArchiveStatus(f.env,now)).totalTasks,20);
+  assert.equal((await gameArchiveStatus(f.env,now)).totalTasks,41);
 });
 
 test("one-minute production schedule is used without touching existing roster cron triggers",async()=>{
@@ -289,4 +289,58 @@ test("429 does not get accelerated by a one-minute cron",async()=>{
     assert.equal(r.status,"cooldown");
   }
   assert.equal(gameCalls(f).length,1);
+});
+
+test("legacy R2 upgradeData HTTP 472 at perPage=1 falls back to all documented fields",async()=>{
+  const f=fixture({api:address=>{
+    const u=new URL(address);
+    if(u.pathname==="/game/v1/upgradeData"){
+      assert.equal(u.searchParams.has("page"),false);
+      assert.equal(u.searchParams.has("perPage"),false);
+      return new Response("large",{status:472});
+    }
+    return Response.json({data:[],meta:{perTotal:0}});
+  }});
+  await startGameArchive(f.env,now);
+  const active=JSON.parse(f.store.get(GAME_ARCHIVE_ROOT+"active.json"));
+  const key=GAME_ARCHIVE_ROOT+"runs/"+active.runId+"/progress.json";
+  const state=JSON.parse(f.store.get(key));
+  state.cursor=3;
+  state.tasks[3].perPage=1;
+  state.tasks[3].retries=6;
+  state.pauseUntil=new Date(now-1000).toISOString();
+  state.lastOutcome="http-472-minimum-page";
+  f.store.set(key,JSON.stringify(state));
+  const first=await runGameArchiveTick(f.env,f.provider,now);
+  assert.equal(first.status,"running");
+  assert.equal(first.completedTasks,9);
+  assert.equal(first.totalTasks,29);
+  const saved=JSON.parse(f.store.get(key));
+  assert.equal(saved.gaps.length,1);
+  assert.equal(saved.gaps[0].reason,"unpageable-root-detail-fallback");
+  assert.equal(saved.tasks.filter(t=>t.path.startsWith("/game/v1/upgradeData/")).length,12);
+  for(let i=1;i<12;i++){
+    const r=await runGameArchiveTick(f.env,f.provider,now+i*60_000);
+    if(r.status==="completed-with-gaps")break;
+  }
+  const end=await gameArchiveStatus(f.env,now+12*60_000);
+  assert.equal(end.status,"completed-with-gaps");
+  assert.equal(end.cursor,29);
+  assert.equal(end.gapCount,1);
+  assert.equal(JSON.parse(f.store.get(GAME_ARCHIVE_ROOT+"active.json")).runId,active.runId);
+  assert.ok(gameCalls(f).some(c=>c.address.includes("/game/v1/upgradeData/playerLevelTotalXp")));
+});
+test("documented non-pageable game roots do not receive unsupported pagination",async()=>{
+  const f=fixture({api:address=>{
+    const u=new URL(address);
+    if(["decorations","upgradeData","iso8Abilities","analysis/teamOrder"]
+      .some(root=>u.pathname==="/game/v1/"+root)){
+      assert.equal(u.searchParams.has("page"),false);
+      assert.equal(u.searchParams.has("perPage"),false);
+    }
+    return Response.json({data:[],meta:{perTotal:0}});
+  }});
+  await startGameArchive(f.env,now);
+  for(let i=0;i<3;i++)await runGameArchiveTick(f.env,f.provider,now+i*60_000);
+  assert.equal((await gameArchiveStatus(f.env,now)).status,"completed");
 });
