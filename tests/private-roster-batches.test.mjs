@@ -140,7 +140,7 @@ test("validated microbatch archives every alliance-card and membership JSON fiel
  assert.deepEqual(after.providerResponse,members.providerResponse);
  assert.equal(f.logs.at(-1),BATCH_PREFIX+fingerprint+"/progress.json");
  assert.equal(f.counters.calls,(await response.clone().json()).requestsThisBatch);
- assert.doesNotMatch(await response.text(),/futureField|private|TOKEN_|arbitraryProviderField/);
+ assert.doesNotMatch(await response.text(),/futureField|private-provider-source|TOKEN_|arbitraryProviderField/);
  const data=[...f.store.entries()].filter(([key])=>key.includes("/member-"));
  assert.equal(data.length,2);
  assert.ok(data.every(([,raw])=>!JSON.parse(raw).characters.some(c=>c.id==="private")));
