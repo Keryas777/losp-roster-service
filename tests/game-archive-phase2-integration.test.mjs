@@ -113,3 +113,24 @@ test("unpageable 472 and absent item-character mapping leave gaps but do not sta
  assert.equal(result.completedTasks,2);
  assert.equal(f.progress().state.gaps.length,2);
 });
+
+test("permanent 403 and sixteen repeated 5xx failures produce explicit gaps",async()=>{
+ const f=setup(uri=>{
+   if(uri.includes("/items/NoAccess"))return new Response("no permission",{status:403});
+   if(uri.includes("/nodeCombats/Down"))return new Response("server down",{status:503});
+   return null;
+ });
+ await startGameArchive(f.env,now);
+ const {key,state}=f.progress();
+ state.tasks=[
+   {path:"/game/v1/items/NoAccess",root:"phase2",mode:"detail"},
+   {path:"/game/v1/nodeCombats/Down",root:"phase2",mode:"detail",retries:15}
+ ];
+ state.cursor=0;f.store.set(key,JSON.stringify(state));
+ const result=await runGameArchiveTick(f.env,f.fetcher,now);
+ assert.equal(result.status,"completed-with-gaps");
+ assert.equal(result.completedTasks,2);
+ assert.equal(f.progress().state.gaps.length,2);
+ assert.equal(f.progress().state.gaps[0].status,403);
+ assert.equal(f.progress().state.gaps[1].reason,"retry-exhausted");
+});
