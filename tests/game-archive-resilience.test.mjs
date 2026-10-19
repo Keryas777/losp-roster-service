@@ -11,6 +11,26 @@ function fixture(api=()=>Response.json({data:[],meta:{perTotal:0}})){
     SCOPELY_CLIENT_ID:"unit-client",SCOPELY_CLIENT_SECRET:"unit-secret",
     CAPTAIN_BUCKET:{
       get:async key=>store.has(key)?{text:async()=>store.get(key)}:null,
+      createMultipartUpload:async(key)=>{
+        const chunks=new Map();
+        return {
+          uploadPart:async(number,bytes)=>{
+            chunks.set(number,new Uint8Array(bytes));
+            return {partNumber:number,etag:"part-"+number};
+          },
+          complete:async parts=>{
+            const size=parts.reduce((sum,p)=>sum+chunks.get(p.partNumber).byteLength,0);
+            const data=new Uint8Array(size);let at=0;
+            for(const part of parts){
+              const chunk=chunks.get(part.partNumber);
+              data.set(chunk,at);at+=chunk.byteLength;
+            }
+            store.set(key,new TextDecoder().decode(data));
+            return {size};
+          },
+          abort:async()=>{}
+        };
+      },
       put:async(key,value)=>{
         let payload;
         if(typeof value==="string")payload=value;
