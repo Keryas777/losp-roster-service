@@ -368,10 +368,11 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
             const root=GAME_ROOTS.find(x=>x.id===task.root);
             if(root?.detail){
               task.discovered??=[];
+              const known=new Set(task.discovered);
               for(const entry of entries){
                 const value=safeId(typeof entry==="string"?entry:entry?.id);
                 if(value){
-                  if(!task.discovered.includes(value))task.discovered.push(value);
+                  if(!known.has(value)){known.add(value);task.discovered.push(value);}
                 }else task.missingIds=(task.missingIds||0)+1;
               }
             }
