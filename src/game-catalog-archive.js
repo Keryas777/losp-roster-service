@@ -12,10 +12,13 @@ export const GAME_ARCHIVE_TICK_LIMIT=6;
 const API="https://api.marvelstrikeforce.com",TOKEN_URL=
   "https://hydra-public.prod.m3.scopelypv.com/oauth2/token";
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
-const LOCK_ID="e".repeat(64),MAX_BYTES=8_000_000,MAX_TASKS=12000;
+// A memory buffer threshold, not a size limit: larger payloads are streamed
+// to R2 intact. Long task queues are likewise spilled to R2 in batches.
+const LOCK_ID="e".repeat(64),BUFFER_BYTES=8_000_000,ACTIVE_TASK_WINDOW=600,QUEUE_CHUNK_SIZE=500;
 const ACTIVE=GAME_ARCHIVE_ROOT+"active.json";
 const dailyKey=date=>GAME_ARCHIVE_ROOT+"budget/"+date+".json";
 const runKey=id=>GAME_ARCHIVE_ROOT+"runs/"+id+"/progress.json";
+const queueKey=(id,chunk)=>GAME_ARCHIVE_ROOT+"runs/"+id+"/queue/"+String(chunk).padStart(8,"0")+".json";
 const safeHeaders={"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff",
   "X-Robots-Tag":"noindex"};
 const response=(x,code=200)=>Response.json(x,{status:code,headers:safeHeaders});
@@ -91,28 +94,114 @@ async function appToken(env,fetchImpl,now=Date.now()){
       token:data.access_token,expiresAt:now+data.expires_in*1000});
   return data.access_token;
 }
-async function boundedResponse(res){
-  if(Number(res.headers.get("content-length")||0)>MAX_BYTES)return {status:"oversized"};
+async function readGameBody(res,bucket,runId){
   if(!res.body)return {status:"invalid-body"};
-  let chunks=[],size=0;
-  const reader=res.body.getReader();
+  const reader=res.body.getReader(),chunks=[];
+  let size=0,done=false;
   try{
-    for(;;){
-      const {value,done}=await reader.read();
-      if(done)break;
-      size+=value.byteLength;
-      if(size>MAX_BYTES){await reader.cancel().catch(()=>{});return {status:"oversized"};}
-      chunks.push(value);
+    while(size<=BUFFER_BYTES){
+      const part=await reader.read();
+      if(part.done){done=true;break;}
+      chunks.push(part.value);size+=part.value.byteLength;
     }
   }catch{return {status:"read-error"};}
+  if(!done){
+    // Multipart R2 accepts streams with unknown Content-Length and keeps
+    // Worker memory bounded. A generic ReadableStream cannot be passed to
+    // R2.put without a known length in the production runtime.
+    const objectKey=GAME_ARCHIVE_ROOT+"runs/"+runId+"/raw/"+crypto.randomUUID()+".json";
+    const upload=await bucket.createMultipartUpload(objectKey,{
+      httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
+    });
+    const PART=6*1024*1024,parts=[];
+    let buffer=new Uint8Array(PART),filled=0,number=1;
+    async function addChunk(chunk){
+      let offset=0;
+      while(offset<chunk.byteLength){
+        const take=Math.min(PART-filled,chunk.byteLength-offset);
+        buffer.set(chunk.subarray(offset,offset+take),filled);
+        filled+=take;offset+=take;
+        if(filled===PART){
+          parts.push(await upload.uploadPart(number++,buffer));
+          buffer=new Uint8Array(PART);filled=0;
+        }
+      }
+    }
+    try{
+      for(const chunk of chunks)await addChunk(chunk);
+      for(;;){
+        const part=await reader.read();
+        if(part.done)break;
+        size+=part.value.byteLength;
+        await addChunk(part.value);
+      }
+      if(filled)parts.push(await upload.uploadPart(number++,buffer.subarray(0,filled)));
+      await upload.complete(parts);
+    }catch(error){
+      await upload.abort().catch(()=>{});
+      throw error;
+    }
+    return {status:"archived-unindexed",objectKey,byteCount:size};
+  }
   const bytes=new Uint8Array(size);let offset=0;
   for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
   let data;
   try{data=JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(bytes));}
-  catch{return {status:"invalid-json"};}
+  catch{return {status:"invalid-json",bytes};}
   if(!data||typeof data!=="object"||Array.isArray(data)||
-      data.data===undefined)return {status:"invalid-shape"};
+      data.data===undefined)return {status:"invalid-shape",bytes};
   return {status:"ok",bytes,data};
+}
+function resetList(task){
+  task.page=1;task.series=(task.series||0)+1;
+  task.seenCount=0;task.expectedTotal=null;
+  task.discovered=[];task.missingIds=0;
+  task.lastPageHash=null;task.seenIds=[];
+}
+function deferRetry(state,task,reason,now,restartList=false){
+  task.retries=Math.min((task.retries||0)+1,16);
+  const delay=Math.min(60,2**Math.min(task.retries-1,6))*60_000;
+  state.lastOutcome=reason;
+  state.pauseUntil=new Date(now+delay).toISOString();
+  if(restartList&&task.mode==="list")resetList(task);
+}
+const currentDone=state=>(state.completedOffset||0)+state.cursor;
+const currentTotal=state=>(state.completedOffset||0)+state.tasks.length+
+  (state.pendingTasks||0);
+async function enqueueDetails(bucket,state,items){
+  // Preserve the existing inline queue for small campaigns (including
+  // campaigns begun before this change). Spill additional tasks to R2.
+  const paths=new Set(state.tasks.map(x=>x.path));
+  const fresh=items.filter(item=>{
+    if(paths.has(item.path))return false;
+    paths.add(item.path);return true;
+  });
+  if(!fresh.length)return;
+  if(!(state.pendingTasks>0)){
+    const inline=Math.max(0,ACTIVE_TASK_WINDOW-state.tasks.length);
+    state.tasks.push(...fresh.splice(0,inline));
+  }
+  for(let i=0;i<fresh.length;i+=QUEUE_CHUNK_SIZE){
+    const batch=fresh.slice(i,i+QUEUE_CHUNK_SIZE);
+    const index=state.spillWrite||0;
+    // Persist chunks before updating progress. A failed progress write can
+    // safely repeat/overwrite the same numbered chunk at the next tick.
+    await write(bucket,queueKey(state.runId,index),batch);
+    state.spillWrite=index+1;
+    state.pendingTasks=(state.pendingTasks||0)+batch.length;
+  }
+}
+async function loadNextQueue(bucket,state){
+  if(state.cursor<state.tasks.length||!(state.pendingTasks>0))return;
+  const chunk=await read(bucket,queueKey(state.runId,state.spillRead||0));
+  if(!Array.isArray(chunk)||!chunk.length||
+      !chunk.every(item=>typeof item?.path==="string"&&
+        item.path.startsWith("/game/v1/")))throw Error("missing-queue-chunk");
+  state.completedOffset=(state.completedOffset||0)+state.tasks.length;
+  state.cursor=0;state.tasks=chunk;
+  state.spillRead=(state.spillRead||0)+1;
+  state.pendingTasks-=chunk.length;
+  await write(bucket,runKey(state.runId),state);
 }
 function initial(){
   return {version:1,runId:crypto.randomUUID(),status:"running",
@@ -126,8 +215,8 @@ export async function gameArchiveStatus(env,now=Date.now()){
   const state=active?.runId?await read(env.CAPTAIN_BUCKET,runKey(active.runId)):null;
   const budget=await read(env.CAPTAIN_BUCKET,dailyKey(dateOf(now)));
   return {status:state?.status||"not-started",autoEnabled:env.GAME_ARCHIVE_AUTO_ENABLED==="true",
-    roots:GAME_ROOTS.length,cursor:state?.cursor||0,
-    totalTasks:state?.tasks?.length||GAME_ROOTS.length,
+    roots:GAME_ROOTS.length,cursor:state?currentDone(state):0,
+    totalTasks:state?currentTotal(state):GAME_ROOTS.length,
     archivedResponses:state?.count||0,gapCount:state?.gaps?.length||0,
     lastOutcome:state?.lastOutcome||null,requestsToday:budget?.used||0,
     dailyLimit:GAME_ARCHIVE_DAILY_LIMIT,pauseUntil:state?.pauseUntil||null};
@@ -164,6 +253,12 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
     if(!state||state.version!==1||state.runId!==active.runId||
        !Array.isArray(state.tasks)||!Array.isArray(state.gaps)||
        !Number.isSafeInteger(state.cursor))return {status:"invalid-state"};
+    // A campaign blocked by the previous arbitrary limits or transient
+    // errors must resume in place, without discarding the existing R2 run.
+    if(state.status==="blocked"){
+      state.status="running";state.pauseUntil=null;
+      await write(bucket,key,state);
+    }
     if(state.status!=="running")return {status:state.status};
     if(state.pauseUntil&&Date.parse(state.pauseUntil)>now)
       return {status:"cooldown",pauseUntil:state.pauseUntil};
@@ -183,8 +278,9 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
       return {status:"app-oauth-unavailable"};
     }
     let calls=0;
-    while(calls<GAME_ARCHIVE_TICK_LIMIT&&budget.used<GAME_ARCHIVE_DAILY_LIMIT&&
-      state.cursor<state.tasks.length){
+    while(calls<GAME_ARCHIVE_TICK_LIMIT&&budget.used<GAME_ARCHIVE_DAILY_LIMIT){
+      await loadNextQueue(bucket,state);
+      if(state.cursor>=state.tasks.length)break;
       const task=state.tasks[state.cursor];
       if(typeof task?.path!=="string"||!task.path.startsWith("/game/v1/"))
         return {status:"invalid-task"};
@@ -200,34 +296,41 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
           headers:{"x-api-key":API_KEY,"User-Agent":"APIClient/1.0 (Server)",
             Authorization:"Bearer "+token,Accept:"application/json"}
         });
-        if(upstream.status===200)parsed=await boundedResponse(upstream);
+        if(upstream.status===200)parsed=await readGameBody(upstream,bucket,state.runId);
       }catch{upstream=null;}
-      if(upstream?.status===472||parsed?.status==="oversized"){
-        if(task.mode==="list"&&task.perPage>5){
-          // Revisit all previous pages at the smaller page size; old R2
-          // captures remain but only the new pagination series is authoritative.
-          task.perPage=Math.max(5,Math.floor(task.perPage/2));task.page=1;
-          task.series=(task.series||0)+1;
-          task.seenCount=0;task.expectedTotal=null;
-          task.discovered=[];task.missingIds=0;task.lastPageHash=null;
-          state.lastOutcome="reduced-page-size";
-          await write(bucket,key,state);continue;
+      if(parsed?.status==="archived-unindexed"){
+        const receipt=GAME_ARCHIVE_ROOT+"runs/"+state.runId+
+          "/receipts/unindexed-"+crypto.randomUUID()+".json";
+        await write(bucket,receipt,{version:1,path,status:200,sha256:null,
+          objectKey:parsed.objectKey,bytes:parsed.byteCount,
+          indexed:false,capturedAt:new Date(now).toISOString()});
+        state.count++;
+        if(task.mode==="list"&&task.perPage>1){
+          task.perPage=Math.max(1,Math.floor(task.perPage/2));
+          resetList(task);
+          state.lastOutcome="large-page-archived-retrying-smaller";
+        }else{
+          state.gaps.push({path,reason:"archived-but-unindexed",objectKey:parsed.objectKey});
+          state.cursor++;state.lastOutcome="large-response-archived-unindexed";
         }
-        state.lastOutcome="too-large";state.status="blocked";
+      }else if(upstream?.status===472){
+        if(task.mode==="list"&&task.perPage>1){
+          task.perPage=Math.max(1,Math.floor(task.perPage/2));
+          resetList(task);state.lastOutcome="reduced-page-size";
+        }else deferRetry(state,task,"http-472-minimum-page",now);
       }else if(upstream?.status===429){
         state.lastOutcome="rate-limited";
         state.pauseUntil=new Date(now+60*60_000).toISOString();
       }else if(task.mode==="detail"&&[404,422].includes(upstream?.status)){
-        // A no-longer-available ID is a documented GAP, not a reason to
-        // abandon every other game resource. Never label the run complete.
         state.gaps.push({path:task.path,status:upstream.status});
-        state.cursor++;
-        state.lastOutcome="detail-unavailable";
+        state.cursor++;state.lastOutcome="detail-unavailable";
       }else if(!upstream||!upstream.ok||parsed?.status!=="ok"){
-        state.lastOutcome=upstream?"http-"+upstream.status+
+        // Never mark a retryable upstream failure as permanently blocked.
+        const reason=upstream?"http-"+upstream.status+
           (parsed?.status?"-"+parsed.status:""):"network-error";
-        state.status="blocked";
+        deferRetry(state,task,reason,now);
       }else{
+        task.retries=0;state.pauseUntil=null;
         const id=await sha(parsed.bytes);
         const archive=GAME_ARCHIVE_ROOT+"runs/"+state.runId+"/objects/"+id+".json";
         if(!await bucket.get(archive))
@@ -247,56 +350,67 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
           const entries=parsed.data.data,meta=parsed.data.meta||{};
           const total=Number.isSafeInteger(meta.perTotal)&&meta.perTotal>=0?
             meta.perTotal:null;
+          // Cross-page identity tracking catches overlapping but nonidentical
+          // pages (and duplicate IDs within one page), without losing raw JSON.
+          const encountered=new Set(task.seenIds||[]),pageIds=[];
+          let overlap=false;
+          for(const entry of entries){
+            const entryId=safeId(typeof entry==="string"?entry:entry?.id);
+            if(!entryId)continue;
+            if(encountered.has(entryId))overlap=true;
+            encountered.add(entryId);pageIds.push(entryId);
+          }
           if(task.page>1&&entries.length>0&&task.lastPageHash===id){
-            state.lastOutcome="duplicate-page";state.status="blocked";
+            deferRetry(state,task,"duplicate-page",now,true);
+          }else if(overlap){
+            deferRetry(state,task,"pagination-overlapping-ids",now,true);
           }else if(task.expectedTotal!==undefined&&task.expectedTotal!==null&&
              total!==null&&task.expectedTotal!==total){
-            state.lastOutcome="pagination-total-changed";state.status="blocked";
+            deferRetry(state,task,"pagination-total-changed",now,true);
           }else if(entries.length>task.perPage||
              (meta.page!==undefined&&meta.page!==task.page)||
              (total!==null&&((task.page-1)*task.perPage+entries.length)>total)){
-            state.lastOutcome="pagination-inconsistent";state.status="blocked";
+            deferRetry(state,task,"pagination-inconsistent",now,true);
           }else{
+            task.seenIds??=[];
+            task.seenIds.push(...pageIds);
             task.expectedTotal=total??task.expectedTotal??null;
             task.seenCount=(task.seenCount||0)+entries.length;
             task.lastPageHash=id;
             if(task.expectedTotal!==null&&task.seenCount>task.expectedTotal){
-              state.lastOutcome="pagination-overcount";state.status="blocked";
+              deferRetry(state,task,"pagination-overcount",now,true);
             }
             const root=GAME_ROOTS.find(x=>x.id===task.root);
             if(root?.detail){
               task.discovered??=[];
+              const known=new Set(task.discovered);
               for(const entry of entries){
                 const value=safeId(typeof entry==="string"?entry:entry?.id);
                 if(value){
-                  if(!task.discovered.includes(value))task.discovered.push(value);
+                  if(!known.has(value)){known.add(value);task.discovered.push(value);}
                 }else task.missingIds=(task.missingIds||0)+1;
               }
             }
             nextPage=task.expectedTotal!==null?
               task.seenCount<task.expectedTotal:entries.length===task.perPage;
             if(nextPage&&(entries.length===0||task.page>=1000)){
-              state.lastOutcome="pagination-no-progress";state.status="blocked";
+              deferRetry(state,task,"pagination-no-progress",now,true);
             }
             if(!nextPage&&task.expectedTotal!==null&&
                task.seenCount!==task.expectedTotal){
-              state.lastOutcome="pagination-incomplete";state.status="blocked";
+              deferRetry(state,task,"pagination-incomplete",now,true);
             }
             // Only enqueue details AFTER every list page has been validated.
             // Thus 472 retries can't leave stale detail IDs from old page sizes.
-            if(state.status==="running"&&!nextPage&&root?.detail){
-              if(state.tasks.length+task.discovered.length>MAX_TASKS){
-                state.lastOutcome="queue-limit";state.status="blocked";
-              }else{
-                for(const id of task.discovered){
-                  const detail=root.detail.replace("{id}",encodeURIComponent(id));
-                  if(!state.tasks.some(x=>x.path===detail))
-                    state.tasks.push({path:detail,root:task.root,mode:"detail"});
-                }
-                if(task.missingIds)state.gaps.push({path:task.path,
-                  reason:"undiscoverable-detail-id",count:task.missingIds});
-                delete task.discovered;delete task.missingIds;
-              }
+            if(!state.pauseUntil&&!nextPage&&root?.detail){
+              const details=task.discovered.map(id=>({
+                path:root.detail.replace("{id}",encodeURIComponent(id)),
+                root:task.root,mode:"detail"
+              }));
+              await enqueueDetails(bucket,state,details);
+              if(task.missingIds)state.gaps.push({path:task.path,
+                reason:"undiscoverable-detail-id",count:task.missingIds});
+              delete task.discovered;delete task.missingIds;
             }
           }
         }
@@ -310,16 +424,13 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
               .filter(id=>root.objectKeys.includes(id));
             if(keys.length!==Object.keys(parsed.data.data).length)
               state.gaps.push({path:task.path,reason:"unrecognized-object-key"});
-            if(state.tasks.length+keys.length>MAX_TASKS){
-              state.status="blocked";state.lastOutcome="queue-limit";
-            }else for(const id of keys){
-              const path=root.detail.replace("{id}",encodeURIComponent(id));
-              if(!state.tasks.some(x=>x.path===path))
-                state.tasks.push({path,root:task.root,mode:"detail"});
-            }
+            await enqueueDetails(bucket,state,keys.map(id=>({
+              path:root.detail.replace("{id}",encodeURIComponent(id)),
+              root:task.root,mode:"detail"
+            })));
           }
         }
-        if(state.status==="running"){
+        if(!state.pauseUntil){
           if(nextPage){
             task.page++; // keep current list task until all pages are stored
             state.lastOutcome="page-archived";
@@ -332,13 +443,13 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
       await write(bucket,key,state);
       if(state.status!=="running"||state.pauseUntil&&Date.parse(state.pauseUntil)>now)break;
     }
-    if(state.cursor===state.tasks.length&&state.status==="running"){
+    if(state.cursor===state.tasks.length&&!(state.pendingTasks>0)&&state.status==="running"){
       state.status=state.gaps.length?"completed-with-gaps":"completed";
       state.lastOutcome=state.status;await write(bucket,key,state);
     }
     return {status:state.status,processed:calls,
-      archivedResponses:state.count,completedTasks:state.cursor,
-      totalTasks:state.tasks.length,lastOutcome:state.lastOutcome,
+      archivedResponses:state.count,completedTasks:currentDone(state),
+      totalTasks:currentTotal(state),lastOutcome:state.lastOutcome,
       requestsToday:budget.used};
   }catch{return {status:"unavailable"};}
   finally{await withLock(env,"release",holder).catch(()=>{});}

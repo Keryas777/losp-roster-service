@@ -26,8 +26,9 @@ Les pages de liste sont demandées à `perPage=100`. Une réponse HTTP
 `472` ou JSON trop volumineuse diminue ce nombre, avec reprise depuis la
 première page du nouveau découpage. La liste est validée à l'aide de
 `meta.perTotal` s'il est présent ; les pages identiques répétées,
-les changements de `perTotal` et les dépassements de limite bloquent la
-campagne sans lui attribuer un faux statut complet.
+les changements de `perTotal`, les pages se recouvrant par identifiants et
+les incohérences entraînent une reprise prudente avec temporisation, jamais
+un faux statut complet. Les réponses reçues restent archivées.
 
 Pour les racines qui permettent de retrouver des identifiants, le Worker
 programme les GET de détail **après la validation de toutes les pages**.
@@ -44,7 +45,12 @@ Préfixe : `game-archive/v1/`
 - `runs/{uuid}/progress.json` : curseur, tâches en attente, état,
   compteurs, écarts et pause ;
 - `runs/{uuid}/objects/{sha256}.json` : **octets JSON exacts** reçus
-  de Scopely, dédoublonnés selon SHA-256 ;
+  de Scopely, dédoublonnés selon SHA-256 pour les JSON indexés ;
+- `runs/{uuid}/raw/{uuid}.json` : réponses trop volumineuses pour
+  une analyse en mémoire, **conservées sans seuil maximal applicatif** en
+  flux R2 ; leur reçu porte `indexed:false` et un écart explicite ;
+- `runs/{uuid}/queue/{index}.json` : tâches additionnelles par lots
+  R2 ; aucun arrêt automatique à 12 000 tâches ;
 - `runs/{uuid}/receipts/...` : URL relative exacte appelée, taille,
   horodatage, empreinte et clé du JSON ;
 - `budget/YYYY-MM-DD.json` : compteur UTC distinct de celui des rosters.
@@ -79,9 +85,21 @@ ne pas affirmer qu'une conservation éternelle est garantie sans les auditer.
   R2. Un nouvel isolat peut nécessiter une nouvelle authentification.
 - Le budget est **entièrement séparé** du plafond de 2 500 GET/jour des
   rosters.
-- Une réponse `429` suspend les prochains passages ; les erreurs OAuth,
-  réseau, les HTTP non résolus et les volumes non paginables sont signalés,
-  sans boucle de requêtes ni substitution de jeton personnel.
+- Une réponse `429` suspend les prochains passages pendant une heure.
+  Les erreurs réseau, HTTP 5xx ou données JSON invalides donnent lieu à des
+  tentatives automatiques temporisées (1 à 60 minutes) sans état bloqué
+  permanent et sans recréer la campagne R2 ; pas de boucle serrée.
+- Les anciens états `blocked` sont repris à partir de leur curseur par
+  le nouveau Worker. Les détails introuvables restent signalés comme écarts.
+- Le seuil interne de 8 Mo n'est **plus un plafond de taille** : il sert
+  seulement à choisir la mise en mémoire ou le streaming R2. Les réponses
+  trop importantes restent conservées, mais leurs détails ne sont pas
+  découverts automatiquement tant que leur indexation est incomplète :
+  statut `completed-with-gaps` explicite, jamais exhaustivité certifiée.
+- Les files de détails dépassant la fenêtre de travail sont réparties en
+  fragments R2. Les durées d'exécution et la mémoire restent limitées
+  physiquement par Cloudflare ; aucun volume infini n'est promis.
+- Aucun jeton de capitaine n'est utilisé comme repli OAuth.
 - Verrou Durable Object distinct ; aucune mutation de jeu.
 
 ## Ce qui reste volontairement non couvert
