@@ -2,6 +2,7 @@
 // Bounded, resumable R2 archive; all responses are private and full JSON bytes.
 // Scope: list roots and discoverable one-ID details; NOT combinatorial shortcuts.
 import {API_KEY} from "./player-card.js";
+import {discoverGamePhase2,phase2RootTasks} from "./game-phase2-discovery.js";
 export const GAME_ARCHIVE_CRON="* * * * *";
 export const GAME_ARCHIVE_ROOT="game-archive/v1/";
 // Internal emergency circuit-breaker, NOT a provider quota. Six GET/minute
@@ -19,6 +20,76 @@ const ACTIVE=GAME_ARCHIVE_ROOT+"active.json";
 const dailyKey=date=>GAME_ARCHIVE_ROOT+"budget/"+date+".json";
 const runKey=id=>GAME_ARCHIVE_ROOT+"runs/"+id+"/progress.json";
 const queueKey=(id,chunk)=>GAME_ARCHIVE_ROOT+"runs/"+id+"/queue/"+String(chunk).padStart(8,"0")+".json";
+const seenKey=(id,shard)=>GAME_ARCHIVE_ROOT+"runs/"+id+"/phase2-seen/"+shard+".json";
+const receiptPrefix=id=>GAME_ARCHIVE_ROOT+"runs/"+id+"/receipts/";
+// 16 small, exact-match R2 shards: no Bloom false positives or huge state JSON.
+function seenShard(path){
+  let h=2166136261;
+  for(let i=0;i<path.length;i++)h=Math.imul(h^path.charCodeAt(i),16777619);
+  return (h>>>0)%16;
+}
+async function enqueuePhase2(bucket,state,candidates){
+  const buckets=new Map();
+  for(const task of candidates){
+    if(typeof task.path!=="string"||!task.path.startsWith("/game/v1/"))continue;
+    const shard=seenShard(task.path);
+    if(!buckets.has(shard))buckets.set(shard,[]);
+    buckets.get(shard).push(task);
+  }
+  for(const [shard,group] of buckets){
+    const key=seenKey(state.runId,shard);
+    const known=new Set(await read(bucket,key)||[]);
+    const fresh=group.filter(task=>!known.has(task.path));
+    if(!fresh.length)continue;
+    // Commit queue/progress BEFORE marking paths as known. Failure can cause
+    // an extra task but never lose an unfetched resource.
+    await enqueueDetails(bucket,state,fresh);
+    await write(bucket,runKey(state.runId),state);
+    for(const task of fresh)known.add(task.path);
+    await write(bucket,key,[...known]);
+    state.phase2.discovered=(state.phase2.discovered||0)+fresh.length;
+  }
+}
+async function scanPhase2Receipts(bucket,state){
+  const p=state.phase2,runId=state.runId;
+  if(!bucket.list){state.lastOutcome="phase2-r2-list-unavailable";return;}
+  const prefix=receiptPrefix(runId);
+  let steps=0;
+  while(steps<6){
+    if(p.pos>=(p.keys||[]).length){
+      if(p.end){
+        p.status="running";
+        await enqueuePhase2(bucket,state,phase2RootTasks());
+        state.lastOutcome="phase2-discovery-ready";
+        return;
+      }
+      const listing=await bucket.list({prefix,limit:30,
+        ...(p.cursor?{cursor:p.cursor}:{})});
+      p.keys=(listing.objects||[]).map(entry=>entry.key);
+      p.pos=0;p.nextCursor=listing.truncated?listing.cursor:null;
+      p.end=!listing.truncated;
+      if(!p.keys.length){
+        if(p.end)continue;
+        state.lastOutcome="phase2-empty-r2-page";return;
+      }
+    }
+    const key=p.keys[p.pos];
+    const receipt=await read(bucket,key);
+    if(receipt?.status===200&&typeof receipt.objectKey==="string"&&
+        receipt.objectKey.startsWith(GAME_ARCHIVE_ROOT+"runs/"+runId+"/objects/")){
+      const source=await read(bucket,receipt.objectKey);
+      if(source?.data!==undefined)
+        await enqueuePhase2(bucket,state,
+          discoverGamePhase2(receipt.path||"",source));
+    }
+    p.pos++;p.scanned=(p.scanned||0)+1;steps++;
+    if(p.pos===p.keys.length){
+      p.keys=[];p.pos=0;p.cursor=p.nextCursor;p.nextCursor=null;
+    }
+  }
+  state.lastOutcome="phase2-scanning-receipts";
+}
+
 const safeHeaders={"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff",
   "X-Robots-Tag":"noindex"};
 const response=(x,code=200)=>Response.json(x,{status:code,headers:safeHeaders});
@@ -218,6 +289,8 @@ export async function gameArchiveStatus(env,now=Date.now()){
     roots:GAME_ROOTS.length,cursor:state?currentDone(state):0,
     totalTasks:state?currentTotal(state):GAME_ROOTS.length,
     archivedResponses:state?.count||0,gapCount:state?.gaps?.length||0,
+    phase2:state?.phase2?{status:state.phase2.status,
+      scannedReceipts:state.phase2.scanned||0,discovered:state.phase2.discovered||0}:null,
     lastOutcome:state?.lastOutcome||null,requestsToday:budget?.used||0,
     dailyLimit:GAME_ARCHIVE_DAILY_LIMIT,pauseUntil:state?.pauseUntil||null};
 }
@@ -259,7 +332,26 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
       state.status="running";state.pauseUntil=null;
       await write(bucket,key,state);
     }
+    // Phase 2 is opt-in and reuses the SAME immutable run. On an older
+    // completed archive, revisit receipts first, then discover linked GETs.
+    if(["completed","completed-with-gaps"].includes(state.status)&&
+       env.GAME_ARCHIVE_PHASE2_ENABLED==="true"&&!state.phase2){
+      state.phase2={version:1,status:"scanning",keys:[],pos:0,
+        cursor:null,nextCursor:null,end:false,scanned:0,discovered:0};
+      state.status="running";
+      await write(bucket,key,state);
+    }
     if(state.status!=="running")return {status:state.status};
+    if(state.phase2?.status==="scanning"){
+      try{await scanPhase2Receipts(bucket,state);}
+      catch{state.lastOutcome="phase2-scan-retry";}
+      await write(bucket,key,state);
+      return {status:state.phase2.status==="scanning"?"phase2-scanning":"running",
+        scannedReceipts:state.phase2.scanned||0,
+        discovered:state.phase2.discovered||0,
+        completedTasks:currentDone(state),totalTasks:currentTotal(state),
+        lastOutcome:state.lastOutcome};
+    }
     if(state.pauseUntil&&Date.parse(state.pauseUntil)>now)
       return {status:"cooldown",pauseUntil:state.pauseUntil};
     const day=dateOf(now),budgetKey=dailyKey(day);
@@ -284,7 +376,7 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
       const task=state.tasks[state.cursor];
       if(typeof task?.path!=="string"||!task.path.startsWith("/game/v1/"))
         return {status:"invalid-task"};
-      const qs=task.mode==="list"?"?page="+task.page+"&perPage="+task.perPage:"";
+      const qs=task.mode==="list"?(task.path.includes("?")?"&":"?")+"page="+task.page+"&perPage="+task.perPage:"";
       const path=task.path+qs;
       // Reserve the budget *before* the upstream GET. Token POST isn't a game GET.
       budget.used++;calls++;await write(bucket,budgetKey,budget);
@@ -430,6 +522,9 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
             })));
           }
         }
+        if(!state.pauseUntil&&state.phase2?.status==="running"){
+          await enqueuePhase2(bucket,state,discoverGamePhase2(path,parsed.data));
+        }
         if(!state.pauseUntil){
           if(nextPage){
             task.page++; // keep current list task until all pages are stored
@@ -444,6 +539,7 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
       if(state.status!=="running"||state.pauseUntil&&Date.parse(state.pauseUntil)>now)break;
     }
     if(state.cursor===state.tasks.length&&!(state.pendingTasks>0)&&state.status==="running"){
+      if(state.phase2?.status==="running")state.phase2.status="done";
       state.status=state.gaps.length?"completed-with-gaps":"completed";
       state.lastOutcome=state.status;await write(bucket,key,state);
     }
