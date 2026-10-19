@@ -5,7 +5,7 @@ import {RosterBatchLock} from "../src/roster-batch-lock.js";
 import {CAPTAIN_PREFIX} from "../src/captain-vault.js";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 import {completeKey,BATCH_PREFIX} from "../src/private-roster-batches.js";
-import {ROSTER_CRON,rosterWindow,runRosterAutoTick,rosterAutoStatus} from "../src/automatic-roster-scheduler.js";
+import {ROSTER_CRON,rosterWindow,manualRosterWindow,runRosterAutoTick,rosterAutoStatus,handleAdminRosterAutoTest} from "../src/automatic-roster-scheduler.js";
 import worker from "../src/index.js";
 
 const hash=s=>createHash("sha256").update(s).digest("hex");
@@ -209,4 +209,83 @@ test("a crash after Scopely requests preserves the pessimistically reserved dail
  const repeat=await runRosterAutoTick(f.env,controller("2026-10-18T02:00:00Z"),f.fetchImpl);
  assert.equal(repeat.status,"already-processed");
  assert.equal(f.calls.length,before);
+});
+
+test("admin diagnostic runs a real, bounded AM microbatch at 12:46 French time",async()=>{
+ const f=fixture(),at=d("2026-10-19T10:46:31.718Z");
+ const window=manualRosterWindow(at);
+ assert.equal(window.campaign,"2026-10-19-am");
+ assert.equal(window.stamp,"2026-10-19T10:46Z");
+ assert.equal(rosterWindow(ROSTER_CRON,at),null);
+ const r=await handleAdminRosterAutoTest(new Request(
+   "https://losp-roster-service.deliriousfan7.workers.dev/admin/api/roster-auto-test",{
+     method:"POST",headers:{Origin:"https://losp-roster-service.deliriousfan7.workers.dev",
+       "Content-Type":"application/json"},body:"{}"
+   }),f.env,f.fetchImpl,at);
+ assert.equal(r.status,200);
+ const out=await r.json();
+ assert.equal(out.status,"complete-co-members");
+ assert.equal(out.alliance,"Zeus");
+ assert.ok(out.requestsThisTick>0&&out.requestsThisTick<=18);
+ assert.equal(f.calls.filter(x=>x.includes("/roster/member/")).length,2);
+ const budget=JSON.parse(f.store.get("roster-auto/v1/days/2026-10-19.json"));
+ assert.equal(budget.lastMode,"admin-test");
+ assert.equal(budget.lastTick,"2026-10-19T10:46Z");
+ assert.equal(budget.used,out.requestsThisTick);
+ const progress=[...f.store.entries()].find(([k])=>k.endsWith("/progress.json"));
+ assert.ok(progress);
+ assert.equal(JSON.parse(progress[1]).completed,2);
+});
+test("repeated admin test in one slot is idempotent, next slot can finish personal roster",async()=>{
+ const f=fixture(),at=d("2026-10-19T10:46:31.718Z");
+ const run=time=>handleAdminRosterAutoTest(new Request(
+   "https://losp-roster-service.deliriousfan7.workers.dev/admin/api/roster-auto-test",{
+     method:"POST",headers:{Origin:"https://losp-roster-service.deliriousfan7.workers.dev",
+       "Content-Type":"application/json"},body:"{}"
+   }),f.env,f.fetchImpl,time);
+ await run(at);
+ const before=f.calls.length;
+ const again=await (await run(at+10000)).json();
+ assert.equal(again.status,"already-processed");
+ assert.equal(f.calls.length,before);
+ const next=await (await run(d("2026-10-19T10:48:32Z"))).json();
+ assert.equal(next.status,"complete");
+ assert.ok(f.store.has(completeKey(fp)));
+ const secondMode=JSON.parse(f.store.get("roster-auto/v1/days/2026-10-19.json"));
+ assert.equal(secondMode.lastMode,"admin-test");
+});
+test("admin test rejects GET, foreign Origin, extra parameters or missing JSON",async()=>{
+ const f=fixture();
+ const url="https://losp-roster-service.deliriousfan7.workers.dev/admin/api/roster-auto-test";
+ const variants=[
+   [new Request(url),405],
+   [new Request(url,{method:"POST",headers:{Origin:"https://evil.invalid",
+     "Content-Type":"application/json"},body:"{}"}),403],
+   [new Request(url,{method:"POST",headers:{Origin:new URL(url).origin,
+     "Content-Type":"application/json"},body:'{"alliance":"Zeus"}'}),400],
+   [new Request(url,{method:"POST",headers:{Origin:new URL(url).origin,
+     "Content-Type":"text/plain"},body:"{}"}),403]
+ ];
+ for(const [req,status] of variants){
+   const res=await handleAdminRosterAutoTest(req,f.env,f.fetchImpl,d("2026-10-19T10:46:31Z"));
+   assert.equal(res.status,status);
+ }
+ assert.equal(f.calls.length,0);
+ assert.equal(f.store.has("roster-auto/v1/days/2026-10-19.json"),false);
+});
+test("admin diagnostic shares the same budget and disabled-mode guards as cron",async()=>{
+ const f=fixture(),t=d("2026-10-19T10:46:30Z");
+ f.store.set("roster-auto/v1/days/2026-10-19.json",
+   JSON.stringify({date:"2026-10-19",used:940,ticks:4,lastTick:null}));
+ const req=()=>new Request("https://losp-roster-service.deliriousfan7.workers.dev/admin/api/roster-auto-test",{
+   method:"POST",headers:{Origin:"https://losp-roster-service.deliriousfan7.workers.dev",
+     "Content-Type":"application/json"},body:"{}"
+ });
+ const quota=await (await handleAdminRosterAutoTest(req(),f.env,f.fetchImpl,t)).json();
+ assert.equal(quota.status,"daily-budget-reached");
+ assert.equal(f.calls.length,0);
+ f.env.ROSTER_AUTO_ENABLED="false";
+ const disabled=await (await handleAdminRosterAutoTest(req(),f.env,f.fetchImpl,t)).json();
+ assert.equal(disabled.status,"disabled");
+ assert.equal(f.calls.length,0);
 });
