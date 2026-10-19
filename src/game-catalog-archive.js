@@ -2,9 +2,12 @@
 // Bounded, resumable R2 archive; all responses are private and full JSON bytes.
 // Scope: list roots and discoverable one-ID details; NOT combinatorial shortcuts.
 import {API_KEY} from "./player-card.js";
-export const GAME_ARCHIVE_CRON="*/15 * * * *";
+export const GAME_ARCHIVE_CRON="* * * * *";
 export const GAME_ARCHIVE_ROOT="game-archive/v1/";
-export const GAME_ARCHIVE_DAILY_LIMIT=600;
+// Internal emergency circuit-breaker, NOT a provider quota. Six GET/minute
+// permits at most 8,640 automated GET/day; 9,000 leaves room for admin ticks.
+// It must not prevent one complete initial scan solely through mis-sizing.
+export const GAME_ARCHIVE_DAILY_LIMIT=9000;
 export const GAME_ARCHIVE_TICK_LIMIT=6;
 const API="https://api.marvelstrikeforce.com",TOKEN_URL=
   "https://hydra-public.prod.m3.scopelypv.com/oauth2/token";
@@ -63,8 +66,14 @@ async function withLock(env,action,holder){
   }));
   return result.ok&&(await result.json()).status===(action==="acquire"?"acquired":"released");
 }
-async function appToken(env,fetchImpl){
+// Best-effort isolate-local reuse: never store app OAuth tokens in R2 or logs.
+// Workers may start a fresh isolate at any time, so reauthentication remains safe.
+const appTokenCache=new WeakMap();
+async function appToken(env,fetchImpl,now=Date.now()){
   if(!env.SCOPELY_CLIENT_ID||!env.SCOPELY_CLIENT_SECRET)return null;
+  const cached=appTokenCache.get(env);
+  if(cached?.clientId===env.SCOPELY_CLIENT_ID&&cached.expiresAt>now+60_000)
+    return cached.token;
   const pair=new TextEncoder().encode(env.SCOPELY_CLIENT_ID+":"+env.SCOPELY_CLIENT_SECRET);
   const res=await fetchImpl(TOKEN_URL,{
     method:"POST",redirect:"manual",signal:AbortSignal.timeout(12000),
@@ -74,9 +83,13 @@ async function appToken(env,fetchImpl){
   });
   if(!res.ok)return null;
   const data=await res.json();
-  return typeof data?.access_token==="string"&&
-    data.access_token.length>0&&String(data?.token_type).toLowerCase()==="bearer"?
-    data.access_token:null;
+  if(typeof data?.access_token!=="string"||!data.access_token.length||
+     String(data?.token_type).toLowerCase()!=="bearer")return null;
+  // Unknown expiry => valid for this tick only, do not assume session length.
+  if(Number.isSafeInteger(data.expires_in)&&data.expires_in>=120)
+    appTokenCache.set(env,{clientId:env.SCOPELY_CLIENT_ID,
+      token:data.access_token,expiresAt:now+data.expires_in*1000});
+  return data.access_token;
 }
 async function boundedResponse(res){
   if(Number(res.headers.get("content-length")||0)>MAX_BYTES)return {status:"oversized"};
@@ -161,7 +174,7 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
       return {status:"invalid-budget"};
     if(budget.used>=GAME_ARCHIVE_DAILY_LIMIT)return {status:"daily-limit"};
     let token;
-    try{token=await appToken(env,fetchImpl);}
+    try{token=await appToken(env,fetchImpl,now);}
     catch{token=null;}
     if(!token){
       state.lastOutcome="app-oauth-unavailable";

@@ -11,7 +11,7 @@ if(gameArchiveStatus&&gameArchiveStart&&gameArchiveTick&&gameArchiveMessage){
       ". Tâches traitées : "+(report.cursor??report.completedTasks??0)+
       "/"+(report.totalTasks??0)+
       ". Appels officiels aujourd’hui : "+(report.requestsToday??0)+
-      "/"+(report.dailyLimit??180)+
+      "/"+(report.dailyLimit??9000)+
       ". Dernier résultat : "+(report.lastOutcome||"aucun")+
       (report.pauseUntil?". Prochaine reprise : "+report.pauseUntil:"")+".";
   };
