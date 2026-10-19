@@ -89,6 +89,30 @@ export async function rosterAutoStatus(env,time=Date.now()){
       lastTick:typeof data?.lastTick==="string"?data.lastTick:null};
   }catch{return {status:"unavailable",...out};}
 }
+// Used only from handleAdmin, AFTER its Cloudflare Access JWT validation.
+// A real POST is required: a link, GET, foreign Origin or unexpected payload
+// must never trigger even a single Scopely request.
+export async function handleAdminRosterAutoTest(request,env,fetchImpl=fetch,now=Date.now()){
+  const headers={"Cache-Control":"private, no-store",
+    "X-Content-Type-Options":"nosniff","X-Robots-Tag":"noindex"};
+  if(request.method!=="POST")return Response.json({status:"method-not-allowed"},
+    {status:405,headers});
+  const origin=new URL(request.url).origin;
+  if(origin!==BASE_URL||request.headers.get("Origin")!==origin||
+     !(request.headers.get("Content-Type")||"").toLowerCase().startsWith("application/json"))
+    return Response.json({status:"forbidden"},{status:403,headers});
+  try{
+    const raw=await request.text();
+    if(raw.length>64||!raw.trim())throw Error("invalid");
+    const body=JSON.parse(raw);
+    if(!body||typeof body!=="object"||Array.isArray(body)||
+       Object.keys(body).length!==0)throw Error("invalid");
+  }catch{return Response.json({status:"invalid-payload"},{status:400,headers});}
+  const result=await runRosterAutoTick(env,{scheduledTime:now,cron:ROSTER_CRON},
+    fetchImpl,{manual:true});
+  return Response.json(result,{headers});
+}
+
 export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={}){
   if(env?.ROSTER_AUTO_ENABLED!=="true")return {status:"disabled"};
   if(env?.ROSTER_RETENTION_CONFIRMED!=="true")
@@ -170,7 +194,8 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
       lastMode:manual?"admin-test":"cron"
     });
     return {status:outcome,requestsThisTick:used,
-      requestsToday:d.used+used,httpStatus:statusCode};
+      requestsToday:d.used+used,httpStatus:statusCode,
+      ...(manual?{alliance:approval.alliances.find(a=>a.fingerprint===fp)?.name||"approved"}:{})};
   }catch{return {status:"unavailable"};}
   finally{if(acquired)try{await lease(env,"release",holder);}catch{}}
 }
