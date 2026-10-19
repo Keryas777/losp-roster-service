@@ -182,3 +182,24 @@ test("admin read and write status routes return only bounded aggregate fields",a
   assert.equal(t.processed,GAME_ARCHIVE_TICK_LIMIT);
   assert.ok(!JSON.stringify(t).includes("SERVER_ONLY_TOKEN"));
 });
+test("documented object-map details for upgrades, ISO-8 and team order are discovered",async()=>{
+  const expected={
+    "/game/v1/upgradeData":"playerLevelTotalXp",
+    "/game/v1/iso8Abilities":"striker",
+    "/game/v1/analysis/teamOrder":"roster"
+  };
+  const f=fixture({api:address=>{
+    const pathname=new URL(address).pathname;
+    if(expected[pathname])return Response.json({
+      data:{[expected[pathname]]:{any:"field"}},meta:{}
+    });
+    return Response.json({data:[],meta:{perTotal:0}});
+  }});
+  await startGameArchive(f.env,now);
+  for(let i=0;i<6;i++)await runGameArchiveTick(f.env,f.provider,now+60000*i);
+  const paths=gameCalls(f).map(x=>new URL(x.address).pathname);
+  assert.ok(paths.includes("/game/v1/upgradeData/playerLevelTotalXp"));
+  assert.ok(paths.includes("/game/v1/iso8Abilities/striker"));
+  assert.ok(paths.includes("/game/v1/analysis/teamOrder/roster"));
+  assert.equal((await gameArchiveStatus(f.env,now)).totalTasks,20);
+});
