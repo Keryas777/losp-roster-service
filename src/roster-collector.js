@@ -88,7 +88,7 @@ function checkedCache(cache){
   }
   return cache;
 }
-async function unpagedRoster(memberId,token,budget,fetchImpl,withInfo,cache,personal=false){
+async function unpagedRoster(memberId,token,budget,fetchImpl,withInfo,cache,personal=false,includeSourcePayload=false){
   const qs="?statsFormat=csv"+(withInfo?"&lang=fr&charInfo=full":"")+
     (cache?"&since="+encodeURIComponent(cache.asOf):"");
   const prefix=personal?"/player/v1/roster":
@@ -96,7 +96,10 @@ async function unpagedRoster(memberId,token,budget,fetchImpl,withInfo,cache,pers
   const r=await request(prefix+qs,token,budget,fetchImpl);
   if(r.status==="unchanged"){
     return cache?{status:"ok",roster:cache.chars,pages:0,
-      asOf:cache.asOf,unchanged:true}:{status:"invalid-unchanged"};
+      asOf:cache.asOf,unchanged:true,
+      ...(includeSourcePayload?{sourceResponses:[{
+        path:prefix+qs,httpStatus:344,payload:null
+      }]}:{})}:{status:"invalid-unchanged"};
   }
   if(r.status==="response-too-large")return {status:"fallback"};
   if(r.status!=="ok")return {status:r.status};
@@ -120,13 +123,16 @@ async function unpagedRoster(memberId,token,budget,fetchImpl,withInfo,cache,pers
     ids.add(c.id);
   }
   return {status:"ok",roster:data,pages:1,
-    asOf:typeof meta.asOf==="string"?meta.asOf:null,unchanged:false};
+    asOf:typeof meta.asOf==="string"?meta.asOf:null,unchanged:false,
+    ...(includeSourcePayload?{sourceResponses:[{
+      path:prefix+qs,httpStatus:200,payload:r.payload
+    }]}:{})};
 }
 async function collectMember(memberId, token, budget, fetchImpl, withInfo = false, options = {}) {
   const cache=checkedCache(options.cached);
   if(options.preferSinglePage===true){
     const quick=await unpagedRoster(memberId,token,budget,fetchImpl,withInfo,cache,
-      options.personal===true);
+      options.personal===true,options.includeSourcePayload===true);
     if(quick.status!=="fallback")return quick;
   }
   let perPage = options.preferSinglePage===true?200:DEFAULT_PAGE_SIZE;
@@ -136,6 +142,7 @@ async function collectMember(memberId, token, budget, fetchImpl, withInfo = fals
   let observedAsOf = null;
   let pages = 0;
   let downsizes = 0;
+  let sourceResponses=[];
 
   for (let page = 1; page <= MAX_PAGES_PER_MEMBER; page++) {
     const path = (options.personal===true?"/player/v1/roster":
@@ -150,6 +157,7 @@ async function collectMember(memberId, token, budget, fetchImpl, withInfo = fals
       expectedTotal = null;
       observedAsOf = null;
       pages = 0;
+      sourceResponses=[];
       downsizes++;
       page = 0; // restart from first page after changing the page size
       continue;
@@ -185,16 +193,20 @@ async function collectMember(memberId, token, budget, fetchImpl, withInfo = fals
       records.push(item);
     }
     pages++;
+    if(options.includeSourcePayload===true)
+      sourceResponses.push({path,httpStatus:200,payload:response.payload});
     if (records.length > MAX_CHARACTERS_PER_MEMBER ||
         (expectedTotal !== null && records.length > expectedTotal)) {
       return { status: "invalid-pagination" };
     }
     if (expectedTotal !== null && records.length === expectedTotal) {
-      return { status: "ok", roster: records, pages, asOf:observedAsOf,unchanged:false };
+      return { status: "ok", roster: records, pages, asOf:observedAsOf,unchanged:false,
+        ...(options.includeSourcePayload===true?{sourceResponses}:{}) };
     }
     // Without reliable perTotal, the first short/empty page closes pagination.
     if (expectedTotal === null && data.length < perPage) {
-      return { status: "ok", roster: records, pages, asOf:observedAsOf,unchanged:false };
+      return { status: "ok", roster: records, pages, asOf:observedAsOf,unchanged:false,
+        ...(options.includeSourcePayload===true?{sourceResponses}:{}) };
     }
     if (data.length === 0) return { status: "invalid-pagination" };
   }
@@ -265,7 +277,8 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
     const cached=typeof options.cachedForMember==="function"?
       await options.cachedForMember(candidate,startIndex+rosters.length):null;
     const result = await collectMember(candidate.id, token, budget, fetchImpl, withInfo,{
-      preferSinglePage:options.preferSinglePage===true,cached
+      preferSinglePage:options.preferSinglePage===true,cached,
+      includeSourcePayload:options.includeSourcePayload===true
     });
     if (result.status !== "ok") {
       // Fail closed: discard all partial rosters and never return their contents.
@@ -273,18 +286,23 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
     }
     // Kept exclusively in this invocation's memory for future privately approved storage.
     rosters.push({ memberId: candidate.id, name: candidate.card.name,
-      chars: result.roster,asOf:result.asOf,unchanged:result.unchanged===true });
+      chars: result.roster,asOf:result.asOf,unchanged:result.unchanged===true,
+      ...(options.includeSourcePayload===true?{
+        sourceResponses:result.sourceResponses
+      }:{}) });
     summary.completedCount++;
     summary.characterCount += result.roster.length;
     summary.pages += result.pages;
     if(result.unchanged===true)summary.unchangedCount++;
   }
+  let sourceMembershipAfter=null;
   if(options.requireStableMembership===true){
     // A memberId is volatile when the alliance roster version changes.
     // Re-read membership *after* every collected page and reject changes
     // of roster sharing or membership: no partial records may escape.
     const check=await request("/player/v1/alliance/members",token,budget,fetchImpl);
     if(check.status!=="ok")return {status:check.status,requests:budget.used};
+    sourceMembershipAfter=check.payload;
     const current=check.payload.data;
     if(!Array.isArray(current)||current.length!==members.length||
        current.filter(m=>m?.isSelf===true).length!==1)
@@ -302,7 +320,13 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
   }
   return { status: "complete", ...summary, requests: budget.used, rosters,
     ...(options.includeMembershipDigest===true?{membershipDigest:initialDigest}:{}),
-    ...(options.startIndex!==undefined?{startIndex}:{} ) };
+    ...(options.startIndex!==undefined?{startIndex}:{} ),
+    // Include BOTH immutable validated read envelopes only by opt-in.
+    // No member roster is collected when consent forbids it.
+    ...(options.includeSourcePayload===true?{
+      sourceMembershipBefore:response.payload,
+      sourceMembershipAfter
+    }:{}) };
 }
 
 /**
@@ -329,7 +353,8 @@ export async function collectPersonalRoster(token,fetchImpl=fetch,options={}){
      options.expectedMembershipDigest!==digest)
     return {status:"membership-changed-restart-required",requests:budget.used};
   const c=await collectMember(self[0].id,token,budget,fetchImpl,true,{
-    personal:true,preferSinglePage:true,cached:options.cached
+    personal:true,preferSinglePage:true,cached:options.cached,
+    includeSourcePayload:options.includeSourcePayload===true
   });
   if(c.status!=="ok")return {status:c.status,requests:budget.used};
   if(!Array.isArray(c.roster)||!c.roster.length)
@@ -342,7 +367,11 @@ export async function collectPersonalRoster(token,fetchImpl=fetch,options={}){
   return {status:"complete",memberId:self[0].id,
     name:typeof self[0].card.name==="string"?self[0].card.name:"",
     chars:c.roster,asOf:c.asOf,unchanged:c.unchanged===true,
-    membershipDigest:digest,pages:c.pages,requests:budget.used};
+    membershipDigest:digest,pages:c.pages,requests:budget.used,
+    ...(options.includeSourcePayload===true?{
+      sourceMembershipBefore:first.payload,sourceMembershipAfter:last.payload,
+      sourceResponses:c.sourceResponses
+    }:{})};
 }
 
 function escapeHtml(x) {
