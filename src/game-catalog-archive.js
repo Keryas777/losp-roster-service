@@ -184,7 +184,7 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
           task.perPage=Math.max(5,Math.floor(task.perPage/2));task.page=1;
           task.series=(task.series||0)+1;
           task.seenCount=0;task.expectedTotal=null;
-          task.discovered=[];task.missingIds=0;
+          task.discovered=[];task.missingIds=0;task.lastPageHash=null;
           state.lastOutcome="reduced-page-size";
           await write(bucket,key,state);continue;
         }
@@ -222,7 +222,9 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
           const entries=parsed.data.data,meta=parsed.data.meta||{};
           const total=Number.isSafeInteger(meta.perTotal)&&meta.perTotal>=0?
             meta.perTotal:null;
-          if(task.expectedTotal!==undefined&&task.expectedTotal!==null&&
+          if(task.page>1&&entries.length>0&&task.lastPageHash===id){
+            state.lastOutcome="duplicate-page";state.status="blocked";
+          }else if(task.expectedTotal!==undefined&&task.expectedTotal!==null&&
              total!==null&&task.expectedTotal!==total){
             state.lastOutcome="pagination-total-changed";state.status="blocked";
           }else if(entries.length>task.perPage||
@@ -232,6 +234,7 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
           }else{
             task.expectedTotal=total??task.expectedTotal??null;
             task.seenCount=(task.seenCount||0)+entries.length;
+            task.lastPageHash=id;
             if(task.expectedTotal!==null&&task.seenCount>task.expectedTotal){
               state.lastOutcome="pagination-overcount";state.status="blocked";
             }
