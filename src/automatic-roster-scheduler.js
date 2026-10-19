@@ -54,6 +54,26 @@ export function rosterWindow(cron,scheduledTime){
   return {date,campaign:date+"-"+period,tick,
     stamp:d.toISOString().slice(0,16)+"Z"};
 }
+// A deliberate, admin-authenticated diagnostic invocation may run outside
+// the normal cron windows. It shares the normal global lock, daily budget,
+// 2-minute idempotency key and R2 campaign checkpoints with the scheduler.
+// The requester never controls the clock, campaign or alliance selection.
+export function manualRosterWindow(now){
+  if(!Number.isFinite(now))return null;
+  const slotMs=Math.floor(now/(2*MINUTE))*(2*MINUTE);
+  const d=new Date(slotMs);
+  if(!Number.isFinite(d.getTime()))return null;
+  const date=dateOf(slotMs),h=d.getUTCHours(),m=d.getUTCMinutes();
+  // During a real window use exactly the cron's selection and idempotency.
+  const planned=rosterWindow(ROSTER_CRON,slotMs);
+  if(planned)return planned;
+  // Between the two daily windows resume the AM campaign; after the PM
+  // window, resume PM. No third campaign is ever created by the diagnostic.
+  const period=h<14?"am":"pm";
+  const tick=Math.floor((h*60+m)/2);
+  return {date,campaign:date+"-"+period,tick,
+    stamp:d.toISOString().slice(0,16)+"Z"};
+}
 export async function rosterAutoStatus(env,time=Date.now()){
   const enabled=env?.ROSTER_AUTO_ENABLED==="true";
   const retention=env?.ROSTER_RETENTION_CONFIRMED==="true";
@@ -69,14 +89,16 @@ export async function rosterAutoStatus(env,time=Date.now()){
       lastTick:typeof data?.lastTick==="string"?data.lastTick:null};
   }catch{return {status:"unavailable",...out};}
 }
-export async function runRosterAutoTick(env,controller,fetchImpl=fetch){
+export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={}){
   if(env?.ROSTER_AUTO_ENABLED!=="true")return {status:"disabled"};
   if(env?.ROSTER_RETENTION_CONFIRMED!=="true")
     return {status:"retention-not-confirmed"};
   if(!captainConfigReady(env)||!env.ROSTER_BATCH_LOCK?.get)
     return {status:"storage-unavailable"};
   const timestamp=controller?.scheduledTime;
-  const slot=rosterWindow(controller?.cron,timestamp);
+  const manual=options?.manual===true;
+  const slot=manual?manualRosterWindow(timestamp):
+    rosterWindow(controller?.cron,timestamp);
   if(!slot)return {status:"outside-window"};
   const holder=crypto.randomUUID();
   let acquired=false;
@@ -144,7 +166,8 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch){
     }
     await write(bucket,dayKey(slot.date),{
       date:slot.date,used:d.used+used,ticks:d.ticks+1,
-      lastTick:slot.stamp,lastOutcome:outcome
+      lastTick:slot.stamp,lastOutcome:outcome,
+      lastMode:manual?"admin-test":"cron"
     });
     return {status:outcome,requestsThisTick:used,
       requestsToday:d.used+used,httpStatus:statusCode};
