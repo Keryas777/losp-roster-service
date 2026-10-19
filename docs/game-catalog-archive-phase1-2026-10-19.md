@@ -62,9 +62,23 @@ ne pas affirmer qu'une conservation éternelle est garantie sans les auditer.
 - `POST {"action":"start"}` crée une nouvelle campagne, seulement s'il
   n'en existe pas déjà une en cours.
 - `POST {"action":"tick"}` exécute immédiatement un passage borné.
-- Cron indépendant `*/15 * * * *` : après démarrage manuel seulement,
-  maximum **6 GET MSF par passage** et garde-fou **600 GET MSF/jour UTC**,
-  distinct du plafond de 2500 des rosters.
+- Cron indépendant `* * * * *` : **toutes les minutes, pendant une
+  campagne active**, maximum **6 GET MSF par passage**. Capacité maximale
+  théorique : **360 GET/h**, **8 640 GET/jour UTC**. Le garde-fou interne
+  de **9 000 GET/jour UTC** évite une boucle accidentelle et laisse une
+  marge pour des essais administrateur. Ce n'est pas une limite Scopely
+  officiellement annoncée, et le `429` reste prioritaire.
+- **À l'état `completed` ou `completed-with-gaps`**, le Cron ne fait
+  plus d'appels OAuth ni GET `/game/v1`. Il ne lance pas de nouveau
+  balayage automatiquement.
+- La reprise lit la campagne déjà enregistrée dans R2 : **aucun besoin
+  de redémarrer une campagne pour bénéficier du nouveau Cron**, y compris
+  si elle a été commencée avant la modification.
+- Réutilisation opportuniste du token OAuth applicatif dans la mémoire de
+  l'isolat Worker tant qu'il reste valable ; jamais stocké en clair dans
+  R2. Un nouvel isolat peut nécessiter une nouvelle authentification.
+- Le budget est **entièrement séparé** du plafond de 2 500 GET/jour des
+  rosters.
 - Une réponse `429` suspend les prochains passages ; les erreurs OAuth,
   réseau, les HTTP non résolus et les volumes non paginables sont signalés,
   sans boucle de requêtes ni substitution de jeton personnel.
