@@ -115,10 +115,10 @@ test("a provider 472 retries same list with smaller page size without declaring 
   await startGameArchive(f.env,now);
   const result=await runGameArchiveTick(f.env,f.provider,now);
   assert.equal(result.status,"running");
-  assert.equal(result.processed,3);
+  assert.equal(result.processed,GAME_ARCHIVE_TICK_LIMIT);
   assert.match(gameCalls(f)[0].address,/perPage=100/);
   assert.match(gameCalls(f)[1].address,/perPage=50/);
-  assert.equal((await gameArchiveStatus(f.env,now)).archivedResponses,2);
+  assert.equal((await gameArchiveStatus(f.env,now)).archivedResponses,GAME_ARCHIVE_TICK_LIMIT-1);
 });
 test("rate limit pauses run without retry loop and preserves resumability",async()=>{
   const f=fixture({api:()=>new Response("rate limit",{status:429})});
@@ -179,6 +179,6 @@ test("admin read and write status routes return only bounded aggregate fields",a
   const s=await (await handleGameArchiveAdmin(req("start"),f.env,f.provider,now)).json();
   assert.equal(s.status,"started");
   const t=await (await handleGameArchiveAdmin(req("tick"),f.env,f.provider,now)).json();
-  assert.equal(t.processed,3);
+  assert.equal(t.processed,GAME_ARCHIVE_TICK_LIMIT);
   assert.ok(!JSON.stringify(t).includes("SERVER_ONLY_TOKEN"));
 });
