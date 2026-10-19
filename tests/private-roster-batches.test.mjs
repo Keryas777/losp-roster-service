@@ -91,7 +91,9 @@ function fixture({noOptout=false}={}){
      const paged=u.searchParams.has("perPage");
      return Response.json({data:chars.slice((page-1)*perPage,page*perPage),
        meta:{...(paged?{page,perPage}:{}),perTotal:207,
-         asOf:counters.changedRosters?"2026-10-19":"2026-10-18"}});
+         asOf:counters.changedRosters?"2026-10-19":"2026-10-18",
+         newProviderMeta:{opaque:"retained"}},
+       unexpectedRosterField:{unknown:true}});
    }
    throw Error("Bad provider URL "+url);
  };
@@ -127,7 +129,7 @@ test("validated microbatch archives every alliance-card and membership JSON fiel
  const response=await handleRosterMicrobatch(request(),f.env,f.api,now);
  assert.equal(response.status,200);
  const source=[...f.store.keys()].filter(key=>key.includes("/provider-source/"));
- assert.equal(source.length,3);
+ assert.equal(source.length,5); // card, 2 member checks, 2 full roster responses
  assert.ok(source.every(key=>key.startsWith(BATCH_PREFIX+fingerprint+"/")));
  const card=JSON.parse(f.store.get(source.find(key=>key.endsWith("/alliance-card.json"))));
  assert.equal(card.endpoint,"/player/v1/alliance/card");
@@ -138,6 +140,12 @@ test("validated microbatch archives every alliance-card and membership JSON fiel
  assert.ok(members.providerResponse.data.some(v=>v.id==="private"&&v.card.rosterShare===false));
  const after=JSON.parse(f.store.get(source.find(key=>key.endsWith("/members-after.json"))));
  assert.deepEqual(after.providerResponse,members.providerResponse);
+ const firstRoster=JSON.parse(f.store.get(source.find(key=>key.endsWith("/roster-member-0-page-0.json"))));
+ assert.equal(firstRoster.endpoint.startsWith("/player/v1/roster/member/"),true);
+ assert.equal(firstRoster.httpStatus,200);
+ assert.equal(firstRoster.providerResponse.unexpectedRosterField.unknown,true);
+ assert.equal(firstRoster.providerResponse.meta.newProviderMeta.opaque,"retained");
+ assert.equal(firstRoster.providerResponse.data.length,207);
  assert.equal(f.logs.at(-1),BATCH_PREFIX+fingerprint+"/progress.json");
  assert.equal(f.counters.calls,(await response.clone().json()).requestsThisBatch);
  assert.doesNotMatch(await response.text(),/futureField|private-provider-source|TOKEN_|arbitraryProviderField/);
@@ -328,6 +336,11 @@ test("automatic campaign finalizes only after the captain personal roster and al
  const selfRecord=JSON.parse(f.store.get(BATCH_PREFIX+fingerprint+"/"+manifest.runId+"/member-self.json"));
  assert.equal(selfRecord.characters.length,207);
  assert.equal(selfRecord.volatileMemberId,"self");
+ const selfRawKey=[...f.store.keys()].find(key=>key.endsWith("/roster-self-page-0.json"));
+ assert.ok(selfRawKey);
+ const selfRaw=JSON.parse(f.store.get(selfRawKey));
+ assert.equal(selfRaw.providerResponse.meta.newProviderMeta.opaque,"retained");
+ assert.equal(selfRaw.providerResponse.data.length,207);
  const reRun=await handleRosterMicrobatch(request(),f.env,f.api,now+12000,internal(8));
  assert.equal((await reRun.json()).status,"already-processed-tick");
 });
