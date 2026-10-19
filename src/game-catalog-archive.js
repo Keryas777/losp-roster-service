@@ -16,6 +16,17 @@ const runKey=id=>GAME_ARCHIVE_ROOT+"runs/"+id+"/progress.json";
 const safeHeaders={"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff",
   "X-Robots-Tag":"noindex"};
 const response=(x,code=200)=>Response.json(x,{status:code,headers:safeHeaders});
+// These finite IDs are taken from Scopely OpenAPI beta 0.2.1 schemas,
+// never inferred from unrelated keys or generated as parameter combinations.
+const OBJECT_DETAIL_IDS=Object.freeze({
+  "upgradeData":["playerLevelTotalXp","allianceLevelTotalXp",
+    "characterLevelTotalXp","characterXpCosts","yellowStarTotalShards",
+    "yellowStarTotalCosts","abilityLevelRequirements","abilityUpgradeCosts",
+    "iso8MatrixLevelRequirements","iso8MatrixUpgradeCosts",
+    "iso8AbilityUpgradeCosts","iso8FuseCosts"],
+  "iso8Abilities":["striker","fortifier","healer","skirmisher","raider"],
+  "analysis/teamOrder":["roster","blitz","tower","raids","arena","war","crucible"]
+});
 const roots=Object.freeze([
   ["languages",null],["localizations","localizations/{id}"],
   ["decorations",null],["upgradeData","upgradeData/{id}"],
@@ -30,7 +41,8 @@ const roots=Object.freeze([
   ["events","events/{id}"],["scopes",null]
 ]);
 export const GAME_ROOTS=roots.map(([id,detail])=>Object.freeze({
-  id,path:"/game/v1/"+id,detail:detail?"/game/v1/"+detail:null
+  id,path:"/game/v1/"+id,detail:detail?"/game/v1/"+detail:null,
+  objectKeys:OBJECT_DETAIL_IDS[id]||null
 }));
 const read=async(b,key)=>{const item=await b.get(key);return item?JSON.parse(await item.text()):null;};
 const write=(b,key,value)=>b.put(key,JSON.stringify(value),{
@@ -272,6 +284,25 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
                   reason:"undiscoverable-detail-id",count:task.missingIds});
                 delete task.discovered;delete task.missingIds;
               }
+            }
+          }
+        }
+        // Some official roots return a keyed object, not an array.
+        // Capture documented finite detail variants after storing the root.
+        if(task.mode==="list"&&!Array.isArray(parsed.data.data)&&
+           parsed.data.data&&typeof parsed.data.data==="object"){
+          const root=GAME_ROOTS.find(x=>x.id===task.root);
+          if(root?.objectKeys){
+            const keys=Object.keys(parsed.data.data)
+              .filter(id=>root.objectKeys.includes(id));
+            if(keys.length!==Object.keys(parsed.data.data).length)
+              state.gaps.push({path:task.path,reason:"unrecognized-object-key"});
+            if(state.tasks.length+keys.length>MAX_TASKS){
+              state.status="blocked";state.lastOutcome="queue-limit";
+            }else for(const id of keys){
+              const path=root.detail.replace("{id}",encodeURIComponent(id));
+              if(!state.tasks.some(x=>x.path===path))
+                state.tasks.push({path,root:task.root,mode:"detail"});
             }
           }
         }
