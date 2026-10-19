@@ -34,7 +34,7 @@ async function storeAllianceSource(env,fp,runId,now,entries){
   // A conditional 344 intentionally has no response body: keep the receipt
   // while existing baseline roster data remains preserved separately.
   for(const roster of entries.rosters||[]){
-    if(!/^member-\\d+$|^self$/.test(roster.role)||
+    if(!/^member-[0-9]+$|^self$/.test(roster.role)||
        !Array.isArray(roster.pages)||roster.pages.length<1||roster.pages.length>10)
       throw Error("invalid roster source");
     for(const [i,page] of roster.pages.entries()){
