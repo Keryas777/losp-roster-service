@@ -59,11 +59,13 @@ function fixture({noOptout=false}={}){
    const token=opts.headers.Authorization.split(" ")[1];
    const aid=token==="TOKEN_K"?"aid-kronos":"aid-zeus";
    if(url.endsWith("/alliance/card"))
-     return Response.json({data:{id:aid+":version1",name:aid}});
+     return Response.json({data:{id:aid+":version1",name:aid,
+       futureField:{unknownKey:"preserved",nested:{enabled:true}}},
+       meta:{serverSchema:"opaque",version:77}});
    if(url.endsWith("/alliance/members"))return Response.json({data:[
      mkMember("self",true),...(counters.reorder?[...users].reverse():users).map((x,i)=>mkMember(
        counters.revision&&i===2?x+"-changed":x)),...(noOptout?[]:[mkMember("private",false,false)])
-   ]});
+   ],meta:{arbitraryProviderField:{deep:"kept"}}});
    if(new URL(url).pathname==="/player/v1/roster"){
      const u=new URL(url),since=u.searchParams.get("since");
      if(since==="2026-10-18")return new Response(null,{status:344});
@@ -119,6 +121,29 @@ test("a two-player batch persists only complete separate R2 objects and advances
  assert.equal(JSON.parse(f.store.get(playerRecords[0])).characters.length,207);
  assert.equal(f.logs.at(-1),BATCH_PREFIX+fingerprint+"/progress.json");
  assert.doesNotMatch(JSON.stringify(body),/TOKEN_|Player A|_c0/);
+});
+test("validated microbatch archives every alliance-card and membership JSON field without extra GETs",async()=>{
+ const f=fixture(),now=Date.UTC(2026,9,19,14);
+ const response=await handleRosterMicrobatch(request(),f.env,f.api,now);
+ assert.equal(response.status,200);
+ const source=[...f.store.keys()].filter(key=>key.includes("/provider-source/"));
+ assert.equal(source.length,3);
+ assert.ok(source.every(key=>key.startsWith(BATCH_PREFIX+fingerprint+"/")));
+ const card=JSON.parse(f.store.get(source.find(key=>key.endsWith("/alliance-card.json"))));
+ assert.equal(card.endpoint,"/player/v1/alliance/card");
+ assert.equal(card.providerResponse.data.futureField.nested.enabled,true);
+ assert.equal(card.providerResponse.meta.serverSchema,"opaque");
+ const members=JSON.parse(f.store.get(source.find(key=>key.endsWith("/members-before.json"))));
+ assert.equal(members.providerResponse.meta.arbitraryProviderField.deep,"kept");
+ assert.ok(members.providerResponse.data.some(v=>v.id==="private"&&v.card.rosterShare===false));
+ const after=JSON.parse(f.store.get(source.find(key=>key.endsWith("/members-after.json"))));
+ assert.deepEqual(after.providerResponse,members.providerResponse);
+ assert.equal(f.logs.at(-1),BATCH_PREFIX+fingerprint+"/progress.json");
+ assert.equal(f.counters.calls,(await response.clone().json()).requestsThisBatch);
+ assert.doesNotMatch(await response.text(),/futureField|private|TOKEN_|arbitraryProviderField/);
+ const data=[...f.store.entries()].filter(([key])=>key.includes("/member-"));
+ assert.equal(data.length,2);
+ assert.ok(data.every(([,raw])=>!JSON.parse(raw).characters.some(c=>c.id==="private")));
 });
 test("manual resume skips previous members and reaches 'complete-co-members' after 3 batches",async()=>{
  const f=fixture(),now=Date.UTC(2026,9,18,18);
