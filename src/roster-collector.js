@@ -279,12 +279,14 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
     summary.pages += result.pages;
     if(result.unchanged===true)summary.unchangedCount++;
   }
+  let sourceMembershipAfter=null;
   if(options.requireStableMembership===true){
     // A memberId is volatile when the alliance roster version changes.
     // Re-read membership *after* every collected page and reject changes
     // of roster sharing or membership: no partial records may escape.
     const check=await request("/player/v1/alliance/members",token,budget,fetchImpl);
     if(check.status!=="ok")return {status:check.status,requests:budget.used};
+    sourceMembershipAfter=check.payload;
     const current=check.payload.data;
     if(!Array.isArray(current)||current.length!==members.length||
        current.filter(m=>m?.isSelf===true).length!==1)
@@ -307,7 +309,7 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
     // No member roster is collected when consent forbids it.
     ...(options.includeSourcePayload===true?{
       sourceMembershipBefore:response.payload,
-      sourceMembershipAfter:options.requireStableMembership===true?check.payload:null
+      sourceMembershipAfter
     }:{}) };
 }
 
