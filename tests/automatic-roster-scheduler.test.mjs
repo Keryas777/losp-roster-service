@@ -7,6 +7,7 @@ import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 import {completeKey,BATCH_PREFIX} from "../src/private-roster-batches.js";
 import {ROSTER_CRON,rosterWindow,manualRosterWindow,runRosterAutoTick,rosterAutoStatus,handleAdminRosterAutoTest} from "../src/automatic-roster-scheduler.js";
 import worker from "../src/index.js";
+import {handleAdmin} from "../src/admin-routes.js";
 
 const hash=s=>createHash("sha256").update(s).digest("hex");
 const fp=hash("aid007"),token="TOKEN_PRIVATE";
@@ -288,4 +289,20 @@ test("admin diagnostic shares the same budget and disabled-mode guards as cron",
  const disabled=await (await handleAdminRosterAutoTest(req(),f.env,f.fetchImpl,t)).json();
  assert.equal(disabled.status,"disabled");
  assert.equal(f.calls.length,0);
+});
+
+test("private one-shot endpoint cannot be invoked without a Cloudflare Access admin JWT",async()=>{
+ const f=fixture();
+ const env={...f.env,MSF_ADMIN_ENABLED:"true",
+   CF_ACCESS_TEAM_DOMAIN:"private-losp.cloudflareaccess.com",
+   CF_ACCESS_AUD:"a".repeat(64),
+   MSF_ADMIN_EMAILS:"admin@example.test"};
+ const req=new Request("https://losp-roster-service.deliriousfan7.workers.dev/admin/api/roster-auto-test",{
+   method:"POST",headers:{Origin:"https://losp-roster-service.deliriousfan7.workers.dev",
+     "Content-Type":"application/json"},body:"{}"
+ });
+ const result=await handleAdmin(req,env,f.fetchImpl);
+ assert.equal(result.status,403);
+ assert.equal(f.calls.length,0);
+ assert.equal(f.store.has("roster-auto/v1/days/2026-10-19.json"),false);
 });
