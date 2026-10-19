@@ -316,7 +316,7 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
         deferRetry(state,task,reason,now);
       }else{
         task.retries=0;state.pauseUntil=null;
-        const id=await sha(parsed.bytes);      }else{
+        const id=await sha(parsed.bytes);
         const archive=GAME_ARCHIVE_ROOT+"runs/"+state.runId+"/objects/"+id+".json";
         if(!await bucket.get(archive))
           await bucket.put(archive,parsed.bytes,{
