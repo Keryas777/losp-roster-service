@@ -26,15 +26,33 @@ async function storeAllianceSource(env,fp,runId,now,entries){
   const capturedAt=new Date(now).toISOString();
   const folder=BATCH_PREFIX+fp+"/"+runId+"/provider-source/"+crypto.randomUUID()+"/";
   const sources=[
-    ["alliance-card","/player/v1/alliance/card",entries.card],
-    ["members-before","/player/v1/alliance/members",entries.before],
-    ["members-after","/player/v1/alliance/members",entries.after]
+    ["alliance-card","/player/v1/alliance/card",entries.card,200],
+    ["members-before","/player/v1/alliance/members",entries.before,200],
+    ["members-after","/player/v1/alliance/members",entries.after,200]
   ];
-  for(const [name,endpoint,payload] of sources){
-    if(!payload||typeof payload!=="object"||Array.isArray(payload))
+  // Raw roster response envelopes include unknown fields and pagination meta.
+  // A conditional 344 intentionally has no response body: keep the receipt
+  // while existing baseline roster data remains preserved separately.
+  for(const roster of entries.rosters||[]){
+    if(!/^member-\\d+$|^self$/.test(roster.role)||
+       !Array.isArray(roster.pages)||roster.pages.length<1||roster.pages.length>10)
+      throw Error("invalid roster source");
+    for(const [i,page] of roster.pages.entries()){
+      if(!page||typeof page.path!=="string"||
+         !page.path.startsWith("/player/v1/roster")||
+         ![200,344].includes(page.httpStatus))
+        throw Error("invalid roster page");
+      sources.push(["roster-"+roster.role+"-page-"+i,page.path,
+        page.payload,page.httpStatus]);
+    }
+  }
+  for(const [name,endpoint,payload,httpStatus] of sources){
+    if((httpStatus===200&&(!payload||typeof payload!=="object"||
+       Array.isArray(payload)))||
+       (httpStatus===344&&payload!==null))
       throw Error("missing source envelope");
     const raw=JSON.stringify({version:1,kind:"private-provider-source",
-      allianceFingerprint:fp,runId,capturedAt,endpoint,
+      allianceFingerprint:fp,runId,capturedAt,endpoint,httpStatus,
       providerResponse:payload});
     if(raw.length>MAX_SNAPSHOT_BYTES)throw Error("source-envelope-too-large");
     await env.CAPTAIN_BUCKET.put(folder+name+".json",raw,{
@@ -154,7 +172,8 @@ async function finishSelf(env,fp,previous,selected,baseline,now,fetchImpl,tick){
     return answer({status:"approval-withdrawn"},409);
   await storeAllianceSource(env,fp,previous.runId,now,{
     card:after.sourcePayload,
-    before:report.sourceMembershipBefore,after:report.sourceMembershipAfter
+    before:report.sourceMembershipBefore,after:report.sourceMembershipAfter,
+    rosters:[{role:"self",pages:report.sourceResponses}]
   });
   const record={version:1,kind:"private-staged-personal-roster",
     allianceFingerprint:fp,runId:previous.runId,memberIndex:"self",
@@ -301,7 +320,10 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     await storeAllianceSource(env,fp,runId,now,{
       card:stillCurrent.sourcePayload,
       before:result.sourceMembershipBefore,
-      after:result.sourceMembershipAfter
+      after:result.sourceMembershipAfter,
+      rosters:result.rosters.map((roster,i)=>({
+        role:"member-"+(startIndex+i),pages:roster.sourceResponses
+      }))
     });
     const snapshots=result.rosters.map((r,i)=>({
       key:playerKey(fp,runId,startIndex+i),value:JSON.stringify({
