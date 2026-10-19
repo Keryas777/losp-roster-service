@@ -228,6 +228,7 @@ function resetList(task){
   task.seenCount=0;task.expectedTotal=null;
   task.discovered=[];task.missingIds=0;
   task.lastPageHash=null;task.seenIds=[];
+  delete task.phase2Discovered;
 }
 function deferRetry(state,task,reason,now,restartList=false){
   task.retries=Math.min((task.retries||0)+1,16);
@@ -523,7 +524,22 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
           }
         }
         if(!state.pauseUntil&&state.phase2?.status==="running"){
-          await enqueuePhase2(bucket,state,discoverGamePhase2(path,parsed.data));
+          const discovered=discoverGamePhase2(path,parsed.data);
+          if(task.mode==="list"){
+            task.phase2Discovered??=[];
+            const paths=new Set(task.phase2Discovered.map(x=>x.path));
+            for(const entry of discovered){
+              if(!paths.has(entry.path)){
+                paths.add(entry.path);task.phase2Discovered.push(entry);
+              }
+            }
+            // A page must not yield permanent follow-ups until the complete
+            // pagination series has passed the consistency checks.
+            if(!nextPage){
+              await enqueuePhase2(bucket,state,task.phase2Discovered);
+              delete task.phase2Discovered;
+            }
+          }else await enqueuePhase2(bucket,state,discovered);
         }
         if(!state.pauseUntil){
           if(nextPage){
