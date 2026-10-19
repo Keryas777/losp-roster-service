@@ -4,8 +4,8 @@
 import {API_KEY} from "./player-card.js";
 export const GAME_ARCHIVE_CRON="*/15 * * * *";
 export const GAME_ARCHIVE_ROOT="game-archive/v1/";
-export const GAME_ARCHIVE_DAILY_LIMIT=180;
-export const GAME_ARCHIVE_TICK_LIMIT=3;
+export const GAME_ARCHIVE_DAILY_LIMIT=600;
+export const GAME_ARCHIVE_TICK_LIMIT=6;
 const API="https://api.marvelstrikeforce.com",TOKEN_URL=
   "https://hydra-public.prod.m3.scopelypv.com/oauth2/token";
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
