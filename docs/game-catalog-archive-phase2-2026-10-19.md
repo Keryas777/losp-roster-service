@@ -57,6 +57,11 @@ qu'après validation des pages et des totaux. L'arrêt arbitraire à la
 page 1 000 a été supprimé ; incohérences et recouvrements entraînent
 un nouveau passage temporisé, sans faux statut `completed`.
 
+Une réponse 404/422 pour un détail ou une association objet/personnage
+est conservée comme écart. Un 472 impossible à paginer (taille minimale
+déjà atteinte, ou détail non paginable) est également enregistré comme
+**lacune explicite**, pour ne pas immobiliser tous les autres endpoints.
+
 La borne de 8 Mo pour `/game/v1` reste un **seuil mémoire**, non une
 limite de téléchargement : les réponses plus grandes vont en multipart
 R2 avec reçu `indexed:false` et écart explicite.
