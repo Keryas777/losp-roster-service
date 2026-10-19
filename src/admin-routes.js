@@ -36,7 +36,10 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('')+
 '</select></label>'+
 '<button id="msf-secondary-probe" type="button">Tester et archiver ce service</button>'+
-'<p id="msf-secondary-result" role="status"></p></section>'+
+'<p id="msf-secondary-result" role="status"></p>'+
+'<button id="msf-secondary-batch" type="button">Tester les 9 autres services</button>'+
+'<p id="msf-secondary-batch-status" role="status"></p>'+
+'<div id="msf-secondary-batch-results" class="scroll" aria-live="polite"></div></section>'+
 '<section><h2>Diagnostic du PID joueur</h2>'+
 '<p>Compare le PID en jeu à la fiche officielle du <strong>même joueur</strong>. Le compte est choisi dans Explorer ; pour un coéquipier actuel, charge d\'abord ses membres. Les IDs d\'effectif sont temporaires.</p>'+
 '<label>Joueur à analyser (choix obligatoire)<select id="pid-target"><option value="">Choisir un joueur…</option></select></label>'+
