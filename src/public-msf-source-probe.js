@@ -5,6 +5,7 @@ const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const SOURCE="https://api-prod.marvelstrikeforce.com";
 export const PUBLIC_SOURCE_ROOT="msf-secondary-sources/v1/";
 export const PUBLIC_SOURCE_COOLDOWN_MS=10*60_000;
+// Threshold for in-memory inspection, NOT a source-size limit.
 export const PUBLIC_SOURCE_MAX_BYTES=8_000_000;
 const HEADERS={"Cache-Control":"private, no-store",
   "X-Content-Type-Options":"nosniff","X-Robots-Tag":"noindex"};
@@ -23,26 +24,55 @@ export const PUBLIC_SOURCE_ROUTES=Object.freeze([
   {id:"get-localization-heroes",path:"/services/api/getLocalization?tableId=heroes&lang=fr&format=json"}
 ]);
 const byId=new Map(PUBLIC_SOURCE_ROUTES.map(x=>[x.id,x]));
-async function boundedBytes(upstream){
-  const len=Number(upstream.headers.get("content-length")||0);
-  if(len>PUBLIC_SOURCE_MAX_BYTES)return {status:"too-large"};
+async function sourceBytes(upstream,bucket,prefix){
   if(!upstream.body)return {status:"invalid-body"};
-  const chunks=[],reader=upstream.body.getReader();
-  let length=0;
+  const reader=upstream.body.getReader(),chunks=[];
+  let length=0,done=false;
   try{
-    for(;;){
-      const {value,done}=await reader.read();
-      if(done)break;
-      length+=value.byteLength;
-      if(length>PUBLIC_SOURCE_MAX_BYTES){
-        await reader.cancel().catch(()=>{});
-        return {status:"too-large"};
-      }
-      chunks.push(value);
+    while(length<=PUBLIC_SOURCE_MAX_BYTES){
+      const next=await reader.read();
+      if(next.done){done=true;break;}
+      length+=next.value.byteLength;chunks.push(next.value);
     }
   }catch{return {status:"unavailable"};}
-  const bytes=new Uint8Array(length);
-  let offset=0;
+  if(!done){
+    // Unknown-length responses require R2 multipart uploads. Preserve
+    // every byte; no artificial 8 MB rejection or unsupported R2.put(stream).
+    const key=prefix+"raw/"+crypto.randomUUID()+".json";
+    const upload=await bucket.createMultipartUpload(key,{
+      httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
+    });
+    const partSize=6*1024*1024,parts=[];
+    let buffer=new Uint8Array(partSize),used=0,num=1;
+    async function append(chunk){
+      let offset=0;
+      while(offset<chunk.byteLength){
+        const take=Math.min(partSize-used,chunk.byteLength-offset);
+        buffer.set(chunk.subarray(offset,offset+take),used);
+        used+=take;offset+=take;
+        if(used===partSize){
+          parts.push(await upload.uploadPart(num++,buffer));
+          buffer=new Uint8Array(partSize);used=0;
+        }
+      }
+    }
+    try{
+      for(const c of chunks)await append(c);
+      for(;;){
+        const next=await reader.read();
+        if(next.done)break;
+        length+=next.value.byteLength;
+        await append(next.value);
+      }
+      if(used)parts.push(await upload.uploadPart(num++,buffer.subarray(0,used)));
+      await upload.complete(parts);
+    }catch{
+      await upload.abort().catch(()=>{});
+      return {status:"unavailable"};
+    }
+    return {status:"archived-unindexed",key,bytes:length};
+  }
+  const bytes=new Uint8Array(length);let offset=0;
   for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
   return {status:"ok",bytes};
 }
@@ -97,8 +127,17 @@ export async function handlePublicSourceProbe(request,env,fetchImpl=fetch,now=Da
       outcome={status:upstream.status===429?"rate-limited":"http-error",
         source:id,httpStatus:upstream.status};
     }else{
-      const bounded=await boundedBytes(upstream);
-      if(bounded.status!=="ok")
+      const bounded=await sourceBytes(upstream,env.CAPTAIN_BUCKET,prefix);
+      if(bounded.status==="archived-unindexed"){
+        // JSON validation/indexing remains outstanding; never claim a
+        // raw multipart archive is a fully interpreted JSON snapshot.
+        await recordStatus(env.CAPTAIN_BUCKET,prefix+"latest.json",{
+          version:1,source:id,path:config.path,sha256:null,key:bounded.key,
+          bytes:bounded.bytes,indexed:false,receivedAt:new Date(now).toISOString()
+        });
+        outcome={status:"archived-unindexed",source:id,httpStatus:upstream.status,
+          bytes:bounded.bytes};
+      }else if(bounded.status!=="ok")
         outcome={status:bounded.status,source:id,httpStatus:upstream.status};
       else{
         const bytes=bounded.bytes;
