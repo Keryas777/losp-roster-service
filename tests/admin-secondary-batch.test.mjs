@@ -55,7 +55,7 @@ test("all nine complementary services are audited in one admin action, with arch
  assert.equal(f.elements["msf-secondary-batch"].disabled,false);
  assert.equal(f.elements["msf-secondary-probe"].disabled,false);
  assert.equal(f.elements["msf-secondary-source"].disabled,false);
- assert.ok(f.calls.every(x=>JSON.stringify(x.opts).includes('"id"')));
+ assert.ok(f.calls.every(x=>Object.keys(JSON.parse(x.opts.body)).join(",")==="id"));
 });
 
 test("a 429 stops remaining probes and doesn't send more requests",async()=>{
