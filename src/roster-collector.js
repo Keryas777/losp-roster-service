@@ -302,7 +302,13 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
   }
   return { status: "complete", ...summary, requests: budget.used, rosters,
     ...(options.includeMembershipDigest===true?{membershipDigest:initialDigest}:{}),
-    ...(options.startIndex!==undefined?{startIndex}:{} ) };
+    ...(options.startIndex!==undefined?{startIndex}:{} ),
+    // Include BOTH immutable validated read envelopes only by opt-in.
+    // No member roster is collected when consent forbids it.
+    ...(options.includeSourcePayload===true?{
+      sourceMembershipBefore:response.payload,
+      sourceMembershipAfter:options.requireStableMembership===true?check.payload:null
+    }:{}) };
 }
 
 /**
@@ -342,7 +348,10 @@ export async function collectPersonalRoster(token,fetchImpl=fetch,options={}){
   return {status:"complete",memberId:self[0].id,
     name:typeof self[0].card.name==="string"?self[0].card.name:"",
     chars:c.roster,asOf:c.asOf,unchanged:c.unchanged===true,
-    membershipDigest:digest,pages:c.pages,requests:budget.used};
+    membershipDigest:digest,pages:c.pages,requests:budget.used,
+    ...(options.includeSourcePayload===true?{
+      sourceMembershipBefore:first.payload,sourceMembershipAfter:last.payload
+    }:{})};
 }
 
 function escapeHtml(x) {
