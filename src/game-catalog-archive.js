@@ -106,26 +106,41 @@ async function readGameBody(res,bucket,runId){
     }
   }catch{return {status:"read-error"};}
   if(!done){
-    // Do not reject or discard a response solely because it is large.
-    // R2 consumes this stream with bounded Worker memory and backpressure.
+    // Multipart R2 accepts streams with unknown Content-Length and keeps
+    // Worker memory bounded. A generic ReadableStream cannot be passed to
+    // R2.put without a known length in the production runtime.
     const objectKey=GAME_ARCHIVE_ROOT+"runs/"+runId+"/raw/"+crypto.randomUUID()+".json";
-    let pos=0;
-    const stream=new ReadableStream({
-      async pull(controller){
-        if(pos<chunks.length){controller.enqueue(chunks[pos++]);return;}
-        try{
-          const part=await reader.read();
-          if(part.done)controller.close();
-          else{size+=part.value.byteLength;controller.enqueue(part.value);}
-        }catch(err){controller.error(err);}
-      },
-      cancel:reason=>reader.cancel(reason)
-    });
-    await bucket.put(objectKey,stream,{
+    const upload=await bucket.createMultipartUpload(objectKey,{
       httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
     });
-    // The bytes are safe in R2. Parsing/indexing is explicitly pending;
-    // never claim that a large unindexed list is fully enumerated.
+    const PART=6*1024*1024,parts=[];
+    let buffer=new Uint8Array(PART),filled=0,number=1;
+    async function addChunk(chunk){
+      let offset=0;
+      while(offset<chunk.byteLength){
+        const take=Math.min(PART-filled,chunk.byteLength-offset);
+        buffer.set(chunk.subarray(offset,offset+take),filled);
+        filled+=take;offset+=take;
+        if(filled===PART){
+          parts.push(await upload.uploadPart(number++,buffer));
+          buffer=new Uint8Array(PART);filled=0;
+        }
+      }
+    }
+    try{
+      for(const chunk of chunks)await addChunk(chunk);
+      for(;;){
+        const part=await reader.read();
+        if(part.done)break;
+        size+=part.value.byteLength;
+        await addChunk(part.value);
+      }
+      if(filled)parts.push(await upload.uploadPart(number++,buffer.subarray(0,filled)));
+      await upload.complete(parts);
+    }catch(error){
+      await upload.abort().catch(()=>{});
+      throw error;
+    }
     return {status:"archived-unindexed",objectKey,byteCount:size};
   }
   const bytes=new Uint8Array(size);let offset=0;
