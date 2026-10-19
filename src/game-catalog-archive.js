@@ -485,7 +485,7 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
             }
             nextPage=task.expectedTotal!==null?
               task.seenCount<task.expectedTotal:entries.length===task.perPage;
-            if(nextPage&&(entries.length===0||task.page>=1000)){
+            if(nextPage&&entries.length===0){
               deferRetry(state,task,"pagination-no-progress",now,true);
             }
             if(!nextPage&&task.expectedTotal!==null&&
