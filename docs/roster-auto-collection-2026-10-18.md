@@ -80,9 +80,20 @@ de GitHub Actions utilisent des réponses simulées.
 - Un verrou Durable Object **global** sérialise les passages de cron,
   en plus du verrou séparé de chaque alliance.
 - Un passage déjà traité ne relit pas les rosters.
-- Maximum **18 GET Scopely par passage**, **950 GET par jour UTC**.
+- Maximum **18 GET Scopely par passage**, **2 500 GET par jour UTC**.
   Le compteur compte aussi les `344`, les erreurs et les GET de contrôle.
   Ces plafonds ne comprennent pas les appels au fournisseur OAuth Hydra.
+  Les **2 500 requêtes** sont un garde-fou **interne au Worker**, pas un
+  quota communiqué par Scopely. Le dimensionnement des cinq alliances
+  actuelles (24 membres chacune) est :
+  `5 × (ceil(23 / 2) + 1 roster personnel) × 2 passages / jour = 130 micro-lots`.
+  Au maximum autorisé de 18 requêtes par lot, cela fait **2 340 GET/jour**,
+  avec 160 GET de marge pour les tests ponctuels.
+  Une réponse **429** continue de déclencher une temporisation ; augmenter
+  notre plafond interne n'autorise pas à ignorer la limite du fournisseur.
+  Le coût réel de chaque lot est mesuré et devrait généralement être
+  inférieur à 18 appels. Revoir le dimensionnement si les alliances ou
+  la fréquence évoluent.
 - Un `429` produit un délai de **60 minutes** ; les erreurs transitoires
   entraînent une pause de **20 minutes** pour l'alliance concernée.
   Aucune rafale de tentatives.
