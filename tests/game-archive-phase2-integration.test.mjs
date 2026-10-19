@@ -4,7 +4,7 @@ import {RosterBatchLock} from "../src/roster-batch-lock.js";
 import {GAME_ARCHIVE_ROOT,startGameArchive,runGameArchiveTick,gameArchiveStatus} from "../src/game-catalog-archive.js";
 
 const now=Date.UTC(2026,9,19,12);
-function setup(){
+function setup(reply=null){
  const store=new Map(),calls=[],locks=new Map(),lockState=new Map();
  const bucket={
    get:async key=>store.has(key)?{text:async()=>store.get(key)}:null,
@@ -32,7 +32,8 @@ function setup(){
      return Response.json({access_token:"app-token",token_type:"Bearer",expires_in:300});
    assert.equal(options.method,"GET");
    assert.ok(uri.startsWith("https://api.marvelstrikeforce.com/game/v1/"));
-   return Response.json({data:[],meta:{perTotal:0}});
+   const mocked=reply?.(uri);
+   return mocked||Response.json({data:[],meta:{perTotal:0}});
  };
  const progress=()=>{
    const active=JSON.parse(store.get(GAME_ARCHIVE_ROOT+"active.json"));
@@ -91,4 +92,24 @@ test("phase 2 is not entered if flag is absent, preserving previous behavior",as
  const res=await runGameArchiveTick(f.env,f.fetcher,now);
  assert.equal(res.status,"completed");
  assert.equal(f.calls.length,0);
+});
+
+test("unpageable 472 and absent item-character mapping leave gaps but do not stall",async()=>{
+ const f=setup(uri=>{
+   if(uri.includes("/items/Gear9/characters"))return new Response("missing",{status:404});
+   if(uri.includes("/nodeCombats/TooBig"))return new Response("too large",{status:472});
+   return null;
+ });
+ await startGameArchive(f.env,now);
+ const {key,state}=f.progress();
+ state.tasks=[
+   {path:"/game/v1/items/Gear9/characters?charInfo=full",
+    root:"phase2",mode:"list",page:1,perPage:100},
+   {path:"/game/v1/nodeCombats/TooBig",root:"phase2",mode:"detail"}
+ ];
+ state.cursor=0;f.store.set(key,JSON.stringify(state));
+ const result=await runGameArchiveTick(f.env,f.fetcher,now);
+ assert.equal(result.status,"completed-with-gaps");
+ assert.equal(result.completedTasks,2);
+ assert.equal(f.progress().state.gaps.length,2);
 });
