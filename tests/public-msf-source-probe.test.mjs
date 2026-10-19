@@ -14,6 +14,21 @@ function fixture(){
  const stored=new Map(),calls=[];
  const env={CAPTAIN_BUCKET:{
    get:async key=>stored.has(key)?{text:async()=>stored.get(key)}:null,
+   createMultipartUpload:async key=>{
+     const chunks=new Map();
+     return {
+       uploadPart:async(i,data)=>{
+         chunks.set(i,new Uint8Array(data));return {partNumber:i,etag:"test-"+i};
+       },
+       complete:async parts=>{
+         const bytes=new Uint8Array(parts.reduce((n,p)=>n+chunks.get(p.partNumber).length,0));
+         let offset=0;
+         for(const p of parts){const c=chunks.get(p.partNumber);bytes.set(c,offset);offset+=c.length;}
+         stored.set(key,new TextDecoder().decode(bytes));
+       },
+       abort:async()=>{}
+     };
+   },
    put:async(key,raw)=>{stored.set(key,typeof raw==="string"?raw:
      new TextDecoder().decode(raw))}
  }};
@@ -68,17 +83,22 @@ test("cooldown prevents repetitive probes, identical provider payload deduplicat
  assert.equal(f.stored.get(PUBLIC_SOURCE_ROOT+id+"/latest.json")!==archive,true);
  assert.equal([...f.stored.keys()].filter(k=>k.includes("/sha256-")).length,1);
 });
-test("429 and oversized source are never treated as archived data",async()=>{
+test("429 never archives, but large source bytes are preserved with unindexed receipt",async()=>{
  const f=fixture(),id="get-upgrade-tokens";
  const forbidden=async()=>new Response("nope",{status:429});
  const first=await (await handlePublicSourceProbe(req({id}),f.env,forbidden,now)).json();
  assert.equal(first.status,"rate-limited");
  assert.equal(first.httpStatus,429);
  assert.equal([...f.stored.keys()].some(k=>k.includes("/sha256-")),false);
+ const big=JSON.stringify({data:["X".repeat(PUBLIC_SOURCE_MAX_BYTES+10)]});
  const next=await (await handlePublicSourceProbe(req({id:"get-traits"}),f.env,
-   async()=>new Response("x",{headers:{"content-length":String(PUBLIC_SOURCE_MAX_BYTES+1)}}),now)).json();
- assert.equal(next.status,"too-large");
- assert.equal([...f.stored.keys()].some(k=>k.includes("/sha256-")),false);
+   async()=>new Response(big),now)).json();
+ assert.equal(next.status,"archived-unindexed");
+ assert.equal(next.bytes,new TextEncoder().encode(big).length);
+ const latest=JSON.parse(f.stored.get(PUBLIC_SOURCE_ROOT+"get-traits/latest.json"));
+ assert.equal(latest.indexed,false);
+ assert.equal(f.stored.get(latest.key),big);
+ assert.equal(latest.sha256,null);
 });
 test("unknown URLs, non-JSON request and foreign origin fail before outbound GET",async()=>{
  const f=fixture();
