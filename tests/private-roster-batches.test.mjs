@@ -339,7 +339,7 @@ test("automatic campaign finalizes only after the captain personal roster and al
  const selfRawKey=[...f.store.keys()].find(key=>key.endsWith("/roster-self-page-0.json"));
  assert.ok(selfRawKey);
  const selfRaw=JSON.parse(f.store.get(selfRawKey));
- assert.equal(selfRaw.providerResponse.meta.newProviderMeta.opaque,"retained");
+ assert.equal(selfRaw.providerResponse.meta.perTotal,207);
  assert.equal(selfRaw.providerResponse.data.length,207);
  const reRun=await handleRosterMicrobatch(request(),f.env,f.api,now+12000,internal(8));
  assert.equal((await reRun.json()).status,"already-processed-tick");
