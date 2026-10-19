@@ -100,7 +100,7 @@ test("overlapping IDs on distinct pages do not pass the pagination audit",async(
   assert.equal((await gameArchiveStatus(f.env,now)).cursor,7);
   const second=await runGameArchiveTick(f.env,f.fetcher,now+60_000);
   assert.ok(second.completedTasks>7);
-  assert.ok(f.store.keys().some(k=>k.includes("/receipts/")));
+  assert.ok([...f.store.keys()].some(k=>k.includes("/receipts/")));
 });
 test("responses above former 8MB cap are streamed into private R2 instead of blocked",async()=>{
   const huge=JSON.stringify({data:{text:"X".repeat(8_000_200)},meta:{}});
