@@ -15,7 +15,8 @@
     "CAPTAIN_COVERAGE_ENABLED": "false",
     "MSF_ADMIN_ENABLED": "true",
     "ROSTER_AUTO_ENABLED": "true",
-    "ROSTER_RETENTION_CONFIRMED": "true"
+    "ROSTER_RETENTION_CONFIRMED": "true",
+    "GAME_ARCHIVE_AUTO_ENABLED": "true"
   },
   "assets": {
     "directory": "./public",
@@ -35,6 +36,6 @@
     { "tag": "roster-batch-v1", "new_sqlite_classes": ["RosterBatchLock"] }
   ],
   "triggers": {
-    "crons": ["15 * * * *", "15 3 * * *", "*/2 2-5,14-17 * * *"]
+    "crons": ["15 * * * *", "15 3 * * *", "*/2 2-5,14-17 * * *", "*/15 * * * *"]
   }
 }
