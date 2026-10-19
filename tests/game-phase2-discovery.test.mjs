@@ -30,6 +30,8 @@ test("item/orb and combat endpoints derive from actual typed links only",()=>{
       rooms:[{combatId:"Combat_22",itemId:"Part25"}]});
   assert.ok(routes.includes("/game/v1/orbRewards/Orb123"));
   assert.ok(routes.includes("/game/v1/items/Piece1"));
+  assert.ok(list("/game/v1/events",{rewards:{item:"ItemAsString"}})
+    .includes("/game/v1/items/ItemAsString"));
   assert.ok(routes.includes("/game/v1/items/Part25"));
   assert.ok(routes.includes("/game/v1/nodeCombats/Combat_22"));
   assert.ok(!routes.includes("/game/v1/items/NotAnItem"));
