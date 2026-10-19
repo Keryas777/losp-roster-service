@@ -4,6 +4,7 @@ import {handlePrivateRosterPilot} from "./private-roster-pilot.js";
 import {handleRosterMicrobatch,getRosterBatchStatus} from "./private-roster-batches.js";
 import {rosterAutoStatus,handleAdminRosterAutoTest} from "./automatic-roster-scheduler.js";
 import {PUBLIC_SOURCE_ROUTES,handlePublicSourceProbe} from "./public-msf-source-probe.js";
+import {handleGameArchiveAdmin} from "./game-catalog-archive.js";
 import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron,adminMemberCard} from "./admin-data-api.js";
 
 const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
@@ -40,6 +41,12 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<button id="msf-secondary-batch" type="button">Tester les 9 autres services</button>'+
 '<p id="msf-secondary-batch-status" role="status"></p>'+
 '<div id="msf-secondary-batch-results" class="scroll" aria-live="polite"></div></section>'+
+'<section><h2>Collecte officielle des données générales /game/v1</h2>'+
+'<p>Collecte privée paginée, avec reprise automatique, jeton OAuth applicatif et zéro donnée joueur. Pas de modification des collectes de rosters.</p>'+
+'<p id="game-archive-status" role="status">Statut en attente…</p>'+
+'<button id="game-archive-start" type="button">Démarrer une collecte générale</button>'+
+'<button id="game-archive-tick" type="button">Exécuter le premier micro-lot maintenant</button>'+
+'<p id="game-archive-action-status" role="status"></p></section>'+
 '<section><h2>Diagnostic du PID joueur</h2>'+
 '<p>Compare le PID en jeu à la fiche officielle du <strong>même joueur</strong>. Le compte est choisi dans Explorer ; pour un coéquipier actuel, charge d\'abord ses membres. Les IDs d\'effectif sont temporaires.</p>'+
 '<label>Joueur à analyser (choix obligatoire)<select id="pid-target"><option value="">Choisir un joueur…</option></select></label>'+
@@ -62,14 +69,15 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-explorer.js" defer></script>'+
 '<script src="/admin-pid-diagnostic.js" defer></script>'+
 '<script src="/admin-roster-preflight.js" defer></script>'+ 
-'<script src="/admin-secondary-probes.js" defer></script></body></html>';
+'<script src="/admin-secondary-probes.js" defer></script>'+
+'<script src="/admin-game-archive.js" defer></script></body></html>';
 
 export async function handleAdmin(request,env,fetchImpl=fetch){
   const endpoint=new URL(request.url).pathname;
   if(request.method!=="GET"&&!(request.method==="POST"&&
        ["/admin/api/roster-approvals","/admin/api/roster-pilot",
         "/admin/api/roster-batch","/admin/api/roster-auto-test",
-        "/admin/api/msf-secondary-probe"].includes(endpoint)))
+        "/admin/api/msf-secondary-probe","/admin/api/game-archive"].includes(endpoint)))
     return new Response("Method Not Allowed",{status:405});
   if(!adminReady(env))return new Response("Administration désactivée",{
     status:503,headers:{"Cache-Control":"no-store"}
@@ -110,5 +118,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     return handleAdminRosterAutoTest(request,env,fetchImpl);
   if(pathname==="/admin/api/msf-secondary-probe")
     return handlePublicSourceProbe(request,env,fetchImpl);
+  if(pathname==="/admin/api/game-archive")
+    return handleGameArchiveAdmin(request,env,fetchImpl);
   return new Response("Not Found",{status:404});
 }
