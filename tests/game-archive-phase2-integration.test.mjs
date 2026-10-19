@@ -134,3 +134,30 @@ test("permanent 403 and sixteen repeated 5xx failures produce explicit gaps",asy
  assert.equal(f.progress().state.gaps[0].status,403);
  assert.equal(f.progress().state.gaps[1].reason,"retry-exhausted");
 });
+
+test("replays all receipts beyond one R2 listing page without re-downloading phase-one JSON",async()=>{
+ const f=setup();
+ await startGameArchive(f.env,now);
+ const {runId,key,state}=f.progress();
+ const base=GAME_ARCHIVE_ROOT+"runs/"+runId+"/";
+ for(let i=0;i<36;i++){
+   const keyObj=base+"objects/source-"+i+".json";
+   f.store.set(keyObj,JSON.stringify({data:{item:{id:"Item"+i}},meta:{}}));
+   f.store.set(base+"receipts/"+String(i).padStart(6,"0")+".json",
+     JSON.stringify({version:1,path:"/game/v1/events?page=1&perPage=100",
+       objectKey:keyObj,status:200}));
+ }
+ state.status="completed";state.cursor=17;
+ f.store.set(key,JSON.stringify(state));
+ let report;
+ for(let i=0;i<9;i++){
+   report=await runGameArchiveTick(f.env,f.fetcher,now+i*60_000);
+   if(report.status==="running")break;
+   assert.equal(report.status,"phase2-scanning");
+ }
+ assert.equal(f.progress().state.phase2.scanned,36);
+ assert.equal(f.calls.length,0);
+ const records=JSON.stringify([...f.store.entries()].filter(([key])=>key.includes("phase2-seen/")));
+ assert.ok(records.includes("/game/v1/items/Item35"));
+ assert.equal(f.progress().runId,runId);
+});
