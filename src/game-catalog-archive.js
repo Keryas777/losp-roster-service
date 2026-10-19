@@ -548,11 +548,12 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
            parsed.data.data&&typeof parsed.data.data==="object"){
           const root=GAME_ROOTS.find(x=>x.id===task.root);
           if(root?.objectKeys){
-            const keys=Object.keys(parsed.data.data)
-              .filter(id=>root.objectKeys.includes(id));
-            if(keys.length!==Object.keys(parsed.data.data).length)
+            const keys=Object.keys(parsed.data.data);
+            if(keys.some(id=>!root.objectKeys.includes(id)))
               state.gaps.push({path:task.path,reason:"unrecognized-object-key"});
-            await enqueueDetails(bucket,state,keys.map(id=>({
+            // Always request the complete, finite set officially documented.
+            // The summary may omit a field without proving it unavailable.
+            await enqueueDetails(bucket,state,root.objectKeys.map(id=>({
               path:root.detail.replace("{id}",encodeURIComponent(id)),
               root:task.root,mode:"detail"
             })));
