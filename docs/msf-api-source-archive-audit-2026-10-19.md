@@ -31,6 +31,24 @@ La liste exhaustive de référence a été fournie par le responsable du projet.
 
 **Attention à la cardinalité :** un modèle paramétrique `/characterInstances/{level}/{yellow}/...` décrit une fonction de calcul et non une liste finie de ressources ; l'exhaustivité concerne les définitions, les paramètres documentés et les instances pertinentes, pas un balayage combinatoire illimité.
 
+## Validation réelle du 19 octobre 2026 (16 h 50, heure française)
+
+Résultats fournis par l'administration Cloudflare Access LoSP et confirmés
+par **captures d'écran de l'interface en production**, et non par des mocks :
+
+| ID du service | HTTP | Statut d'archivage | Taille |
+| --- | --- | --- | ---: |
+| `get-character-list` | 200 | `archived` dans R2 privé | 508 945 octets |
+| `get-localization-heroes` | 200 | `archived` dans R2 privé | 111 030 octets |
+
+**Portée de la preuve :** les deux URLs précises ont répondu avec un JSON
+archivable depuis le Worker, sans jeton OAuth joueur ; cela ne prouve pas
+que toutes les variations d'une route ou les autres services répondent.
+Les **neuf autres** restent à vérifier individuellement, puis à classifier
+d'après leur statut HTTP, les paramètres obligatoires et leur volume.
+La PR #56 ajoute un bouton d'audit séquentiel en une opération admin,
+avec arrêt en cas de HTTP 429.
+
 ## Les 11 compléments du site (à valider)
 
 Hôte `api-prod.marvelstrikeforce.com`, préfixe `/services/api/` :
