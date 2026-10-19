@@ -2,7 +2,7 @@ import {diagnoseAdminAuth,adminReady} from "./admin-auth.js";
 import {rosterSyncPreflight,saveRosterSyncApprovals} from "./roster-sync-preflight.js";
 import {handlePrivateRosterPilot} from "./private-roster-pilot.js";
 import {handleRosterMicrobatch,getRosterBatchStatus} from "./private-roster-batches.js";
-import {rosterAutoStatus} from "./automatic-roster-scheduler.js";
+import {rosterAutoStatus,handleAdminRosterAutoTest} from "./automatic-roster-scheduler.js";
 import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron,adminMemberCard} from "./admin-data-api.js";
 
 const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
@@ -23,6 +23,8 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<section><h2>Préparation de la collecte automatique des rosters</h2>'+
 '<p>Collecte privée des alliances approuvées, par lots avec reprise. Planification automatique conditionnée à la règle R2 de rétention et au paramètre d’activation. Aucune publication vers la WebApp.</p>'+
 '<p id="roster-auto-status" role="status">État de l’automatisation : chargement…</p>'+
+'<button id="roster-auto-test" type="button">Tester un micro-lot automatique maintenant (2 joueurs maximum)</button>'+
+'<p id="roster-auto-test-status" role="status"></p>'+
 '<button id="roster-preflight" type="button">Vérifier les alliances connectées</button>'+
 '<p id="roster-preflight-status" role="status"></p><div id="roster-preflight-list"></div>'+
 '<button id="roster-approve" type="button" disabled>Enregistrer les alliances approuvées</button>'+
@@ -54,7 +56,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   const endpoint=new URL(request.url).pathname;
   if(request.method!=="GET"&&!(request.method==="POST"&&
        ["/admin/api/roster-approvals","/admin/api/roster-pilot",
-        "/admin/api/roster-batch"].includes(endpoint)))
+        "/admin/api/roster-batch","/admin/api/roster-auto-test"].includes(endpoint)))
     return new Response("Method Not Allowed",{status:405});
   if(!adminReady(env))return new Response("Administration désactivée",{
     status:503,headers:{"Cache-Control":"no-store"}
@@ -91,5 +93,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   if(pathname==="/admin/api/roster-batch-status")return getRosterBatchStatus(request,env);
   if(pathname==="/admin/api/roster-auto-status")return Response.json(
     await rosterAutoStatus(env),{headers:{"Cache-Control":"private, no-store"}});
+  if(pathname==="/admin/api/roster-auto-test")
+    return handleAdminRosterAutoTest(request,env,fetchImpl);
   return new Response("Not Found",{status:404});
 }
