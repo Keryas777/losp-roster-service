@@ -4,7 +4,11 @@ import {readApproval} from "./roster-sync-preflight.js";
 import {handleRosterMicrobatch} from "./private-roster-batches.js";
 
 export const ROSTER_CRON="*/2 2-5,14-17 * * *";
-export const DAILY_API_BUDGET=950;
+// Internal circuit breaker, NOT a Scopely quota. For five 24-member alliances,
+// a twice-daily sweep needs at most 5 * (ceil(23/2) + 1 personal) * 2 = 130
+// microticks. At the 18-request tick cap, that is 2340 requests. Keep room
+// for admin test ticks and retries without cutting off the second campaign.
+export const DAILY_API_BUDGET=2500;
 export const TICK_API_BUDGET=18;
 const ROOT="roster-auto/v1/";
 const GLOBAL_LOCK="f".repeat(64); // A separate Durable Object from the alliance locks.
