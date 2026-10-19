@@ -1,9 +1,10 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
+import {readFile} from "node:fs/promises";
 import {RosterBatchLock} from "../src/roster-batch-lock.js";
 import {handleAdmin} from "../src/admin-routes.js";
 import {GAME_ROOTS,GAME_ARCHIVE_ROOT,GAME_ARCHIVE_DAILY_LIMIT,
-  GAME_ARCHIVE_TICK_LIMIT,handleGameArchiveAdmin,runGameArchiveTick,
+  GAME_ARCHIVE_CRON,GAME_ARCHIVE_TICK_LIMIT,handleGameArchiveAdmin,runGameArchiveTick,
   gameArchiveStatus,startGameArchive} from "../src/game-catalog-archive.js";
 
 const base="https://losp-roster-service.deliriousfan7.workers.dev";
@@ -202,4 +203,90 @@ test("documented object-map details for upgrades, ISO-8 and team order are disco
   assert.ok(paths.includes("/game/v1/iso8Abilities/striker"));
   assert.ok(paths.includes("/game/v1/analysis/teamOrder/roster"));
   assert.equal((await gameArchiveStatus(f.env,now)).totalTasks,20);
+});
+
+test("one-minute production schedule is used without touching existing roster cron triggers",async()=>{
+  const wrangler=JSON.parse(await readFile(new URL("../wrangler.jsonc",import.meta.url),"utf8"));
+  const schedule=wrangler.triggers.crons;
+  assert.equal(GAME_ARCHIVE_CRON,"* * * * *");
+  assert.ok(schedule.includes(GAME_ARCHIVE_CRON));
+  assert.ok(!schedule.includes("*/15 * * * *"));
+  assert.ok(schedule.includes("*/2 2-5,14-17 * * *"));
+  assert.ok(schedule.includes("15 3 * * *"));
+  assert.ok(schedule.includes("15 * * * *"));
+  assert.equal(new Set(schedule).size,schedule.length);
+  assert.equal(GAME_ARCHIVE_TICK_LIMIT,6);
+  assert.equal(GAME_ARCHIVE_DAILY_LIMIT,9000);
+  assert.ok(GAME_ARCHIVE_DAILY_LIMIT>=24*60*GAME_ARCHIVE_TICK_LIMIT);
+  assert.equal(wrangler.vars.ROSTER_AUTO_ENABLED,"true");
+});
+
+test("an existing R2 campaign proceeds immediately beyond former 600/day cap",async()=>{
+  const f=fixture();
+  await startGameArchive(f.env,now);
+  const key=GAME_ARCHIVE_ROOT+"budget/2026-10-19.json";
+  f.store.set(key,JSON.stringify({date:"2026-10-19",used:600}));
+  const first=await runGameArchiveTick(f.env,f.provider,now);
+  assert.equal(first.status,"running");
+  assert.equal(first.processed,GAME_ARCHIVE_TICK_LIMIT);
+  assert.equal(first.requestsToday,606);
+  const status=await gameArchiveStatus(f.env,now);
+  assert.equal(status.cursor,6);
+  assert.equal(status.archivedResponses,6);
+  const next=await runGameArchiveTick(f.env,f.provider,now+60_000);
+  assert.equal(next.processed,GAME_ARCHIVE_TICK_LIMIT);
+  assert.equal(next.requestsToday,612);
+  assert.equal((await gameArchiveStatus(f.env,now)).cursor,12);
+  assert.equal(gameCalls(f).length,12);
+});
+
+test("the game collector still blocks a true 9000 daily overflow without OAuth",async()=>{
+  const f=fixture();
+  await startGameArchive(f.env,now);
+  const key=GAME_ARCHIVE_ROOT+"budget/2026-10-19.json";
+  f.store.set(key,JSON.stringify({date:"2026-10-19",used:GAME_ARCHIVE_DAILY_LIMIT}));
+  const outcome=await runGameArchiveTick(f.env,f.provider,now);
+  assert.equal(outcome.status,"daily-limit");
+  assert.equal(gameCalls(f).length,0);
+  assert.equal(f.calls.length,0);
+});
+
+test("same Worker isolate can reuse app OAuth token for minute-spaced game ticks",async()=>{
+  const f=fixture();
+  await startGameArchive(f.env,now);
+  await runGameArchiveTick(f.env,f.provider,now);
+  await runGameArchiveTick(f.env,f.provider,now+60_000);
+  assert.equal(gameCalls(f).length,12);
+  assert.equal(f.calls.filter(c=>c.address.endsWith("/oauth2/token")).length,1);
+  // Token expires in 300s; 60s safety margin forces a fresh token.
+  await runGameArchiveTick(f.env,f.provider,now+250_000);
+  assert.equal(f.calls.filter(c=>c.address.endsWith("/oauth2/token")).length,2);
+  assert.equal(gameCalls(f).length,17);
+  assert.equal((await gameArchiveStatus(f.env,now)).status,"completed");
+});
+
+test("completed game campaign performs no more Scopely GET or OAuth despite cron ticks",async()=>{
+  const f=fixture();
+  await startGameArchive(f.env,now);
+  for(let i=0;i<3;i++)await runGameArchiveTick(f.env,f.provider,now+i*60_000);
+  assert.equal((await gameArchiveStatus(f.env,now)).status,"completed");
+  const count=f.calls.length;
+  for(let i=3;i<60;i++){
+    const r=await runGameArchiveTick(f.env,f.provider,now+i*60_000);
+    assert.equal(r.status,"completed");
+  }
+  assert.equal(f.calls.length,count);
+});
+
+test("429 does not get accelerated by a one-minute cron",async()=>{
+  const f=fixture({api:()=>new Response("busy",{status:429})});
+  await startGameArchive(f.env,now);
+  const first=await runGameArchiveTick(f.env,f.provider,now);
+  assert.equal(first.lastOutcome,"rate-limited");
+  assert.equal(gameCalls(f).length,1);
+  for(let minute=1;minute<=59;minute++){
+    const r=await runGameArchiveTick(f.env,f.provider,now+minute*60_000);
+    assert.equal(r.status,"cooldown");
+  }
+  assert.equal(gameCalls(f).length,1);
 });
