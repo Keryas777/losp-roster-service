@@ -84,8 +84,41 @@ test("only valid scheduled 2-minute UTC windows start campaigns",()=>{
  assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-18T05:58:00Z")).tick,119);
  assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-18T14:00:00Z")).campaign,"2026-10-18-pm");
  assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-18T06:00:00Z")),null);
- assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-18T14:01:00Z")),null);
+ // The first minute after a scheduled boundary may still belong to the
+ // same */2 cron slot, because real Cloudflare dispatches can be delayed.
+ assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-18T14:01:00Z")).stamp,
+   "2026-10-18T14:00Z");
  assert.equal(rosterWindow("15 3 * * *",d("2026-10-18T03:15:00Z")),null);
+});
+test("real Cloudflare cron event 07:50:31 French time maps to 05:50 UTC",()=>{
+ // Cloudflare Observability 2026-10-19 07:50:32 UTC+2, event at 05:50:31.718Z.
+ // ScheduledController.scheduledTime is milliseconds; logs print seconds.
+ const observed=d("2026-10-19T05:50:31.718Z");
+ const result=rosterWindow(ROSTER_CRON,observed);
+ assert.deepEqual(result,{
+   date:"2026-10-19",campaign:"2026-10-19-am",
+   tick:115,stamp:"2026-10-19T05:50Z"
+ });
+ assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-19T05:50:59.999Z")).stamp,
+   result.stamp);
+ assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-19T05:51:29Z")).stamp,
+   result.stamp);
+ assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-19T05:52:31.718Z")).stamp,
+   "2026-10-19T05:52Z");
+ assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-19T06:00:32Z")),null);
+});
+test("delayed cron runs once per logical 2-minute slot despite duplicate events",async()=>{
+ const f=fixture();
+ const first=await runRosterAutoTick(f.env,controller("2026-10-19T05:50:31.718Z"),f.fetchImpl);
+ assert.equal(first.status,"complete-co-members");
+ assert.ok(first.requestsThisTick>0);
+ const before=f.calls.length;
+ const same=await runRosterAutoTick(f.env,controller("2026-10-19T05:50:57.123Z"),f.fetchImpl);
+ assert.equal(same.status,"already-processed");
+ assert.equal(f.calls.length,before);
+ const next=await runRosterAutoTick(f.env,controller("2026-10-19T05:52:31.718Z"),f.fetchImpl);
+ assert.equal(next.status,"complete");
+ assert.ok(f.store.has(completeKey(fp)));
 });
 test("disabled and retention-unconfirmed are fail-closed with zero Scopely requests",async()=>{
  const f=fixture();
