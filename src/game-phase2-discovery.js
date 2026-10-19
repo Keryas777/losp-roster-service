@@ -63,7 +63,7 @@ export function discoverGamePhase2(sourcePath,body){
     // An unrelated entity's "id" must never be treated as an item ID.
     for(const key of ["item","energy"]){
       const item=node[key];
-      const id=valid(item?.id);
+      const id=valid(typeof item==="string"?item:item?.id);
       if(id){
         add(detail(BASE+"items/"+id));
         if(item.isOrb===true)add(detail(BASE+"orbRewards/"+id));
