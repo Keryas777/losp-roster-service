@@ -5,7 +5,7 @@ import {RosterBatchLock} from "../src/roster-batch-lock.js";
 import {CAPTAIN_PREFIX} from "../src/captain-vault.js";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 import {completeKey,BATCH_PREFIX} from "../src/private-roster-batches.js";
-import {ROSTER_CRON,rosterWindow,manualRosterWindow,runRosterAutoTick,rosterAutoStatus,handleAdminRosterAutoTest} from "../src/automatic-roster-scheduler.js";
+import {ROSTER_CRON,DAILY_API_BUDGET,TICK_API_BUDGET,rosterWindow,manualRosterWindow,runRosterAutoTick,rosterAutoStatus,handleAdminRosterAutoTest} from "../src/automatic-roster-scheduler.js";
 import worker from "../src/index.js";
 import {handleAdmin} from "../src/admin-routes.js";
 
@@ -182,10 +182,28 @@ test("a revoked sharing permission cannot produce a misleading complete snapshot
  assert.equal(last.status,"partial-consent");
  assert.equal(f.store.has(completeKey(fp)),false);
 });
-test("daily API request budget stops new batches without spending the reserve",async()=>{
+test("daily budget fits five complete 24-member alliance campaigns twice a day",()=>{
+ // Each alliance needs ceil(23 / 2)=12 shared-member ticks and one personal tick.
+ const expectedTicksPerDay=5*(Math.ceil(23/2)+1)*2;
+ assert.equal(expectedTicksPerDay,130);
+ assert.equal(TICK_API_BUDGET,18);
+ assert.ok(DAILY_API_BUDGET>=expectedTicksPerDay*TICK_API_BUDGET);
+ assert.ok(DAILY_API_BUDGET>1320);
+});
+test("daily quota permits additional collection beyond the old 950-GET limit",async()=>{
  const f=fixture(),date="2026-10-18";
  f.store.set("roster-auto/v1/days/"+date+".json",JSON.stringify({
-   date,used:940,ticks:30,lastTick:null
+   date,used:950,ticks:65,lastTick:null
+ }));
+ const result=await runRosterAutoTick(f.env,controller("2026-10-18T14:00:00Z"),f.fetchImpl);
+ assert.ok(result.requestsThisTick>0,JSON.stringify(result));
+ assert.notEqual(result.status,"daily-budget-reached");
+ assert.ok(result.requestsToday>950);
+});
+test("daily API request budget still blocks excess requests without spending reserve",async()=>{
+ const f=fixture(),date="2026-10-18";
+ f.store.set("roster-auto/v1/days/"+date+".json",JSON.stringify({
+   date,used:DAILY_API_BUDGET-TICK_API_BUDGET+1,ticks:130,lastTick:null
  }));
  const result=await runRosterAutoTick(f.env,controller("2026-10-18T02:00:00Z"),f.fetchImpl);
  assert.equal(result.status,"daily-budget-reached");
@@ -277,7 +295,7 @@ test("admin test rejects GET, foreign Origin, extra parameters or missing JSON",
 test("admin diagnostic shares the same budget and disabled-mode guards as cron",async()=>{
  const f=fixture(),t=d("2026-10-19T10:46:30Z");
  f.store.set("roster-auto/v1/days/2026-10-19.json",
-   JSON.stringify({date:"2026-10-19",used:940,ticks:4,lastTick:null}));
+   JSON.stringify({date:"2026-10-19",used:DAILY_API_BUDGET-TICK_API_BUDGET+1,ticks:4,lastTick:null}));
  const req=()=>new Request("https://losp-roster-service.deliriousfan7.workers.dev/admin/api/roster-auto-test",{
    method:"POST",headers:{Origin:"https://losp-roster-service.deliriousfan7.workers.dev",
      "Content-Type":"application/json"},body:"{}"
