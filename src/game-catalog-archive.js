@@ -183,6 +183,8 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
           // captures remain but only the new pagination series is authoritative.
           task.perPage=Math.max(5,Math.floor(task.perPage/2));task.page=1;
           task.series=(task.series||0)+1;
+          task.seenCount=0;task.expectedTotal=null;
+          task.discovered=[];task.missingIds=0;
           state.lastOutcome="reduced-page-size";
           await write(bucket,key,state);continue;
         }
@@ -220,31 +222,54 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
           const entries=parsed.data.data,meta=parsed.data.meta||{};
           const total=Number.isSafeInteger(meta.perTotal)&&meta.perTotal>=0?
             meta.perTotal:null;
-          if(entries.length>task.perPage||
+          if(task.expectedTotal!==undefined&&task.expectedTotal!==null&&
+             total!==null&&task.expectedTotal!==total){
+            state.lastOutcome="pagination-total-changed";state.status="blocked";
+          }else if(entries.length>task.perPage||
              (meta.page!==undefined&&meta.page!==task.page)||
              (total!==null&&((task.page-1)*task.perPage+entries.length)>total)){
             state.lastOutcome="pagination-inconsistent";state.status="blocked";
           }else{
+            task.expectedTotal=total??task.expectedTotal??null;
+            task.seenCount=(task.seenCount||0)+entries.length;
+            if(task.expectedTotal!==null&&task.seenCount>task.expectedTotal){
+              state.lastOutcome="pagination-overcount";state.status="blocked";
+            }
             const root=GAME_ROOTS.find(x=>x.id===task.root);
             if(root?.detail){
+              task.discovered??=[];
               for(const entry of entries){
                 const value=safeId(typeof entry==="string"?entry:entry?.id);
                 if(value){
-                  const detail=root.detail.replace("{id}",encodeURIComponent(value));
-                  if(state.tasks.length>=MAX_TASKS){
-                    state.lastOutcome="queue-limit";state.status="blocked";break;
-                  }
-                  if(!state.tasks.some(x=>x.path===detail)){
-                    state.tasks.push({path:detail,root:task.root,mode:"detail"});
-                  }
-                }else{
-                  state.gaps.push({path:task.path,reason:"undiscoverable-detail-id",
-                    page:task.page});
-                }
+                  if(!task.discovered.includes(value))task.discovered.push(value);
+                }else task.missingIds=(task.missingIds||0)+1;
               }
             }
-            nextPage=total!==null?
-              task.page*task.perPage<total:entries.length===task.perPage;
+            nextPage=task.expectedTotal!==null?
+              task.seenCount<task.expectedTotal:entries.length===task.perPage;
+            if(nextPage&&(entries.length===0||task.page>=1000)){
+              state.lastOutcome="pagination-no-progress";state.status="blocked";
+            }
+            if(!nextPage&&task.expectedTotal!==null&&
+               task.seenCount!==task.expectedTotal){
+              state.lastOutcome="pagination-incomplete";state.status="blocked";
+            }
+            // Only enqueue details AFTER every list page has been validated.
+            // Thus 472 retries can't leave stale detail IDs from old page sizes.
+            if(state.status==="running"&&!nextPage&&root?.detail){
+              if(state.tasks.length+task.discovered.length>MAX_TASKS){
+                state.lastOutcome="queue-limit";state.status="blocked";
+              }else{
+                for(const id of task.discovered){
+                  const detail=root.detail.replace("{id}",encodeURIComponent(id));
+                  if(!state.tasks.some(x=>x.path===detail))
+                    state.tasks.push({path:detail,root:task.root,mode:"detail"});
+                }
+                if(task.missingIds)state.gaps.push({path:task.path,
+                  reason:"undiscoverable-detail-id",count:task.missingIds});
+                delete task.discovered;delete task.missingIds;
+              }
+            }
           }
         }
         if(state.status==="running"){
