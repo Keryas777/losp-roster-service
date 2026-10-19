@@ -61,6 +61,12 @@ Une réponse 404/422 pour un détail ou une association objet/personnage
 est conservée comme écart. Un 472 impossible à paginer (taille minimale
 déjà atteinte, ou détail non paginable) est également enregistré comme
 **lacune explicite**, pour ne pas immobiliser tous les autres endpoints.
+Les refus permanents 403/404/422/464/474 sont aussi conservés
+comme lacunes. Après seize échecs temporaires sur une même ressource,
+l'échec est conservé avec son dernier motif et son compteur d'essais :
+la file poursuit son travail. Cette politique n'est **pas** une preuve
+que la ressource est indisponible à jamais ; elle devra être retentée
+lors d'une campagne de récupération des lacunes.
 
 La borne de 8 Mo pour `/game/v1` reste un **seuil mémoire**, non une
 limite de téléchargement : les réponses plus grandes vont en multipart
