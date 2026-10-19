@@ -190,6 +190,12 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
       }else if(upstream?.status===429){
         state.lastOutcome="rate-limited";
         state.pauseUntil=new Date(now+60*60_000).toISOString();
+      }else if(task.mode==="detail"&&[404,422].includes(upstream?.status)){
+        // A no-longer-available ID is a documented GAP, not a reason to
+        // abandon every other game resource. Never label the run complete.
+        state.gaps.push({path:task.path,status:upstream.status});
+        state.cursor++;
+        state.lastOutcome="detail-unavailable";
       }else if(!upstream||!upstream.ok||parsed?.status!=="ok"){
         state.lastOutcome=upstream?"http-"+upstream.status+
           (parsed?.status?"-"+parsed.status:""):"network-error";
@@ -214,13 +220,15 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
           const entries=parsed.data.data,meta=parsed.data.meta||{};
           const total=Number.isSafeInteger(meta.perTotal)&&meta.perTotal>=0?
             meta.perTotal:null;
-          if(total!==null&&((task.page-1)*task.perPage+entries.length)>total){
+          if(entries.length>task.perPage||
+             (meta.page!==undefined&&meta.page!==task.page)||
+             (total!==null&&((task.page-1)*task.perPage+entries.length)>total)){
             state.lastOutcome="pagination-inconsistent";state.status="blocked";
           }else{
             const root=GAME_ROOTS.find(x=>x.id===task.root);
             if(root?.detail){
               for(const entry of entries){
-                const value=safeId(entry?.id);
+                const value=safeId(typeof entry==="string"?entry:entry?.id);
                 if(value){
                   const detail=root.detail.replace("{id}",encodeURIComponent(value));
                   if(state.tasks.length>=MAX_TASKS){
@@ -229,6 +237,9 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
                   if(!state.tasks.some(x=>x.path===detail)){
                     state.tasks.push({path:detail,root:task.root,mode:"detail"});
                   }
+                }else{
+                  state.gaps.push({path:task.path,reason:"undiscoverable-detail-id",
+                    page:task.page});
                 }
               }
             }
