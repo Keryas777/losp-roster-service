@@ -94,6 +94,34 @@ async function rosterBatchStart(alliance,button,status,restart=false,refresh=fal
       ". Progression précédente conservée.";
   }finally{button.disabled=false;}
 }
+async function runOneAutoRosterTest(){
+  const button=rosterEl("roster-auto-test"),status=rosterEl("roster-auto-test-status");
+  if(!button||!status)return;
+  button.disabled=true;
+  status.textContent="Exécution d’un seul micro-lot, via le planificateur réel…";
+  try{
+    const response=await fetch("/admin/api/roster-auto-test",{
+      method:"POST",credentials:"same-origin",cache:"no-store",
+      headers:{"Content-Type":"application/json",Accept:"application/json"},
+      body:"{}"
+    });
+    const result=await response.json();
+    if(!response.ok)throw Error(result.status||"http-error");
+    const code=typeof result.status==="string"?result.status:"unavailable";
+    const alliance=typeof result.alliance==="string"?result.alliance:"une alliance approuvée";
+    status.textContent="Alliance : "+alliance+". Résultat : "+code+
+      ". Requêtes Scopely : "+(result.requestsThisTick??0)+
+      ". Total aujourd’hui : "+(result.requestsToday??0)+
+      ". Maximum 1 test par créneau de 2 minutes. R2 privé uniquement.";
+  }catch(error){
+    status.textContent="Test non exécuté ou interrompu : "+
+      (error instanceof Error?error.message:"unavailable")+
+      ". Vérifier l’état dans le bilan privé et les logs Cloudflare.";
+  }finally{
+    button.disabled=false;
+    void showRosterAutoStatus();
+  }
+}
 async function showRosterAutoStatus(){
   const target=rosterEl("roster-auto-status");
   if(!target)return;
@@ -224,4 +252,6 @@ async function submitRosterApprovals(){
 rosterEl("roster-preflight").addEventListener("click",loadRosterPreflight);
 rosterEl("roster-approve").addEventListener("click",submitRosterApprovals);
 
+const rosterAutoTestButton=rosterEl("roster-auto-test");
+if(rosterAutoTestButton)rosterAutoTestButton.addEventListener("click",runOneAutoRosterTest);
 void showRosterAutoStatus();
