@@ -117,8 +117,13 @@ const roots=Object.freeze([
   ["survivalTowers","survivalTowers/{id}"],
   ["events","events/{id}"],["scopes",null]
 ]);
+// OpenAPI beta 0.2.1: these GETs do not declare page/perPage parameters.
+const NON_PAGINATED_ROOTS=new Set([
+  "decorations","upgradeData","iso8Abilities","analysis/teamOrder"
+]);
 export const GAME_ROOTS=roots.map(([id,detail])=>Object.freeze({
   id,path:"/game/v1/"+id,detail:detail?"/game/v1/"+detail:null,
+  pageable:!NON_PAGINATED_ROOTS.has(id),
   objectKeys:OBJECT_DETAIL_IDS[id]||null
 }));
 const read=async(b,key)=>{const item=await b.get(key);return item?JSON.parse(await item.text()):null;};
@@ -299,6 +304,8 @@ export async function gameArchiveStatus(env,now=Date.now()){
     roots:GAME_ROOTS.length,cursor:state?currentDone(state):0,
     totalTasks:state?currentTotal(state):GAME_ROOTS.length,
     archivedResponses:state?.count||0,gapCount:state?.gaps?.length||0,
+    // Admin-only, game-data URI (never player identifiers or OAuth tokens).
+    currentResource:state?.tasks?.[state.cursor]?.path||null,
     phase2:state?.phase2?{status:state.phase2.status,
       scannedReceipts:state.phase2.scanned||0,discovered:state.phase2.discovered||0}:null,
     lastOutcome:state?.lastOutcome||null,requestsToday:budget?.used||0,
@@ -386,7 +393,12 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
       const task=state.tasks[state.cursor];
       if(typeof task?.path!=="string"||!task.path.startsWith("/game/v1/"))
         return {status:"invalid-task"};
-      const qs=task.mode==="list"?(task.path.includes("?")?"&":"?")+"page="+task.page+"&perPage="+task.perPage:"";
+      const root=GAME_ROOTS.find(x=>x.id===task.root);
+      // Older R2 runs called all 17 roots "list"; their persisted mode
+      // must not force unsupported page/perPage query parameters.
+      const pageable=task.mode==="list"&&root?.pageable!==false;
+      const qs=pageable?(task.path.includes("?")?"&":"?")+
+        "page="+task.page+"&perPage="+task.perPage:"";
       const path=task.path+qs;
       // Reserve the budget *before* the upstream GET. Token POST isn't a game GET.
       budget.used++;calls++;await write(bucket,budgetKey,budget);
@@ -416,14 +428,23 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
           state.cursor++;state.lastOutcome="large-response-archived-unindexed";
         }
       }else if(upstream?.status===472){
-        if(task.mode==="list"&&task.perPage>1){
+        if(pageable&&task.perPage>1){
           task.perPage=Math.max(1,Math.floor(task.perPage/2));
           resetList(task);state.lastOutcome="reduced-page-size";
         }else{
-          // Scopely did not provide a paginable response. Record the
-          // unavailable resource, but keep exploring independent paths.
-          state.gaps.push({path,status:472,reason:"provider-472-not-pageable"});
-          state.cursor++;state.lastOutcome="provider-472-gap";
+          // Scopely documents finite detail routes for these unpageable
+          // roots. Follow every documented ID, including on OLD R2 runs,
+          // instead of losing upgrades/ISO8/team order when the root is 472.
+          if(root?.objectKeys&&root.detail){
+            await enqueueDetails(bucket,state,root.objectKeys.map(id=>({
+              path:root.detail.replace("{id}",encodeURIComponent(id)),
+              root:task.root,mode:"detail"
+            })));
+          }
+          state.gaps.push({path,status:472,reason:root?.objectKeys?
+            "unpageable-root-detail-fallback":"provider-472-not-pageable"});
+          state.cursor++;state.lastOutcome=root?.objectKeys?
+            "root-472-fallback-details":"provider-472-gap";
         }
       }else if(upstream?.status===429){
         state.lastOutcome="rate-limited";
@@ -453,7 +474,7 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
           asOf:parsed.data.meta?.asOf||null});
         state.count++;
         let nextPage=false;
-        if(task.mode==="list"&&Array.isArray(parsed.data.data)){
+        if(pageable&&Array.isArray(parsed.data.data)){
           const entries=parsed.data.data,meta=parsed.data.meta||{};
           const total=Number.isSafeInteger(meta.perTotal)&&meta.perTotal>=0?
             meta.perTotal:null;
