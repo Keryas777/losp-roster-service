@@ -34,17 +34,20 @@ async function jsonGet(path,token,fetchImpl){
     const raw=await res.text();
     if(raw.length>MAX_JSON_BYTES)return fail("oversized");
     const v=JSON.parse(raw);
-    return v?.data===undefined?fail("invalid-data"):{ok:true,data:v.data};
+    return v?.data===undefined?fail("invalid-data"):{ok:true,data:v.data,payload:v};
   }catch{return fail("network-or-data-error");}
 }
-export async function discoverAlliance(token,fetchImpl=fetch){
+export async function discoverAlliance(token,fetchImpl=fetch,options={}){
   if(typeof token!=="string"||!token)return fail("missing-token");
   const card=await jsonGet("/player/v1/alliance/card",token,fetchImpl);
   if(!card.ok)return card;
   const data=card.data, aid=stableAllianceId(data?.id);
   if(!aid||!validName(data?.name))return fail("invalid-alliance-card");
   return {ok:true,aid,name:data.name.trim().slice(0,90),
-    warRank:safeInteger(data.warRank),raidRank:safeInteger(data.raidRank)};
+    warRank:safeInteger(data.warRank),raidRank:safeInteger(data.raidRank),
+    // Optional: preserve the COMPLETE upstream envelope, including unknown
+    // fields and meta, only for storage by the private validated batch path.
+    ...(options.includeSourcePayload===true?{sourcePayload:card.payload}:{})};
 }
 export async function readAllianceCoverage(token,fetchImpl=fetch){
   if(typeof token!=="string"||!token)return fail("missing-token");
