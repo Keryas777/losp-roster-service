@@ -38,13 +38,19 @@ async function lease(env,action,holder){
 }
 export function rosterWindow(cron,scheduledTime){
   if(cron!==ROSTER_CRON||!Number.isFinite(scheduledTime))return null;
-  const d=new Date(scheduledTime),h=d.getUTCHours(),m=d.getUTCMinutes();
-  if(m%2!==0||d.getUTCSeconds()!==0)return null;
+  // Cloudflare may dispatch a */2 cron several seconds after the nominal
+  // minute boundary. Round DOWN to the containing 2-minute slot so a delayed
+  // dispatch still runs, but duplicate dispatches use the SAME idempotency key.
+  // ScheduledController.scheduledTime is epoch milliseconds (per Cloudflare).
+  const slotMs=Math.floor(scheduledTime/(2*MINUTE))*(2*MINUTE);
+  const d=new Date(slotMs);
+  if(!Number.isFinite(d.getTime()))return null;
+  const h=d.getUTCHours(),m=d.getUTCMinutes();
   let period,start;
   if(h>=2&&h<=5){period="am";start=2;}
   else if(h>=14&&h<=17){period="pm";start=14;}
   else return null;
-  const date=dateOf(scheduledTime),tick=(h-start)*30+m/2;
+  const date=dateOf(slotMs),tick=(h-start)*30+m/2;
   return {date,campaign:date+"-"+period,tick,
     stamp:d.toISOString().slice(0,16)+"Z"};
 }
