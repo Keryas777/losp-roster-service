@@ -19,6 +19,30 @@ const answer=(v,status=200)=>Response.json(v,{status,headers:{
 const stateKey=fp=>BATCH_PREFIX+fp+"/progress.json";
 const playerKey=(fp,id,index)=>BATCH_PREFIX+fp+"/"+id+"/member-"+index+".json";
 export const completeKey=fp=>BATCH_PREFIX+fp+"/latest-complete.json";
+// Archive original provider JSON envelopes, not only the fields used by LoSP.
+// All objects remain under the EXISTING 7-day R2 lifecycle prefix. Unique
+// paths preserve every successful tick rather than overwriting prior metadata.
+async function storeAllianceSource(env,fp,runId,now,entries){
+  const capturedAt=new Date(now).toISOString();
+  const folder=BATCH_PREFIX+fp+"/"+runId+"/provider-source/"+crypto.randomUUID()+"/";
+  const sources=[
+    ["alliance-card","/player/v1/alliance/card",entries.card],
+    ["members-before","/player/v1/alliance/members",entries.before],
+    ["members-after","/player/v1/alliance/members",entries.after]
+  ];
+  for(const [name,endpoint,payload] of sources){
+    if(!payload||typeof payload!=="object"||Array.isArray(payload))
+      throw Error("missing source envelope");
+    const raw=JSON.stringify({version:1,kind:"private-provider-source",
+      allianceFingerprint:fp,runId,capturedAt,endpoint,
+      providerResponse:payload});
+    if(raw.length>MAX_SNAPSHOT_BYTES)throw Error("source-envelope-too-large");
+    await env.CAPTAIN_BUCKET.put(folder+name+".json",raw,{
+      httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
+    });
+  }
+}
+
 const selfKey=(fp,id)=>BATCH_PREFIX+fp+"/"+id+"/member-self.json";
 async function lock(env,fp,action,holder){
   const binding=env?.ROSTER_BATCH_LOCK;
@@ -117,16 +141,21 @@ async function finishSelf(env,fp,previous,selected,baseline,now,fetchImpl,tick){
   const report=await collectPersonalRoster(selected.token,fetchImpl,{
     expectedMembershipDigest:previous.membershipDigest,
     cached:old&&baseline?.membershipDigest===previous.membershipDigest?
-      {asOf:old.asOf,chars:old.chars}:null
+      {asOf:old.asOf,chars:old.chars}:null,
+    includeSourcePayload:true
   });
   if(report.status!=="complete")return answer({status:report.status},409);
   if(old&&report.unchanged&&old.memberId!==report.memberId)
     return answer({status:"identity-changed-during-read"},409);
-  const after=await discoverAlliance(selected.token,fetchImpl);
+  const after=await discoverAlliance(selected.token,fetchImpl,{includeSourcePayload:true});
   if(!after.ok||after.aid!==selected.aid)
     return answer({status:"alliance-changed-during-read"},409);
   if(!approvedFingerprint(await readApproval(env),fp))
     return answer({status:"approval-withdrawn"},409);
+  await storeAllianceSource(env,fp,previous.runId,now,{
+    card:after.sourcePayload,
+    before:report.sourceMembershipBefore,after:report.sourceMembershipAfter
+  });
   const record={version:1,kind:"private-staged-personal-roster",
     allianceFingerprint:fp,runId:previous.runId,memberIndex:"self",
     name:report.name,volatileMemberId:report.memberId,
@@ -234,7 +263,7 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
       maxMembers:BATCH_SIZE,startIndex,charInfo:true,
       preferSinglePage:true,cachedForMember,
       requireCurrentMembership:true,requireStableMembership:true,
-      includeMembershipDigest:true,
+      includeMembershipDigest:true,includeSourcePayload:true,
       ...(previous||baseline?{expectedMembershipDigest:
         previous?.membershipDigest||baseline.membershipDigest}:{})
     };
@@ -258,7 +287,7 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     if(result.selectedCount<1||result.rosters.length!==result.selectedCount||
        result.rosters.some(r=>!Array.isArray(r.chars)||r.chars.length===0))
       return answer({status:"no-complete-roster"},409);
-    const stillCurrent=await discoverAlliance(selected.token,fetchImpl);
+    const stillCurrent=await discoverAlliance(selected.token,fetchImpl,{includeSourcePayload:true});
     if(!stillCurrent.ok||stillCurrent.aid!==selected.aid)
       return answer({status:"alliance-changed-during-read"},409);
     if(!approvedFingerprint(await readApproval(env),fp))
@@ -267,6 +296,13 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     const runId=previous?.runId||crypto.randomUUID();
     const startedAt=previous?.startedAt||new Date(now).toISOString();
     const expiresAt=previous?.expiresAt||new Date(now+BATCH_MAX_AGE_MS).toISOString();
+    // Read endpoints were already called above. Preserve their full envelopes
+    // without spending extra provider quota or disclosing them to browsers.
+    await storeAllianceSource(env,fp,runId,now,{
+      card:stillCurrent.sourcePayload,
+      before:result.sourceMembershipBefore,
+      after:result.sourceMembershipAfter
+    });
     const snapshots=result.rosters.map((r,i)=>({
       key:playerKey(fp,runId,startIndex+i),value:JSON.stringify({
         version:1,kind:"private-staged-microbatch",allianceFingerprint:fp,
