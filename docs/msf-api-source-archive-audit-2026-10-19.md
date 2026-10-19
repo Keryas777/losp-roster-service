@@ -31,25 +31,47 @@ La liste exhaustive de référence a été fournie par le responsable du projet.
 
 **Attention à la cardinalité :** un modèle paramétrique `/characterInstances/{level}/{yellow}/...` décrit une fonction de calcul et non une liste finie de ressources ; l'exhaustivité concerne les définitions, les paramètres documentés et les instances pertinentes, pas un balayage combinatoire illimité.
 
-## Validation réelle du 19 octobre 2026 (16 h 50, heure française)
+## Validation réelle du 19 octobre 2026 (16 h 50 puis 17 h 12, heure française)
 
-Résultats fournis par l'administration Cloudflare Access LoSP et confirmés
-par **captures d'écran de l'interface en production**, et non par des mocks :
+Deux exécutions **réelles** depuis la console admin LoSP ont validé les onze chemins
+du service du site `https://api-prod.marvelstrikeforce.com/services/api/`.
+Ces résultats proviennent de captures de l'application déployée et non des
+tests automatisés GitHub : chaque résultat affichait `HTTP: 200`, `archived`
+et son nombre d'octets effectivement transmis et écrits dans R2 privé.
 
-| ID du service | HTTP | Statut d'archivage | Taille |
-| --- | --- | --- | ---: |
-| `get-character-list` | 200 | `archived` dans R2 privé | 508 945 octets |
-| `get-localization-heroes` | 200 | `archived` dans R2 privé | 111 030 octets |
+| ID de la route validée | HTTP | Statut R2 privé | Taille |
+| --- | ---: | --- | ---: |
+| `get-character-list` | 200 | `archived` | 508 945 octets |
+| `get-character-abilities` | 200 | `archived` | 6 909 146 octets |
+| `get-character-ability-caps` | 200 | `archived` | 176 522 octets |
+| `get-character-instance-caps` | 200 | `archived` | 8 419 octets |
+| `get-character-max-stat-caps` | 200 | `archived` | 979 octets |
+| `get-traits` | 200 | `archived` | 7 412 octets |
+| `get-traits-by-category` | 200 | `archived` | 7 785 octets |
+| `get-iso8-abilities` | 200 | `archived` | 79 121 octets |
+| `get-gear` | 200 | `archived` | 496 485 octets |
+| `get-upgrade-tokens` | 200 | `archived` | 4 407 octets |
+| `get-localization-heroes` | 200 | `archived` | 111 030 octets |
 
-**Portée de la preuve :** les deux URLs précises ont répondu avec un JSON
-archivable depuis le Worker, sans jeton OAuth joueur ; cela ne prouve pas
-que toutes les variations d'une route ou les autres services répondent.
-Les **neuf autres** restent à vérifier individuellement, puis à classifier
-d'après leur statut HTTP, les paramètres obligatoires et leur volume.
-La PR #56 ajoute un bouton d'audit séquentiel en une opération admin,
-avec arrêt en cas de HTTP 429.
+**Bilan de ce jeu exact de onze URL :** 11/11 `200`, 11/11 archivées,
+**8 310 251 octets** au total (environ **8,31 Mo** décimaux).
+`get-character-abilities` à lui seul atteint **6,91 Mo**, très proche
+de la limite actuelle de 8 Mo *par réponse* du testeur de services
+complémentaires. Une réponse future plus importante doit être signalée
+`too-large`, jamais considérée comme une collecte complète.
 
-## Les 11 compléments du site (à valider)
+**Périmètre de la preuve :** la disponibilité et l'archivage des réponses
+de ces **onze URL précises**, sans jeton OAuth joueur. Il reste à comparer
+leur contenu aux routes `/game/v1`, tester les paramètres et localisations
+supplémentaires, déterminer la couverture réelle des objets, puis archiver
+les variantes manquantes. Ne pas affirmer que le catalogue MSF entier est
+complet à ce stade.
+
+Le bouton de la PR #56 est validé en production : il a parcouru
+les neuf services complémentaires restants, sans `429`, et enregistré
+leurs réponses sous `msf-secondary-sources/v1/` dans R2 privé.
+
+## Les 11 compléments du site (routes validées, variantes à auditer)
 
 Hôte `api-prod.marvelstrikeforce.com`, préfixe `/services/api/` :
 
