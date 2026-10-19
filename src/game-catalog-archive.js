@@ -231,7 +231,16 @@ function resetList(task){
   delete task.phase2Discovered;
 }
 function deferRetry(state,task,reason,now,restartList=false){
-  task.retries=Math.min((task.retries||0)+1,16);
+  task.retries=(task.retries||0)+1;
+  if(task.retries>=16){
+    // Never lose track of an unavailable resource and never stall the
+    // other routes forever. Recovery of gaps is a separate follow-up pass.
+    state.gaps.push({path:task.path,reason:"retry-exhausted",
+      outcome:reason,attempts:task.retries});
+    state.cursor++;state.pauseUntil=null;
+    state.lastOutcome="retry-exhausted-gap";
+    return;
+  }
   const delay=Math.min(60,2**Math.min(task.retries-1,6))*60_000;
   state.lastOutcome=reason;
   state.pauseUntil=new Date(now+delay).toISOString();
@@ -419,10 +428,7 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
       }else if(upstream?.status===429){
         state.lastOutcome="rate-limited";
         state.pauseUntil=new Date(now+60*60_000).toISOString();
-      }else if([404,422].includes(upstream?.status)&&
-        (task.mode==="detail"||
-          (task.mode==="list"&&task.path.startsWith("/game/v1/items/")&&
-           task.path.includes("/characters")))){
+      }else if([403,404,422,464,474].includes(upstream?.status)){
         state.gaps.push({path:task.path,status:upstream.status});
         state.cursor++;state.lastOutcome="detail-unavailable";
       }else if(!upstream||!upstream.ok||parsed?.status!=="ok"){
