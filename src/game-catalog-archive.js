@@ -410,11 +410,19 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
         if(task.mode==="list"&&task.perPage>1){
           task.perPage=Math.max(1,Math.floor(task.perPage/2));
           resetList(task);state.lastOutcome="reduced-page-size";
-        }else deferRetry(state,task,"http-472-minimum-page",now);
+        }else{
+          // Scopely did not provide a paginable response. Record the
+          // unavailable resource, but keep exploring independent paths.
+          state.gaps.push({path,status:472,reason:"provider-472-not-pageable"});
+          state.cursor++;state.lastOutcome="provider-472-gap";
+        }
       }else if(upstream?.status===429){
         state.lastOutcome="rate-limited";
         state.pauseUntil=new Date(now+60*60_000).toISOString();
-      }else if(task.mode==="detail"&&[404,422].includes(upstream?.status)){
+      }else if([404,422].includes(upstream?.status)&&
+        (task.mode==="detail"||
+          (task.mode==="list"&&task.path.startsWith("/game/v1/items/")&&
+           task.path.includes("/characters")))){
         state.gaps.push({path:task.path,status:upstream.status});
         state.cursor++;state.lastOutcome="detail-unavailable";
       }else if(!upstream||!upstream.ok||parsed?.status!=="ok"){
