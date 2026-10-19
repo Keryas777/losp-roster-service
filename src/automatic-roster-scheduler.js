@@ -54,6 +54,26 @@ export function rosterWindow(cron,scheduledTime){
   return {date,campaign:date+"-"+period,tick,
     stamp:d.toISOString().slice(0,16)+"Z"};
 }
+// A deliberate, admin-authenticated diagnostic invocation may run outside
+// the normal cron windows. It shares the normal global lock, daily budget,
+// 2-minute idempotency key and R2 campaign checkpoints with the scheduler.
+// The requester never controls the clock, campaign or alliance selection.
+export function manualRosterWindow(now){
+  if(!Number.isFinite(now))return null;
+  const slotMs=Math.floor(now/(2*MINUTE))*(2*MINUTE);
+  const d=new Date(slotMs);
+  if(!Number.isFinite(d.getTime()))return null;
+  const date=dateOf(slotMs),h=d.getUTCHours(),m=d.getUTCMinutes();
+  // During a real window use exactly the cron's selection and idempotency.
+  const planned=rosterWindow(ROSTER_CRON,slotMs);
+  if(planned)return planned;
+  // Between the two daily windows resume the AM campaign; after the PM
+  // window, resume PM. No third campaign is ever created by the diagnostic.
+  const period=h<14?"am":"pm";
+  const tick=Math.floor((h*60+m)/2);
+  return {date,campaign:date+"-"+period,tick,
+    stamp:d.toISOString().slice(0,16)+"Z"};
+}
 export async function rosterAutoStatus(env,time=Date.now()){
   const enabled=env?.ROSTER_AUTO_ENABLED==="true";
   const retention=env?.ROSTER_RETENTION_CONFIRMED==="true";
@@ -69,14 +89,40 @@ export async function rosterAutoStatus(env,time=Date.now()){
       lastTick:typeof data?.lastTick==="string"?data.lastTick:null};
   }catch{return {status:"unavailable",...out};}
 }
-export async function runRosterAutoTick(env,controller,fetchImpl=fetch){
+// Used only from handleAdmin, AFTER its Cloudflare Access JWT validation.
+// A real POST is required: a link, GET, foreign Origin or unexpected payload
+// must never trigger even a single Scopely request.
+export async function handleAdminRosterAutoTest(request,env,fetchImpl=fetch,now=Date.now()){
+  const headers={"Cache-Control":"private, no-store",
+    "X-Content-Type-Options":"nosniff","X-Robots-Tag":"noindex"};
+  if(request.method!=="POST")return Response.json({status:"method-not-allowed"},
+    {status:405,headers});
+  const origin=new URL(request.url).origin;
+  if(origin!==BASE_URL||request.headers.get("Origin")!==origin||
+     !(request.headers.get("Content-Type")||"").toLowerCase().startsWith("application/json"))
+    return Response.json({status:"forbidden"},{status:403,headers});
+  try{
+    const raw=await request.text();
+    if(raw.length>64||!raw.trim())throw Error("invalid");
+    const body=JSON.parse(raw);
+    if(!body||typeof body!=="object"||Array.isArray(body)||
+       Object.keys(body).length!==0)throw Error("invalid");
+  }catch{return Response.json({status:"invalid-payload"},{status:400,headers});}
+  const result=await runRosterAutoTick(env,{scheduledTime:now,cron:ROSTER_CRON},
+    fetchImpl,{manual:true});
+  return Response.json(result,{headers});
+}
+
+export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={}){
   if(env?.ROSTER_AUTO_ENABLED!=="true")return {status:"disabled"};
   if(env?.ROSTER_RETENTION_CONFIRMED!=="true")
     return {status:"retention-not-confirmed"};
   if(!captainConfigReady(env)||!env.ROSTER_BATCH_LOCK?.get)
     return {status:"storage-unavailable"};
   const timestamp=controller?.scheduledTime;
-  const slot=rosterWindow(controller?.cron,timestamp);
+  const manual=options?.manual===true;
+  const slot=manual?manualRosterWindow(timestamp):
+    rosterWindow(controller?.cron,timestamp);
   if(!slot)return {status:"outside-window"};
   const holder=crypto.randomUUID();
   let acquired=false;
@@ -144,10 +190,12 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch){
     }
     await write(bucket,dayKey(slot.date),{
       date:slot.date,used:d.used+used,ticks:d.ticks+1,
-      lastTick:slot.stamp,lastOutcome:outcome
+      lastTick:slot.stamp,lastOutcome:outcome,
+      lastMode:manual?"admin-test":"cron"
     });
     return {status:outcome,requestsThisTick:used,
-      requestsToday:d.used+used,httpStatus:statusCode};
+      requestsToday:d.used+used,httpStatus:statusCode,
+      ...(manual?{alliance:approval.alliances.find(a=>a.fingerprint===fp)?.name||"approved"}:{})};
   }catch{return {status:"unavailable"};}
   finally{if(acquired)try{await lease(env,"release",holder);}catch{}}
 }
