@@ -3,6 +3,7 @@ import {rosterSyncPreflight,saveRosterSyncApprovals} from "./roster-sync-preflig
 import {handlePrivateRosterPilot} from "./private-roster-pilot.js";
 import {handleRosterMicrobatch,getRosterBatchStatus} from "./private-roster-batches.js";
 import {rosterAutoStatus,handleAdminRosterAutoTest} from "./automatic-roster-scheduler.js";
+import {PUBLIC_SOURCE_ROUTES,handlePublicSourceProbe} from "./public-msf-source-probe.js";
 import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron,adminMemberCard} from "./admin-data-api.js";
 
 const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
@@ -29,6 +30,13 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<p id="roster-preflight-status" role="status"></p><div id="roster-preflight-list"></div>'+
 '<button id="roster-approve" type="button" disabled>Enregistrer les alliances approuvées</button>'+
 '<p id="roster-approve-status" role="status"></p></section>'+
+'<section><h2>Recherche des services MSF complémentaires</h2>'+ 
+'<p>Test en lecture seule d’une seule route historique /services/api/ à la fois. Aucun jeton joueur transmis. En cas de réponse JSON, archive intégrale dans R2 privé.</p>'+ 
+'<label>Service<select id="msf-secondary-source">'+
+PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('')+
+'</select></label>'+
+'<button id="msf-secondary-probe" type="button">Tester et archiver ce service</button>'+
+'<p id="msf-secondary-result" role="status"></p></section>'+
 '<section><h2>Diagnostic du PID joueur</h2>'+
 '<p>Compare le PID en jeu à la fiche officielle du <strong>même joueur</strong>. Le compte est choisi dans Explorer ; pour un coéquipier actuel, charge d\'abord ses membres. Les IDs d\'effectif sont temporaires.</p>'+
 '<label>Joueur à analyser (choix obligatoire)<select id="pid-target"><option value="">Choisir un joueur…</option></select></label>'+
@@ -50,13 +58,15 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<section id="output">Choisis un compte et une rubrique.</section></main>'+
 '<script src="/admin-explorer.js" defer></script>'+
 '<script src="/admin-pid-diagnostic.js" defer></script>'+
-'<script src="/admin-roster-preflight.js" defer></script></body></html>';
+'<script src="/admin-roster-preflight.js" defer></script>'+ 
+'<script src="/admin-secondary-probes.js" defer></script></body></html>';
 
 export async function handleAdmin(request,env,fetchImpl=fetch){
   const endpoint=new URL(request.url).pathname;
   if(request.method!=="GET"&&!(request.method==="POST"&&
        ["/admin/api/roster-approvals","/admin/api/roster-pilot",
-        "/admin/api/roster-batch","/admin/api/roster-auto-test"].includes(endpoint)))
+        "/admin/api/roster-batch","/admin/api/roster-auto-test",
+        "/admin/api/msf-secondary-probe"].includes(endpoint)))
     return new Response("Method Not Allowed",{status:405});
   if(!adminReady(env))return new Response("Administration désactivée",{
     status:503,headers:{"Cache-Control":"no-store"}
@@ -95,5 +105,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     await rosterAutoStatus(env),{headers:{"Cache-Control":"private, no-store"}});
   if(pathname==="/admin/api/roster-auto-test")
     return handleAdminRosterAutoTest(request,env,fetchImpl);
+  if(pathname==="/admin/api/msf-secondary-probe")
+    return handlePublicSourceProbe(request,env,fetchImpl);
   return new Response("Not Found",{status:404});
 }
