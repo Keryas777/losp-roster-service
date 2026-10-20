@@ -11,7 +11,7 @@ const KEY=/^[\w:.-]{1,65}$/;
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const HEADERS={"Cache-Control":"private, no-store",
   "X-Content-Type-Options":"nosniff","X-Robots-Tag":"noindex"};
-const PAGE=35,MAX_BYTES=1_250_000,MAX_READS=6,PER_FAMILY=48;
+const PAGE=200,RECEIPT_CONCURRENCY=5,MAX_BYTES=1_250_000,MAX_READS=6,PER_FAMILY=48;
 const MAX_FIELDS=150,MAX_VARIANTS=20,MAX_DEPTH=7;
 const json=(body,status=200)=>Response.json(body,{status,headers:HEADERS});
 const auditKey=id=>ROOT+"runs/"+id+"/schema-audit/progress.json";
@@ -159,14 +159,29 @@ export async function runGameArchiveSchemaAuditTick(env,now=Date.now()){
     // explicitly rather than re-reading page one forever.
     if(listed.truncated&&(!listed.cursor||listed.cursor===state.cursor))
       return {status:"missing-r2-cursor"};
+    // R2 internal-service subrequests have their own limits. Process up to
+    // 200 receipt objects with a maximum of five concurrent R2 reads, below
+    // Cloudflare's six simultaneous outgoing connections. Keep the original
+    // list order so restart checkpoints and all counters are deterministic.
+    const receiptKeys=(listed.objects||[])
+      .map(entry=>entry.key).filter(key=>
+        typeof key==="string"&&key.startsWith(prefix)).slice(0,PAGE);
+    const receipts=new Array(receiptKeys.length);
+    let nextReceipt=0;
+    await Promise.all(Array.from({
+      length:Math.min(RECEIPT_CONCURRENCY,receiptKeys.length)
+    },async()=>{
+      while(nextReceipt<receiptKeys.length){
+        const i=nextReceipt++;
+        try{receipts[i]={value:await read(bucket,receiptKeys[i])};}
+        catch{receipts[i]={error:true};}
+      }
+    }));
     const candidates=[],seenInPage=new Set();
-    for(const record of listed.objects||[]){
-      if(!record.key?.startsWith(prefix))continue;
+    for(const item of receipts){
       state.receiptsListed++;
-      let receipt;
-      try{receipt=await read(bucket,record.key);}
-      catch{state.failedReceipts++;continue;}
-      const safe=receiptObject(receipt,active.runId);
+      if(item.error){state.failedReceipts++;continue;}
+      const safe=receiptObject(item.value,active.runId);
       if(!safe)continue;
       state.validReceipts++;
       const group=state.families[safe.family]||familyState();
