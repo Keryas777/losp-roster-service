@@ -1,7 +1,7 @@
 // Autonomous, bounded R2-only audit of official MSF /game/v1 JSON shapes.
 // Cron advances one receipt page per minute. Does not access Scopely, player
 // records, collector queues or raw archives outside the active game run.
-import {GAME_ARCHIVE_ROOT,GAME_ARCHIVE_CRON} from "./game-catalog-archive.js";
+import {GAME_ARCHIVE_ROOT} from "./game-catalog-archive.js";
 
 const ROOT=GAME_ARCHIVE_ROOT,ACTIVE=ROOT+"active.json";
 const RUN=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
@@ -159,7 +159,7 @@ export async function runGameArchiveSchemaAuditTick(env,now=Date.now()){
     // explicitly rather than re-reading page one forever.
     if(listed.truncated&&(!listed.cursor||listed.cursor===state.cursor))
       return {status:"missing-r2-cursor"};
-    let readCount=0;
+    const candidates=[],seenInPage=new Set();
     for(const record of listed.objects||[]){
       if(!record.key?.startsWith(prefix))continue;
       state.receiptsListed++;
@@ -175,11 +175,27 @@ export async function runGameArchiveSchemaAuditTick(env,now=Date.now()){
       if(safe.storage==="unindexed"){group.unindexed++;continue;}
       if(safe.storage!=="indexed"){group.invalid++;continue;}
       group.indexed++;
-      if(group.inspected>=PER_FAMILY||readCount>=MAX_READS)continue;
+      if(group.inspected>=PER_FAMILY)continue;
       const objectHash=safe.key.slice(safe.key.lastIndexOf("/")+1);
-      if(group.sampledHashes.includes(objectHash)){group.duplicate++;continue;}
-      // Record the attempted hash even for large or missing objects, so
-      // identical receipts do not cause repetitive object HEAD requests.
+      const unique=safe.family+"|"+objectHash;
+      if(group.sampledHashes.includes(objectHash)||seenInPage.has(unique)){
+        group.duplicate++;continue;
+      }
+      seenInPage.add(unique);
+      candidates.push({safe,group,objectHash});
+    }
+    // Prioritize families not yet understood, rather than spending every
+    // sample on the many chronological event receipts.
+    let samples=0;
+    const attemptsByFamily=new Map();
+    while(candidates.length&&samples<MAX_READS){
+      candidates.sort((a,b)=>
+        (a.group.inspected+100*(attemptsByFamily.get(a.safe.family)||0))-
+        (b.group.inspected+100*(attemptsByFamily.get(b.safe.family)||0))||
+        a.group.receipts-b.group.receipts);
+      const {safe,group,objectHash}=candidates.shift();
+      attemptsByFamily.set(safe.family,
+        (attemptsByFamily.get(safe.family)||0)+1);
       group.sampledHashes.push(objectHash);
       if(group.sampledHashes.length>PER_FAMILY*3)
         group.sampledHashes.shift();
@@ -194,7 +210,7 @@ export async function runGameArchiveSchemaAuditTick(env,now=Date.now()){
           group.unreadable++;continue;
         }
         recordFamilySample(group,document,safe.path);
-        readCount++;
+        samples++;
       }catch{group.unreadable++;}
     }
     state.pages++;
