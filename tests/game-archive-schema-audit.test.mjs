@@ -93,9 +93,11 @@ test("one-click audit advances with cron only, survives admin reopening, and nev
   let state=await report(f);
   assert.equal(state.status,"running");
   assert.equal(state.receiptsListed,0);
-  // Two-click "start" while running must not reset progress.
+  // With 200 receipts per tick, this 80-receipt fixture completes in
+  // one tick. Do not press "start" again: that intentionally starts a new
+  // audit when the previous scan already reached snapshot-complete.
   await runGameArchiveSchemaAuditTick(f.env);
-  assert.equal((await (await start(f)).json()).receiptsListed,35);
+  assert.equal((await report(f)).receiptsListed,80);
   // Eight-step bounded scan reaches the end without needing an open browser.
   for(let i=0;i<10;i++){
     state=await report(f);
@@ -109,8 +111,9 @@ test("one-click audit advances with cron only, survives admin reopening, and nev
   assert.equal(state.families.find(x=>x.family==="events").receipts,74);
   assert.ok(state.families.find(x=>x.family==="characters").inspected>0);
   assert.ok(state.families.find(x=>x.family==="raids").inspected>0);
-  assert.equal(state.families.find(x=>x.family==="events").variants.length,2);
-  assert.equal(f.calls.filter(([op])=>op==="list").length,3);
+  assert.equal(state.families.find(x=>x.family==="events").inspected,0,
+    "rare families take priority on a page containing exactly six rare families");
+  assert.equal(f.calls.filter(([op])=>op==="list").length,1);
   assert.ok(f.calls.every(([op,key])=>op!=="put"||
     key.startsWith(prefix+"schema-audit/")));
   assert.ok(!JSON.stringify(state).includes("private-event-value"));
@@ -121,6 +124,62 @@ test("one-click audit advances with cron only, survives admin reopening, and nev
   const newStart=await start(f);
   assert.equal(newStart.status,200);
   assert.equal((await newStart.json()).receiptsListed,0);
+});
+
+
+test("200-receipt tick resumes from an existing R2 cursor without replaying or resetting",async()=>{
+  const f=fixture();
+  for(let i=0;i<430;i++)
+    f.add(i,i%2?"events":"characters",{data:{id:String(i),name:"value-"+i}});
+  await start(f);
+  // Simulate an audit saved before the accelerated release.
+  const key=prefix+"schema-audit/progress.json";
+  const state=f.store.get(key);
+  state.cursor="35";
+  state.pages=1;
+  state.receiptsListed=35;
+  state.validReceipts=35;
+  f.store.set(key,state);
+  const previousCalls=f.calls.length;
+  await runGameArchiveSchemaAuditTick(f.env);
+  let current=await report(f);
+  assert.equal(current.status,"running");
+  assert.equal(current.receiptsListed,235);
+  assert.equal(current.validReceipts,235);
+  assert.equal(current.pages,2);
+  assert.equal(f.calls.slice(previousCalls).filter(([op,k])=>
+    op==="get"&&k.startsWith(prefix+"receipts/")).length,200);
+  assert.equal((await (await start(f)).json()).receiptsListed,235);
+  await runGameArchiveSchemaAuditTick(f.env);
+  current=await report(f);
+  assert.equal(current.status,"snapshot-complete");
+  assert.equal(current.receiptsListed,430);
+  assert.equal(current.pages,3);
+  assert.equal(current.families.reduce((n,x)=>n+x.receipts,0),395);
+});
+
+test("parallel receipt retrieval stays within five concurrent R2 reads",async()=>{
+  const f=fixture();
+  for(let i=0;i<230;i++)f.add(i,"events",{data:{id:String(i)}});
+  const original=f.env.CAPTAIN_BUCKET.get;
+  let active=0,peak=0;
+  f.env.CAPTAIN_BUCKET.get=async key=>{
+    if(key.includes("/receipts/")){
+      active++;peak=Math.max(peak,active);
+      try{
+        await new Promise(resolve=>setImmediate(resolve));
+        return await original(key);
+      }finally{active--;}
+    }
+    return original(key);
+  };
+  await start(f);
+  await runGameArchiveSchemaAuditTick(f.env);
+  const data=await report(f);
+  assert.equal(data.receiptsListed,200);
+  assert.equal(data.status,"running");
+  assert.ok(peak>1,"R2 receipt reads should actually overlap");
+  assert.ok(peak<=5,"Cloudflare supports six simultaneous outgoing connections");
 });
 
 test("samples are diversified across families even if event receipts dominate",async()=>{
