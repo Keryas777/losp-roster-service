@@ -42,7 +42,7 @@
     }
     detail.append(variants);
     const fields=elt("details");fields.open=false;
-    fields.append(elt("summary","Chemins imbriqués observés (jusqu'à 5 niveaux) : "+
+    fields.append(elt("summary","Chemins imbriqués observés (jusqu'à 7 niveaux) : "+
       Object.keys(f.fields||{}).length));
     for(const [path,stats] of Object.entries(f.fields||{})
       .sort(([a],[b])=>a.localeCompare(b))){
