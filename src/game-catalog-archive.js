@@ -481,6 +481,7 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
           resetList(task);
           state.lastOutcome="large-page-archived-retrying-smaller";
         }else{
+          if(task.recoveryOf)recordRecovery(state,task,task.path,false);
           state.gaps.push({path,reason:"archived-but-unindexed",objectKey:parsed.objectKey});
           state.cursor++;state.lastOutcome="large-response-archived-unindexed";
         }
@@ -526,7 +527,10 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
         // Never mark a retryable upstream failure as permanently blocked.
         const reason=upstream?"http-"+upstream.status+
           (parsed?.status?"-"+parsed.status:""):"network-error";
+        const before=state.cursor;
         deferRetry(state,task,reason,now);
+        if(state.cursor>before&&task.recoveryOf)
+          recordRecovery(state,task,task.path,false);
       }else{
         task.retries=0;state.pauseUntil=null;
         const id=await sha(parsed.bytes);
