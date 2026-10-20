@@ -94,3 +94,28 @@ Un archive brute non indexée ne garantit pas que ses relations ont
 **Cette PR ne prétend pas que l'ensemble du jeu MSF est déjà archivé.**
 Les collections OAuth de joueurs et les anciennes ressources Unity/CDN
 restent des systèmes séparés.
+
+## Correctif des réponses 472 des racines non paginables
+
+La spécification OpenAPI beta 0.2.1 ne déclare **pas** `page`/`perPage`
+pour `decorations`, `upgradeData`, `iso8Abilities` ou
+`analysis/teamOrder`. Elles ne doivent donc pas recevoir ces paramètres,
+même lorsque la campagne R2 a été créée avec une ancienne version du
+collecteur (où toutes les racines étaient marquées `mode:list`).
+
+Si Scopely renvoie malgré tout HTTP 472 pour l'une de ces racines, le
+collecteur enregistre l'écart exact ; pour les trois familles disposant
+de chemins détaillés à identifiants officiellement énumérés, il
+ajoute **toutes les routes de détail documentées**, sans inférence
+d'identifiants : 12 champs d'amélioration, 5 classes ISO-8,
+7 onglets d'ordonnancement des équipes.
+
+Il ne faut **pas relancer manuellement** une campagne R2 existante.
+Après expiration de sa pause enregistrée, elle reprend au même
+curseur et peut continuer à explorer les détails. Le panneau
+administrateur indique dorénavant le chemin du jeu actuellement traité
+et le nombre de lacunes. Un 472 reste une preuve d'échec du GET
+correspondant, et non une archive réussie.
+
+Le succès des tests GitHub ne prouve pas le résultat HTTP réel du
+Worker : vérifier les prochaines réponses après déploiement Cloudflare.
