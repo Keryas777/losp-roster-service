@@ -28,6 +28,17 @@
     intro.append(elt("p","Les fréquences des champs portent seulement sur les "+
       f.inspected+" JSON inspectés, pas sur toute la famille."));
     detail.append(intro);
+    const routes=elt("details");routes.open=true;
+    routes.append(elt("summary","Types de routes recensés : "+(f.routes?.length||0)));
+    for(const route of f.routes||[]){
+      const item=elt("div");item.className="member-card";
+      item.append(elt("strong",route.pattern+" ("+route.kind+")"));
+      line(item,route.receipts+" reçus · "+route.inspected+" JSON inspectés · "+
+        route.attempted+" tentatives · "+route.tooLarge+" trop volumineux · "+
+        route.unreadable+" inaccessibles — "+route.state);
+      routes.append(item);
+    }
+    detail.append(routes);
     const variants=elt("details");
     variants.open=true;
     variants.append(elt("summary","Structures distinctes observées : "+
@@ -57,6 +68,8 @@
     const sampleCount=(data.families||[]).reduce((n,f)=>n+f.inspected,0);
     for(const [label,value] of [
       ["État",data.status],
+      ["Phase",data.phase||"—"],
+      ["Campagne R2",data.runId||"—"],
       ["Reçus R2 parcourus",data.receiptsListed],
       ["Familles rencontrées",(data.families||[]).length],
       ["JSON inspectés",sampleCount]
@@ -76,7 +89,7 @@
     copy.disabled=!(data.families?.length);
     status.textContent=(data.note||"")+
       (data.updatedAt?" Dernier passage : "+data.updatedAt+".":"")+
-      " Aucun appel Scopely.";
+      " Ancien rapport V1 conservé séparément dans R2. Aucun appel Scopely.";
   }
   async function load(){
     if(busy)return;
