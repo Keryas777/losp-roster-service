@@ -93,9 +93,11 @@ test("one-click audit advances with cron only, survives admin reopening, and nev
   let state=await report(f);
   assert.equal(state.status,"running");
   assert.equal(state.receiptsListed,0);
-  // Two-click "start" while running must not reset progress.
+  // With 200 receipts per tick, this 80-receipt fixture completes in
+  // one tick. Do not press "start" again: that intentionally starts a new
+  // audit when the previous scan already reached snapshot-complete.
   await runGameArchiveSchemaAuditTick(f.env);
-  assert.equal((await (await start(f)).json()).receiptsListed,80);
+  assert.equal((await report(f)).receiptsListed,80);
   // Eight-step bounded scan reaches the end without needing an open browser.
   for(let i=0;i<10;i++){
     state=await report(f);
