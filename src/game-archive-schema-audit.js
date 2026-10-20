@@ -12,7 +12,7 @@ const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const HEADERS={"Cache-Control":"private, no-store",
   "X-Content-Type-Options":"nosniff","X-Robots-Tag":"noindex"};
 const PAGE=35,MAX_BYTES=1_250_000,MAX_READS=6,PER_FAMILY=48;
-const MAX_FIELDS=150,MAX_VARIANTS=20,MAX_DEPTH=5;
+const MAX_FIELDS=150,MAX_VARIANTS=20,MAX_DEPTH=7;
 const json=(body,status=200)=>Response.json(body,{status,headers:HEADERS});
 const auditKey=id=>ROOT+"runs/"+id+"/schema-audit/progress.json";
 const progressKey=id=>ROOT+"runs/"+id+"/progress.json";
