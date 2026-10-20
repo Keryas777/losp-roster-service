@@ -8,6 +8,7 @@ import {handleGameArchiveAdmin} from "./game-catalog-archive.js";
 import {handleGameArchiveGapAudit} from "./game-archive-gaps.js";
 import {handleGameArchiveInspect} from "./game-archive-inspector.js";
 import {handleGameArchiveSchemaAudit} from "./game-archive-schema-audit.js";
+import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
 import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron,adminMemberCard} from "./admin-data-api.js";
 
 const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
@@ -25,6 +26,14 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<p>Bilan privé des sessions déjà autorisées. Relecture en direct de Scopely, sans téléchargement de rosters ni activation du scan quotidien.</p>'+
 '<button id="check-coverage" type="button">Vérifier toutes les alliances</button>'+
 '<p id="coverage-status" role="status"></p><div id="coverage" class="scroll"></div></section>'+
+'<section><h2>Sauvegarde des classements raid / guerre</h2>'+
+'<p>Capture datée des alliances dont les sessions OAuth sont connectées : rangs raid et guerre, ligue et trophées de guerre. Ce ne sont pas les points de saison. La saison exacte n’est pas fournie par l’API.</p>'+
+'<p>Stockage R2 privé sous la règle existante de 7 jours. Copie le rapport rapidement si nécessaire. Aucune lecture des rosters.</p>'+
+'<button id="season-ranks-capture" type="button">Capturer les classements maintenant</button>'+
+'<button id="season-ranks-refresh" type="button">Voir la dernière capture</button>'+
+'<button id="season-ranks-copy" type="button" disabled>Copier la capture JSON</button>'+
+'<p id="season-ranks-status" role="status"></p>'+
+'<div id="season-ranks-table" class="scroll"></div></section>'+
 '<section><h2>Préparation de la collecte automatique des rosters</h2>'+
 '<p>Collecte privée des alliances approuvées, par lots avec reprise. Planification automatique conditionnée à la règle R2 de rétention et au paramètre d’activation. Aucune publication vers la WebApp.</p>'+
 '<p id="roster-auto-status" role="status">État de l’automatisation : chargement…</p>'+
@@ -95,6 +104,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<button id="load">Afficher les données</button><p id="status" role="status"></p></section>'+
 '<section id="output">Choisis un compte et une rubrique.</section></main>'+
 '<script src="/admin-explorer.js" defer></script>'+
+'<script src="/admin-season-ranks.js" defer></script>'+
 '<script src="/admin-pid-diagnostic.js" defer></script>'+
 '<script src="/admin-roster-preflight.js" defer></script>'+ 
 '<script src="/admin-secondary-probes.js" defer></script>'+
@@ -109,7 +119,8 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
        ["/admin/api/roster-approvals","/admin/api/roster-pilot",
         "/admin/api/roster-batch","/admin/api/roster-auto-test",
         "/admin/api/msf-secondary-probe","/admin/api/game-archive",
-        "/admin/api/game-archive-schema-audit"].includes(endpoint)))
+        "/admin/api/game-archive-schema-audit",
+        "/admin/api/alliance-season-ranks"].includes(endpoint)))
     return new Response("Method Not Allowed",{status:405});
   if(!adminReady(env))return new Response("Administration désactivée",{
     status:503,headers:{"Cache-Control":"no-store"}
@@ -158,5 +169,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     return handleGameArchiveInspect(request,env);
   if(pathname==="/admin/api/game-archive-schema-audit")
     return handleGameArchiveSchemaAudit(request,env);
+  if(pathname==="/admin/api/alliance-season-ranks")
+    return handleAllianceSeasonRanks(request,env,fetchImpl);
   return new Response("Not Found",{status:404});
 }
