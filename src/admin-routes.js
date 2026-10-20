@@ -5,6 +5,7 @@ import {handleRosterMicrobatch,getRosterBatchStatus} from "./private-roster-batc
 import {rosterAutoStatus,handleAdminRosterAutoTest} from "./automatic-roster-scheduler.js";
 import {PUBLIC_SOURCE_ROUTES,handlePublicSourceProbe} from "./public-msf-source-probe.js";
 import {handleGameArchiveAdmin} from "./game-catalog-archive.js";
+import {handleGameArchiveGapAudit} from "./game-archive-gaps.js";
 import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron,adminMemberCard} from "./admin-data-api.js";
 
 const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
@@ -46,7 +47,15 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<p id="game-archive-status" role="status">Statut en attente…</p>'+
 '<button id="game-archive-start" type="button">Démarrer une collecte générale</button>'+
 '<button id="game-archive-tick" type="button">Exécuter le premier micro-lot maintenant</button>'+
-'<p id="game-archive-action-status" role="status"></p></section>'+
+'<p id="game-archive-action-status" role="status"></p>'+ 
+'<h3>Audit des lacunes R2</h3><p>Lecture seule des écarts déjà consignés, sans nouveaux appels Scopely. Les lacunes peuvent évoluer pendant la collecte.</p>'+
+'<button id="game-gap-refresh" type="button">Analyser les lacunes enregistrées</button>'+
+'<p id="game-gap-status" role="status"></p><div id="game-gap-summary"></div>'+
+'<div class="controls"><label>Famille<select id="game-gap-family"><option value="">Toutes</option></select></label>'+
+'<label>Cause<select id="game-gap-cause"><option value="">Toutes</option></select></label></div>'+
+'<div id="game-gap-results" class="scroll"></div>'+
+'<div class="actions"><button id="game-gap-prev" type="button" disabled>Précédentes</button>'+
+'<button id="game-gap-next" type="button" disabled>Suivantes</button></div></section>'+
 '<section><h2>Diagnostic du PID joueur</h2>'+
 '<p>Compare le PID en jeu à la fiche officielle du <strong>même joueur</strong>. Le compte est choisi dans Explorer ; pour un coéquipier actuel, charge d\'abord ses membres. Les IDs d\'effectif sont temporaires.</p>'+
 '<label>Joueur à analyser (choix obligatoire)<select id="pid-target"><option value="">Choisir un joueur…</option></select></label>'+
@@ -70,7 +79,8 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-pid-diagnostic.js" defer></script>'+
 '<script src="/admin-roster-preflight.js" defer></script>'+ 
 '<script src="/admin-secondary-probes.js" defer></script>'+
-'<script src="/admin-game-archive.js" defer></script></body></html>';
+'<script src="/admin-game-archive.js" defer></script>'+
+'<script src="/admin-game-archive-gaps.js" defer></script></body></html>';
 
 export async function handleAdmin(request,env,fetchImpl=fetch){
   const endpoint=new URL(request.url).pathname;
@@ -120,5 +130,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     return handlePublicSourceProbe(request,env,fetchImpl);
   if(pathname==="/admin/api/game-archive")
     return handleGameArchiveAdmin(request,env,fetchImpl);
+  if(pathname==="/admin/api/game-archive-gaps")
+    return handleGameArchiveGapAudit(request,env);
   return new Response("Not Found",{status:404});
 }
