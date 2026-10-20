@@ -45,6 +45,12 @@ export async function discoverAlliance(token,fetchImpl=fetch,options={}){
   if(!aid||!validName(data?.name))return fail("invalid-alliance-card");
   return {ok:true,aid,name:data.name.trim().slice(0,90),
     warRank:safeInteger(data.warRank),raidRank:safeInteger(data.raidRank),
+    warTrophies:safeInteger(data.warTrophies),
+    warLeague:data.warLeague&&typeof data.warLeague==="object"&&
+      !Array.isArray(data.warLeague)?{
+        id:typeof data.warLeague.id==="string"?data.warLeague.id.slice(0,80):null,
+        name:typeof data.warLeague.name==="string"?data.warLeague.name.slice(0,100):null
+      }:null,
     // Optional: preserve the COMPLETE upstream envelope, including unknown
     // fields and meta, only for storage by the private validated batch path.
     ...(options.includeSourcePayload===true?{sourcePayload:card.payload}:{})};
@@ -155,4 +161,49 @@ export async function buildPrivateCoverage(env,fetchImpl=fetch){
   });
   return {status:"stored",sessions:snapshot.scannedSessions,
     alliances:snapshot.alliances.length};
+}
+
+// Minimal, deliberately separate scan for urgent alliance season standings.
+// Uses one AllianceCard GET per available captain session; it does not request
+// rosters, members, historical events or non-consenting alliances.
+export async function scanPrivateAllianceRanks(env,fetchImpl=fetch,now=Date.now()){
+  if(!captainConfigReady(env)||!env.CAPTAIN_BUCKET?.list)return null;
+  const listed=await env.CAPTAIN_BUCKET.list({
+    prefix:CAPTAIN_PREFIX,limit:MAX_COVERAGE_SESSIONS+1
+  });
+  const keys=(listed.objects||[]).filter(x=>validCaptainKey(x.key))
+    .map(x=>x.key).sort().slice(0,MAX_COVERAGE_SESSIONS);
+  const byAid=new Map();
+  let unavailableSessions=0,validSessions=0;
+  for(const key of keys){
+    let authorization;
+    try{authorization=await grant(env,key);}
+    catch{unavailableSessions++;continue;}
+    if(!authorization.ok){unavailableSessions++;continue;}
+    const card=await discoverAlliance(authorization.token,fetchImpl);
+    if(!card.ok){unavailableSessions++;continue;}
+    validSessions++;
+    if(!byAid.has(card.aid))byAid.set(card.aid,{
+      allianceFingerprint:await sha(card.aid),
+      name:card.name,warRank:card.warRank,raidRank:card.raidRank,
+      warTrophies:card.warTrophies,warLeague:card.warLeague,
+      connectedSessions:1
+    });
+    else byAid.get(card.aid).connectedSessions++;
+  }
+  const alliances=[...byAid.values()].sort((a,b)=>a.name.localeCompare(b.name,"fr"));
+  return {
+    version:1,source:"/player/v1/alliance/card",
+    capturedAt:new Date(now).toISOString(),
+    seasonId:null,seasonVerified:false,
+    scannedSessions:keys.length,validSessions,unavailableSessions,
+    truncated:listed.truncated===true||
+      (listed.objects||[]).length>MAX_COVERAGE_SESSIONS,
+    connectedAlliances:alliances.length,
+    completeSessionScan:!listed.truncated&&
+      (listed.objects||[]).length<=MAX_COVERAGE_SESSIONS&&
+      unavailableSessions===0,
+    alliances,
+    note:"Rangs les plus récents retournés par Scopely ; saison précise non identifiée par la réponse. warTrophies ne représente pas le score de saison de guerre. Absence de raid season points."
+  };
 }
