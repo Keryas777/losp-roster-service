@@ -62,7 +62,8 @@ test("discoverAlliance validates provider card without collecting rosters",async
     assert.equal(opts.headers.Authorization,"Bearer SECRET_ACCESS");
     return json(card("aid123:v2","Zeus",145));
   });
-  assert.deepEqual(ok,{ok:true,aid:"aid123",name:"Zeus",warRank:145,raidRank:null});
+  assert.deepEqual(ok,{ok:true,aid:"aid123",name:"Zeus",warRank:145,
+    raidRank:null,warTrophies:null,warLeague:null});
   assert.deepEqual(requests,["https://api.marvelstrikeforce.com/player/v1/alliance/card"]);
   assert.deepEqual(await discoverAlliance("T",async()=>json(card("malformed","X"))),
     {ok:false,status:"invalid-alliance-card"});
