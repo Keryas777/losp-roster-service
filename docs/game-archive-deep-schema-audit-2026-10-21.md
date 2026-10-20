@@ -18,6 +18,22 @@ ni la WebApp GitHub Pages, ni les objets JSON bruts en R2.
   sous `receipts/`, `objects/`, `raw/`, `progress.json` de
   la collecte, `queue/` ou `phase2-seen/`.
 
+## Accélération des reçus (PR suivante)
+
+La taille du lot augmente de 35 à **200 reçus maximum par minute**.
+Les petits fichiers de reçus sont lus avec **cinq requêtes R2 simultanées
+au maximum**, sans modifier la profondeur d'analyse, les six documents
+maximum ou la provenance des données. Les opérations R2 sont des
+sous-requêtes internes Cloudflare (limite publiée : 1 000 par
+invocation, même sur Free). Une passe d'audit doit rester sous
+ce plafond, y compris après les lectures du collecteur réalisées
+plus tôt dans la même invocation.
+
+Le curseur déjà sauvegardé et le `runId` **ne sont pas réinitialisés**.
+Le taux de 200/minute est une capacité maximale, pas un engagement de
+durée en cas d'erreur R2 ou de latence Cloudflare. Si la campagne
+de collecte continue, le rapport final reste un instantané non exhaustif.
+
 ## Stockage de l'audit
 
 `game-archive/v1/runs/{runId}/schema-audit/progress.json`.
@@ -33,7 +49,7 @@ rapports dérivés conformément aux conditions API Scopely.
 
 À chaque passage :
 
-- 35 reçus au plus de `runs/{runId}/receipts/` ;
+- 200 reçus au plus de `runs/{runId}/receipts/` ;
 - Six documents JSON décodés au plus après `R2.head` ;
 - Taille maximale inspectée : **1,25 Mo** par document ;
 - 48 échantillons inspectés maximum **par famille** ;
