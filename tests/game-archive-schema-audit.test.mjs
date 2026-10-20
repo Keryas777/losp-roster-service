@@ -109,7 +109,8 @@ test("one-click audit advances with cron only, survives admin reopening, and nev
   assert.equal(state.families.find(x=>x.family==="events").receipts,74);
   assert.ok(state.families.find(x=>x.family==="characters").inspected>0);
   assert.ok(state.families.find(x=>x.family==="raids").inspected>0);
-  assert.equal(state.families.find(x=>x.family==="events").variants.length,2);
+  assert.equal(state.families.find(x=>x.family==="events").inspected,0,
+    "rare families take priority on a page containing exactly six rare families");
   assert.equal(f.calls.filter(([op])=>op==="list").length,1);
   assert.ok(f.calls.every(([op,key])=>op!=="put"||
     key.startsWith(prefix+"schema-audit/")));
