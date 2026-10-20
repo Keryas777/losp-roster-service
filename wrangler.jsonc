@@ -17,7 +17,8 @@
     "ROSTER_AUTO_ENABLED": "true",
     "ROSTER_RETENTION_CONFIRMED": "true",
     "GAME_ARCHIVE_AUTO_ENABLED": "true",
-    "GAME_ARCHIVE_PHASE2_ENABLED": "true"
+    "GAME_ARCHIVE_PHASE2_ENABLED": "true",
+    "GAME_ARCHIVE_RECOVERY_ENABLED": "true"
   },
   "assets": {
     "directory": "./public",

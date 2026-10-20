@@ -3,6 +3,7 @@
 // Scope: list roots and discoverable one-ID details; NOT combinatorial shortcuts.
 import {API_KEY} from "./player-card.js";
 import {discoverGamePhase2,phase2RootTasks} from "./game-phase2-discovery.js";
+import {characterRecoveryTasks,splitFailedAbilities,isItemCharacterAssociation} from "./game-archive-recovery.js";
 export const GAME_ARCHIVE_CRON="* * * * *";
 export const GAME_ARCHIVE_ROOT="game-archive/v1/";
 // Internal emergency circuit-breaker, NOT a provider quota. Six GET/minute
@@ -289,6 +290,45 @@ async function loadNextQueue(bucket,state){
   state.pendingTasks-=chunk.length;
   await write(bucket,runKey(state.runId),state);
 }
+// Scan the original, append-only R2 gap log in small steps while preserving
+// normal collector throughput. This also backfills failures from older Workers.
+async function scanRecoveryGaps(bucket,state){
+  const recovery=state.recovery;
+  let scanned=0;
+  while(recovery.gapCursor<state.gaps.length&&scanned<8){
+    const gap=state.gaps[recovery.gapCursor],source=gap?.path;
+    if(gap?.status===472&&typeof source==="string"){
+      const variants=characterRecoveryTasks(source);
+      if(variants.length&&!recovery.records[source]){
+        // Store the recovery bookkeeping in progress.json and create the
+        // tasks using the EXISTING durable R2 queue.
+        await enqueueDetails(bucket,state,variants);
+        recovery.records[source]={
+          expected:variants.map(x=>x.path),archived:[],failed:[]
+        };
+        recovery.scheduled+=variants.length;
+      }
+    }
+    recovery.gapCursor++;scanned++;
+  }
+}
+// Existing gaps are never removed. A follow-up part is recorded only after
+// its original bytes and receipt have been durably persisted to R2.
+function recordRecovery(state,task,path,ok){
+  if(!task?.recoveryOf||!state.recovery)return;
+  const record=state.recovery.records[task.recoveryOf];
+  if(!record)return;
+  const field=ok?"archived":"failed";
+  if(!record[field].includes(path))record[field].push(path);
+}
+function registerAbilityParts(state,task,variants){
+  const record=state.recovery?.records?.[task?.recoveryOf];
+  if(!record)return;
+  const seen=new Set(record.expected);
+  for(const part of variants)
+    if(!seen.has(part.path)){record.expected.push(part.path);seen.add(part.path);}
+  state.recovery.scheduled+=variants.length;
+}
 function initial(){
   return {version:1,runId:crypto.randomUUID(),status:"running",
     startedAt:new Date().toISOString(),cursor:0,gaps:[],count:0,
@@ -308,6 +348,11 @@ export async function gameArchiveStatus(env,now=Date.now()){
     currentResource:state?.tasks?.[state.cursor]?.path||null,
     phase2:state?.phase2?{status:state.phase2.status,
       scannedReceipts:state.phase2.scanned||0,discovered:state.phase2.discovered||0}:null,
+    recovery:state?.recovery?{
+      scannedGaps:state.recovery.gapCursor,
+      scheduledParts:state.recovery.scheduled,
+      affectedCharacters:Object.keys(state.recovery.records).length
+    }:null,
     lastOutcome:state?.lastOutcome||null,requestsToday:budget?.used||0,
     dailyLimit:GAME_ARCHIVE_DAILY_LIMIT,pauseUntil:state?.pauseUntil||null};
 }
@@ -358,6 +403,14 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
       state.status="running";
       await write(bucket,key,state);
     }
+    // Recovery can be activated on a completed older run without allocating
+    // a new run ID or disturbing the phase-two receipt scanner.
+    if(env.GAME_ARCHIVE_RECOVERY_ENABLED==="true"&&!state.recovery){
+      state.recovery={version:1,gapCursor:0,scheduled:0,records:{}};
+      if(["completed","completed-with-gaps"].includes(state.status))
+        state.status="running";
+      await write(bucket,key,state);
+    }
     if(state.status!=="running")return {status:state.status};
     if(state.phase2?.status==="scanning"){
       try{await scanPhase2Receipts(bucket,state);}
@@ -371,6 +424,10 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
     }
     if(state.pauseUntil&&Date.parse(state.pauseUntil)>now)
       return {status:"cooldown",pauseUntil:state.pauseUntil};
+    if(state.recovery){
+      await scanRecoveryGaps(bucket,state);
+      await write(bucket,key,state);
+    }
     const day=dateOf(now),budgetKey=dailyKey(day);
     const budget=await read(bucket,budgetKey)||{date:day,used:0};
     if(budget.date!==day||!Number.isSafeInteger(budget.used)||
@@ -424,6 +481,7 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
           resetList(task);
           state.lastOutcome="large-page-archived-retrying-smaller";
         }else{
+          if(task.recoveryOf)recordRecovery(state,task,task.path,false);
           state.gaps.push({path,reason:"archived-but-unindexed",objectKey:parsed.objectKey});
           state.cursor++;state.lastOutcome="large-response-archived-unindexed";
         }
@@ -441,6 +499,16 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
               root:task.root,mode:"detail"
             })));
           }
+          // If a split ability response is still 472, ask for the four
+          // documented ability types separately. Never recurse further.
+          if(task.recoveryPart==="abilities"){
+            const variants=splitFailedAbilities(task);
+            if(variants.length){
+              await enqueueDetails(bucket,state,variants);
+              registerAbilityParts(state,task,variants);
+            }
+          }
+          if(task.recoveryOf)recordRecovery(state,task,task.path,false);
           state.gaps.push({path,status:472,reason:root?.objectKeys?
             "unpageable-root-detail-fallback":"provider-472-not-pageable"});
           state.cursor++;state.lastOutcome=root?.objectKeys?
@@ -450,13 +518,19 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
         state.lastOutcome="rate-limited";
         state.pauseUntil=new Date(now+60*60_000).toISOString();
       }else if([403,404,422,464,474].includes(upstream?.status)){
-        state.gaps.push({path:task.path,status:upstream.status});
+        if(task.recoveryOf)recordRecovery(state,task,task.path,false);
+        state.gaps.push({path:task.path,status:upstream.status,
+          ...(upstream.status===404&&isItemCharacterAssociation(task.path)
+            ?{reason:"item-association-unavailable"}:{})});
         state.cursor++;state.lastOutcome="detail-unavailable";
       }else if(!upstream||!upstream.ok||parsed?.status!=="ok"){
         // Never mark a retryable upstream failure as permanently blocked.
         const reason=upstream?"http-"+upstream.status+
           (parsed?.status?"-"+parsed.status:""):"network-error";
+        const before=state.cursor;
         deferRetry(state,task,reason,now);
+        if(state.cursor>before&&task.recoveryOf)
+          recordRecovery(state,task,task.path,false);
       }else{
         task.retries=0;state.pauseUntil=null;
         const id=await sha(parsed.bytes);
@@ -471,7 +545,10 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
         await write(bucket,receipt,{version:1,path,status:200,sha256:id,
           objectKey:archive,bytes:parsed.bytes.byteLength,
           capturedAt:new Date(now).toISOString(),
-          asOf:parsed.data.meta?.asOf||null});
+          asOf:parsed.data.meta?.asOf||null,
+          ...(task.recoveryOf?{recoveryOf:task.recoveryOf,
+            recoveryPart:task.recoveryPart}: {})});
+        if(task.recoveryOf)recordRecovery(state,task,task.path,true);
         state.count++;
         let nextPage=false;
         if(pageable&&Array.isArray(parsed.data.data)){
@@ -590,7 +667,9 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
       await write(bucket,key,state);
       if(state.status!=="running"||state.pauseUntil&&Date.parse(state.pauseUntil)>now)break;
     }
-    if(state.cursor===state.tasks.length&&!(state.pendingTasks>0)&&state.status==="running"){
+    if(state.cursor===state.tasks.length&&!(state.pendingTasks>0)&&
+       (!state.recovery||state.recovery.gapCursor>=state.gaps.length)&&
+       state.status==="running"){
       if(state.phase2?.status==="running")state.phase2.status="done";
       state.status=state.gaps.length?"completed-with-gaps":"completed";
       state.lastOutcome=state.status;await write(bucket,key,state);
@@ -598,6 +677,8 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
     return {status:state.status,processed:calls,
       archivedResponses:state.count,completedTasks:currentDone(state),
       totalTasks:currentTotal(state),lastOutcome:state.lastOutcome,
+      recovery:state.recovery?{scannedGaps:state.recovery.gapCursor,
+        scheduledParts:state.recovery.scheduled}:null,
       requestsToday:budget.used};
   }catch{return {status:"unavailable"};}
   finally{await withLock(env,"release",holder).catch(()=>{});}

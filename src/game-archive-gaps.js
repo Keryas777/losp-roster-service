@@ -1,6 +1,7 @@
 // Read-only diagnosis of errors already recorded by the private /game/v1
 // archive. No Scopely fetch, cron, locks, R2 mutation or player data.
 import {GAME_ARCHIVE_ROOT} from "./game-catalog-archive.js";
+import {isItemCharacterAssociation} from "./game-archive-recovery.js";
 
 const ACTIVE=GAME_ARCHIVE_ROOT+"active.json";
 const HEADERS={"Cache-Control":"private, no-store",
@@ -20,7 +21,9 @@ const familyOf=path=>{
   return chunks[0]==="analysis"&&chunks[1]==="teamOrder"
     ?"analysis/teamOrder":chunks[0]||"inconnue";
 };
-const categoryOf=(reason,status)=>{
+const categoryOf=(reason,status,path)=>{
+  if(status===404&&isItemCharacterAssociation(path))
+    return "association-objet-personnage-indisponible";
   if(reason==="archived-but-unindexed")return "indexation-requise";
   if(reason==="unpageable-root-detail-fallback")return "alternative-partielle";
   if(reason==="retry-exhausted")return "reprise-a-etudier";
@@ -69,21 +72,32 @@ export async function handleGameArchiveGapAudit(request,env){
     if(state?.runId!==active.runId||!Array.isArray(state.gaps))
       return json({error:"invalid-state"},503);
     const byCause=new Map(),byFamily=new Map(),byCategory=new Map(),
-      byHttpStatus=new Map(),paths=new Set();
+      byHttpStatus=new Map(),byRecovery=new Map(),paths=new Set();
     const normalized=[];
     for(const original of state.gaps){
       // Never send arbitrary properties (such as private R2 objectKey) to UI.
       const path=safePath(original?.path),reason=cleanReason(original?.reason),
-        status=validStatus(original?.status),category=categoryOf(reason,status),
+        status=validStatus(original?.status),category=categoryOf(reason,status,path),
         family=familyOf(path),attempts=Number.isSafeInteger(original?.attempts)&&
           original.attempts>0?original.attempts:null,
         affectedCount=Number.isSafeInteger(original?.count)&&original.count>0?
           original.count:null;
+      const recoveryRecord=path&&status===472?
+        state.recovery?.records?.[path]:null;
+      const recoveryStatus=!recoveryRecord?null:
+        recoveryRecord.expected.length===recoveryRecord.archived.length?
+          "all-split-parts-archived":
+        recoveryRecord.archived.length>0?"some-split-parts-archived":
+        recoveryRecord.failed.length>0?"split-parts-failed":"split-parts-queued";
+      if(recoveryStatus)count(byRecovery,recoveryStatus);
       count(byCause,reason);count(byFamily,family);
       count(byCategory,category);
       count(byHttpStatus,status===null?"non-renseigne":String(status));
       if(path)paths.add(path);
       normalized.push({path,reason,status,family,category,
+        ...(recoveryStatus?{recoveryStatus,
+          archivedParts:recoveryRecord.archived.length,
+          expectedParts:recoveryRecord.expected.length}:{}),
         ...(attempts!==null?{attempts}:{}),
         ...(affectedCount!==null?{affectedCount}:{})});
     }
@@ -98,12 +112,13 @@ export async function handleGameArchiveGapAudit(request,env){
       tasksProcessed:(state.completedOffset||0)+(state.cursor||0),
       byCause:ordered(byCause),byFamily:ordered(byFamily),
       byCategory:ordered(byCategory),byHttpStatus:ordered(byHttpStatus),
+      byRecovery:ordered(byRecovery),
       matching:matchingRows.length,entries,offset,limit,
       nextOffset:offset+entries.length<matchingRows.length?
         offset+entries.length:null,
       // Explicitly do NOT treat archived counts or errors as proof that
       // every resource was recovered or definitively inaccessible.
-      note:"Signalements cumulatifs; leur résolution actuelle n'est pas vérifiée."});
+      note:"Signalements cumulatifs. Les variantes archivées ne prouvent pas la reconstitution fidèle de la réponse complète."});
   }catch{
     return json({error:"audit-unavailable"},503);
   }

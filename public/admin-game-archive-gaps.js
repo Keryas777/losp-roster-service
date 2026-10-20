@@ -19,7 +19,12 @@
     "pagination-a-etudier":"Pagination incohérente",
     "volume-ou-pagination":"Réponse volumineuse ou non paginable",
     "acces-a-verifier":"Autorisation à vérifier",
-    "introuvable-a-verifier":"Objet absent ou ID périmé",
+    "introuvable-a-verifier":"Ressource introuvable (à vérifier)",
+    "association-objet-personnage-indisponible":"Association objet/personnages refusée (objet non remis en cause)",
+    "all-split-parts-archived":"Toutes les variantes demandées archivées (fiche complète non certifiée)",
+    "some-split-parts-archived":"Variantes partiellement archivées",
+    "split-parts-failed":"Au moins une variante refusée",
+    "split-parts-queued":"Variantes programmées, collecte en cours",
     "temporisation-fournisseur":"Limitation temporaire",
     "a-investiguer":"Cause à investiguer"
   };
@@ -62,6 +67,9 @@
     group(headline,"Par code HTTP",report.byHttpStatus||[],false);
     group(headline,"Par famille",report.byFamily||[],false);
     group(headline,"Par motif technique",report.byCause||[],false);
+    if(report.byRecovery?.length)
+      group(headline,"Récupération ciblée des personnages",
+        report.byRecovery,true);
     summary.append(headline);
     summary.append(element("p",
       "Les lacunes enregistrées ne signifient pas toutes une perte définitive. "+
@@ -76,6 +84,9 @@
       card.append(element("p","Cause : "+(labels[row.category]||row.category)+
         " ("+row.reason+")"));
       if(row.status!==null)card.append(element("p","HTTP : "+row.status));
+      if(row.recoveryStatus)card.append(element("p","Récupération : "+
+        (labels[row.recoveryStatus]||row.recoveryStatus)+
+        " ("+row.archivedParts+"/"+row.expectedParts+" variantes archivées)"));
       if(row.attempts)card.append(element("p","Tentatives : "+row.attempts));
       if(row.affectedCount)card.append(element("p","IDs non découverts : "+row.affectedCount));
       results.append(card);

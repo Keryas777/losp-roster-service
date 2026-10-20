@@ -60,7 +60,7 @@ test("audit aggregates active R2 gaps with no Scopely GET, R2 writes or secret l
   assert.deepEqual(f.calls.map(x=>x[0]),["get","get"]);
   assert.ok(!JSON.stringify(data).includes("private/r2/path"));
   assert.ok(!JSON.stringify(data).includes("outcome"));
-  assert.ok(data.note.includes("résolution actuelle"));
+  assert.ok(data.note.includes("ne prouvent pas"));
 });
 test("filters and pagination operate on recorded entries, not provider requests",async()=>{
   const gaps=Array.from({length:125},(_,i)=>({
