@@ -43,7 +43,7 @@ function fixture(){
   const fakeFetch=async(uri,options)=>{
     calls.push([uri,options.headers.Authorization]);
     assert.equal(uri,"https://api.marvelstrikeforce.com/player/v1/alliance/card");
-    const id=Number(options.headers.Authorization.slice(11));
+    const id=Number(options.headers.Authorization.replace("Bearer TOKEN",""));
     const cards={
       1:{id:"zeus:old",name:"Zeus",warRank:201,raidRank:33,
         warTrophies:2649,warLeague:{id:"D2",name:"DIAMOND II"},
