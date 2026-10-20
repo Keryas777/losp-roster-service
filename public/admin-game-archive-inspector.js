@@ -2,11 +2,13 @@
 (()=>{
   const start=document.getElementById("game-inspect-start"),
     next=document.getElementById("game-inspect-next"),
+    copy=document.getElementById("game-inspect-copy"),
     status=document.getElementById("game-inspect-status"),
     summary=document.getElementById("game-inspect-summary"),
     results=document.getElementById("game-inspect-results");
-  if(!start||!next||!status||!summary||!results)return;
+  if(!start||!next||!copy||!status||!summary||!results)return;
   let cursor=null,busy=false,seen=0;
+  const totals=new Map(),shapes=new Map();
   const node=(tag,text)=>{
     const e=document.createElement(tag);
     if(text!==undefined)e.textContent=String(text);
@@ -15,6 +17,16 @@
   const describe=arr=>arr?.length?arr.join(", "):"Aucun dans cet échantillon";
   function show(data){
     seen+=data.validReceipts||0;
+    for(const r of data.receipts||[])
+      totals.set(r.family,(totals.get(r.family)||0)+1);
+    for(const s of data.samples||[]){
+      const k=s.family;
+      if(!shapes.has(k))shapes.set(k,[]);
+      const examples=shapes.get(k);
+      if(examples.length<2&&s.shape&&!examples.some(x=>x.path===s.path))
+        examples.push({path:s.path,shape:s.shape});
+    }
+    copy.disabled=false;
     summary.replaceChildren();
     const card=node("div");card.className="health-card";
     card.append(node("strong","Reçus examinés dans ce lot : "+data.validReceipts+
@@ -61,7 +73,7 @@
   async function load(restart=false){
     if(busy)return;
     busy=true;start.disabled=true;next.disabled=true;
-    if(restart){cursor=null;seen=0;}
+    if(restart){cursor=null;seen=0;totals.clear();shapes.clear();copy.disabled=true;}
     status.textContent="Inspection privée des reçus R2…";
     try{
       const q=new URLSearchParams();
@@ -81,6 +93,22 @@
       busy=false;start.disabled=false;
     }
   }
+  copy.addEventListener("click",async()=>{
+    const report={kind:"LoSP-MSF-R2-shape-sample",scope:"sample-only",
+      receiptsInspected:seen,byFamily:[...totals].map(([family,count])=>({family,count})),
+      examples:[...shapes].flatMap(([family,list])=>
+        list.map(entry=>({family,...entry})))};
+    const payload=JSON.stringify(report,null,2);
+    try{
+      await navigator.clipboard.writeText(payload);
+      status.textContent="Résumé JSON copié. Tu peux le coller dans ChatGPT.";
+    }catch{
+      const block=node("pre",payload);
+      block.setAttribute("aria-label","Résumé JSON à copier manuellement");
+      results.prepend(block);
+      status.textContent="Copie automatique indisponible : sélectionne le résumé affiché.";
+    }
+  });
   start.addEventListener("click",()=>void load(true));
   next.addEventListener("click",()=>void load(false));
 })();
