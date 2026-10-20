@@ -7,6 +7,7 @@ import {PUBLIC_SOURCE_ROUTES,handlePublicSourceProbe} from "./public-msf-source-
 import {handleGameArchiveAdmin} from "./game-catalog-archive.js";
 import {handleGameArchiveGapAudit} from "./game-archive-gaps.js";
 import {handleGameArchiveInspect} from "./game-archive-inspector.js";
+import {handleGameArchiveSchemaAudit} from "./game-archive-schema-audit.js";
 import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron,adminMemberCard} from "./admin-data-api.js";
 
 const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
@@ -65,6 +66,15 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<p id="game-inspect-status" role="status"></p>'+
 '<div id="game-inspect-summary"></div>'+
 '<div id="game-inspect-results" class="scroll"></div></section>'+
+'<section><h2>Audit automatique des structures JSON R2</h2>'+
+'<p>Un lancement suffit : le Cron examine les reçus par lots, même si tu fermes la page. Aucun appel Scopely. Les structures sont analysées sur des échantillons bornés ; les fichiers volumineux restent non inspectés.</p>'+
+'<button id="game-schema-start" type="button">Lancer l’audit des structures</button>'+
+'<button id="game-schema-refresh" type="button">Actualiser le rapport</button>'+
+'<button id="game-schema-copy" type="button" disabled>Copier le rapport JSON</button>'+
+'<p id="game-schema-status" role="status"></p>'+
+'<div id="game-schema-summary" class="health-cards"></div>'+
+'<label>Famille<select id="game-schema-family"><option value="">Choisir une famille</option></select></label>'+
+'<div id="game-schema-detail" class="scroll"></div></section>'+
 '<section><h2>Diagnostic du PID joueur</h2>'+
 '<p>Compare le PID en jeu à la fiche officielle du <strong>même joueur</strong>. Le compte est choisi dans Explorer ; pour un coéquipier actuel, charge d\'abord ses membres. Les IDs d\'effectif sont temporaires.</p>'+
 '<label>Joueur à analyser (choix obligatoire)<select id="pid-target"><option value="">Choisir un joueur…</option></select></label>'+
@@ -90,6 +100,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-secondary-probes.js" defer></script>'+
 '<script src="/admin-game-archive.js" defer></script>'+
 '<script src="/admin-game-archive-inspector.js" defer></script>'+
+'<script src="/admin-game-schema-audit.js" defer></script>'+
 '<script src="/admin-game-archive-gaps.js" defer></script></body></html>';
 
 export async function handleAdmin(request,env,fetchImpl=fetch){
@@ -97,7 +108,8 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   if(request.method!=="GET"&&!(request.method==="POST"&&
        ["/admin/api/roster-approvals","/admin/api/roster-pilot",
         "/admin/api/roster-batch","/admin/api/roster-auto-test",
-        "/admin/api/msf-secondary-probe","/admin/api/game-archive"].includes(endpoint)))
+        "/admin/api/msf-secondary-probe","/admin/api/game-archive",
+        "/admin/api/game-archive-schema-audit"].includes(endpoint)))
     return new Response("Method Not Allowed",{status:405});
   if(!adminReady(env))return new Response("Administration désactivée",{
     status:503,headers:{"Cache-Control":"no-store"}
@@ -144,5 +156,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     return handleGameArchiveGapAudit(request,env);
   if(pathname==="/admin/api/game-archive-inspect")
     return handleGameArchiveInspect(request,env);
+  if(pathname==="/admin/api/game-archive-schema-audit")
+    return handleGameArchiveSchemaAudit(request,env);
   return new Response("Not Found",{status:404});
 }

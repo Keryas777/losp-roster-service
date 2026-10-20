@@ -10,6 +10,7 @@ import { handleAdmin } from "./admin-routes.js";
 import { prunePrivateRosterPilots } from "./private-roster-pilot.js";
 import { ROSTER_CRON, runRosterAutoTick } from "./automatic-roster-scheduler.js";
 import {GAME_ARCHIVE_CRON,runGameArchiveTick} from "./game-catalog-archive.js";
+import {runGameArchiveSchemaAuditTick} from "./game-archive-schema-audit.js";
 
 const SCOPELY_AUTH_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/auth";
 const APP_ORIGIN = "https://losp-roster-service.deliriousfan7.workers.dev";
@@ -155,6 +156,13 @@ export default {
         status:result.status,processed:result.processed||0,
         completedTasks:result.completedTasks||0,
         requestsToday:result.requestsToday||0
+      }));
+      // Independent R2-only analysis, after the provider collector has run.
+      // No Scopely GET, no roster access and no writes to archive receipts.
+      const audit=await runGameArchiveSchemaAuditTick(env);
+      if(audit.status!=="not-started")console.info("game-schema-audit",JSON.stringify({
+        status:audit.status,receiptsListed:audit.receiptsListed||0,
+        samples:audit.samples||0
       }));
       return;
     }
