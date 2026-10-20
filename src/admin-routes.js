@@ -61,6 +61,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<p>Échantillonnage privé en lecture seule : reçus, familles réellement collectées et structure de quelques JSON. Aucun nouvel appel Scopely, aucune modification des archives.</p>'+
 '<button id="game-inspect-start" type="button">Examiner les premières archives</button>'+
 '<button id="game-inspect-next" type="button" disabled>Examiner le lot suivant</button>'+
+'<button id="game-inspect-copy" type="button" disabled>Copier le résumé d’analyse</button>'+
 '<p id="game-inspect-status" role="status"></p>'+
 '<div id="game-inspect-summary"></div>'+
 '<div id="game-inspect-results" class="scroll"></div></section>'+
