@@ -186,9 +186,9 @@ export async function runGameArchiveSchemaAuditTick(env,now=Date.now()){
     }
     // Prioritize families not yet understood, rather than spending every
     // sample on the many chronological event receipts.
-    let samples=0;
+    let reads=0;
     const attemptsByFamily=new Map();
-    while(candidates.length&&samples<MAX_READS){
+    while(candidates.length&&reads<MAX_READS){
       candidates.sort((a,b)=>
         (a.group.inspected+100*(attemptsByFamily.get(a.safe.family)||0))-
         (b.group.inspected+100*(attemptsByFamily.get(b.safe.family)||0))||
@@ -203,6 +203,7 @@ export async function runGameArchiveSchemaAuditTick(env,now=Date.now()){
       try{head=await bucket.head(safe.key);}catch{group.unreadable++;continue;}
       if(!head||!Number.isFinite(head.size)){group.unreadable++;continue;}
       if(head.size>MAX_BYTES){group.tooLarge++;continue;}
+      reads++; // Bound JSON loads even when parsing fails.
       try{
         const document=await read(bucket,safe.key);
         if(!document||typeof document!=="object"||
@@ -210,7 +211,6 @@ export async function runGameArchiveSchemaAuditTick(env,now=Date.now()){
           group.unreadable++;continue;
         }
         recordFamilySample(group,document,safe.path);
-        samples++;
       }catch{group.unreadable++;}
     }
     state.pages++;
