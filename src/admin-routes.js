@@ -6,6 +6,7 @@ import {rosterAutoStatus,handleAdminRosterAutoTest} from "./automatic-roster-sch
 import {PUBLIC_SOURCE_ROUTES,handlePublicSourceProbe} from "./public-msf-source-probe.js";
 import {handleGameArchiveAdmin} from "./game-catalog-archive.js";
 import {handleGameArchiveGapAudit} from "./game-archive-gaps.js";
+import {handleGameArchiveInspect} from "./game-archive-inspector.js";
 import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron,adminMemberCard} from "./admin-data-api.js";
 
 const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
@@ -56,6 +57,13 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<div id="game-gap-results" class="scroll"></div>'+
 '<div class="actions"><button id="game-gap-prev" type="button" disabled>Précédentes</button>'+
 '<button id="game-gap-next" type="button" disabled>Suivantes</button></div></section>'+
+'<section><h2>Explorer les JSON déjà archivés dans R2</h2>'+
+'<p>Échantillonnage privé en lecture seule : reçus, familles réellement collectées et structure de quelques JSON. Aucun nouvel appel Scopely, aucune modification des archives.</p>'+
+'<button id="game-inspect-start" type="button">Examiner les premières archives</button>'+
+'<button id="game-inspect-next" type="button" disabled>Examiner le lot suivant</button>'+
+'<p id="game-inspect-status" role="status"></p>'+
+'<div id="game-inspect-summary"></div>'+
+'<div id="game-inspect-results" class="scroll"></div></section>'+
 '<section><h2>Diagnostic du PID joueur</h2>'+
 '<p>Compare le PID en jeu à la fiche officielle du <strong>même joueur</strong>. Le compte est choisi dans Explorer ; pour un coéquipier actuel, charge d\'abord ses membres. Les IDs d\'effectif sont temporaires.</p>'+
 '<label>Joueur à analyser (choix obligatoire)<select id="pid-target"><option value="">Choisir un joueur…</option></select></label>'+
@@ -80,6 +88,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-roster-preflight.js" defer></script>'+ 
 '<script src="/admin-secondary-probes.js" defer></script>'+
 '<script src="/admin-game-archive.js" defer></script>'+
+'<script src="/admin-game-archive-inspector.js" defer></script>'+
 '<script src="/admin-game-archive-gaps.js" defer></script></body></html>';
 
 export async function handleAdmin(request,env,fetchImpl=fetch){
@@ -132,5 +141,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     return handleGameArchiveAdmin(request,env,fetchImpl);
   if(pathname==="/admin/api/game-archive-gaps")
     return handleGameArchiveGapAudit(request,env);
+  if(pathname==="/admin/api/game-archive-inspect")
+    return handleGameArchiveInspect(request,env);
   return new Response("Not Found",{status:404});
 }
