@@ -539,8 +539,11 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
           await bucket.put(archive,parsed.bytes,{
             httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
           });
+        // state.cursor restarts at 0 for each R2 queue chunk. Use the
+        // global task ordinal so receipts from later chunks never overwrite
+        // receipts from earlier chunks of this same archive campaign.
         const receipt=GAME_ARCHIVE_ROOT+"runs/"+state.runId+
-          "/receipts/"+String(state.cursor).padStart(6,"0")+"-"+
+          "/receipts/"+String(currentDone(state)).padStart(10,"0")+"-"+
           String(task.page||0).padStart(5,"0")+"-s"+(task.series||0)+".json";
         await write(bucket,receipt,{version:1,path,status:200,sha256:id,
           objectKey:archive,bytes:parsed.bytes.byteLength,
