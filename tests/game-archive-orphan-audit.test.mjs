@@ -187,10 +187,11 @@ test("same-origin admin POST, parameters and Cloudflare Access are required",asy
   const config={...f.env,MSF_ADMIN_ENABLED:"true",
     CF_ACCESS_TEAM_DOMAIN:"test.cloudflareaccess.com",
     CF_ACCESS_AUD:"a".repeat(64),MSF_ADMIN_EMAILS:"admin@example.test"};
+  const before=f.calls.length;
   const guarded=await handleAdmin(req(),config,async()=>{throw Error("No network");});
   assert.equal(guarded.status,403);
-  assert.deepEqual(f.calls.filter(([type,key])=>type==="get"&&
-    key.startsWith(prefix)),[]);
+  assert.equal(f.calls.length,before,
+    "Cloudflare Access must reject before any NEW private R2 access");
 });
 
 test("mobile admin script uses safe text and never downloads player/Scopely data",async()=>{
