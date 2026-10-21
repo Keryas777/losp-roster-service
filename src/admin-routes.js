@@ -46,7 +46,8 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<p id="roster-approve-status" role="status"></p></section>'+
 '<section><h2>Couverture réelle des rosters privés R2</h2>'+
 '<p>Vérification des alliances déjà approuvées, de leurs progrès et des fichiers R2. Aucun appel Scopely ni lancement de collecte.</p>'+
-'<button id="roster-r2-refresh" type="button">Vérifier les cinq alliances en R2</button>'+
+'<button id="roster-r2-refresh" type="button">Vérifier les alliances en R2</button>'+
+'<button id="roster-r2-copy" type="button" disabled>Copier le diagnostic JSON</button>'+
 '<p id="roster-r2-status" role="status"></p><div id="roster-r2-report" class="scroll"></div></section>'+
 '<section><h2>Recherche des services MSF complémentaires</h2>'+ 
 '<p>Test en lecture seule d’une seule route historique /services/api/ à la fois. Aucun jeton joueur transmis. En cas de réponse JSON, archive intégrale dans R2 privé.</p>'+ 
