@@ -74,7 +74,13 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<div id="game-gap-results" class="scroll"></div>'+
 '<div class="actions"><button id="game-gap-prev" type="button" disabled>Précédentes</button>'+
 '<button id="game-gap-next" type="button" disabled>Suivantes</button></div></section>'+
-'<section><h2>Inventaire physique des archives R2</h2>'+\n'<p>Compter les reçus, objets SHA-256 et réponses raw réellement présents, puis détecter les objets sans reçu et les références manquantes. Lecture seule, aucun appel Scopely.</p>'+\n'<button id="game-r2-inventory-start" type="button">Inventorier les fichiers R2</button>'+\n'<button id="game-r2-inventory-copy" type="button" disabled>Copier le bilan JSON</button>'+\n'<p id="game-r2-inventory-status" role="status"></p>'+\n'<div id="game-r2-inventory-summary" class="scroll"></div></section>'+\n'<section><h2>Explorer les JSON déjà archivés dans R2</h2>'+
+'<section><h2>Inventaire physique des archives R2</h2>'+
+'<p>Compter les reçus, objets SHA-256 et réponses raw réellement présents, puis détecter les objets sans reçu et les références manquantes. Lecture seule, aucun appel Scopely.</p>'+
+'<button id="game-r2-inventory-start" type="button">Inventorier les fichiers R2</button>'+
+'<button id="game-r2-inventory-copy" type="button" disabled>Copier le bilan JSON</button>'+
+'<p id="game-r2-inventory-status" role="status"></p>'+
+'<div id="game-r2-inventory-summary" class="scroll"></div></section>'+
+'<section><h2>Explorer les JSON déjà archivés dans R2</h2>'+
 '<p>Échantillonnage privé en lecture seule : reçus, familles réellement collectées et structure de quelques JSON. Aucun nouvel appel Scopely, aucune modification des archives.</p>'+
 '<button id="game-inspect-start" type="button">Examiner les premières archives</button>'+
 '<button id="game-inspect-next" type="button" disabled>Examiner le lot suivant</button>'+
@@ -117,7 +123,8 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-roster-r2-coverage.js" defer></script>'+ 
 '<script src="/admin-secondary-probes.js" defer></script>'+
 '<script src="/admin-game-archive.js" defer></script>'+
-'<script src="/admin-game-archive-inspector.js" defer></script>'+\n'<script src="/admin-game-r2-inventory.js" defer></script>'+
+'<script src="/admin-game-archive-inspector.js" defer></script>'+
+'<script src="/admin-game-r2-inventory.js" defer></script>'+
 '<script src="/admin-game-schema-audit.js" defer></script>'+
 '<script src="/admin-game-archive-gaps.js" defer></script></body></html>';
 
