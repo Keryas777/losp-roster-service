@@ -10,6 +10,18 @@ const GAME_PATH=/^\/game\/v1\/[A-Za-z0-9/_:?.=%&,+-]{1,800}$/;
 const PAGE=40,CONCURRENT=4,MAX_JSON_BYTES=256_000,MAX_RECEIPT_BYTES=4096;
 const MAX_EVIDENCE_BYTES=1_500_000,MAX_SHAPES=48;
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
+const AUDIT_LOCK="d".repeat(64); // distinct from the provider archive lock
+async function lease(env,holder,action){
+  const binding=env.ROSTER_BATCH_LOCK;
+  if(!binding?.get||!binding?.idFromName)return false;
+  const stub=binding.get(binding.idFromName(AUDIT_LOCK));
+  const response=await stub.fetch(new Request("https://roster-lock.internal/",{
+    method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({fingerprint:AUDIT_LOCK,holder,action})
+  }));
+  return response.ok&&(await response.json()).status===
+    (action==="acquire"?"acquired":"released");
+}
 const HEADERS={"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff",
   "X-Robots-Tag":"noindex"};
 const send=(data,status=200)=>Response.json(data,{status,headers:HEADERS});
@@ -223,7 +235,12 @@ async function objectsTick(bucket,s){
 }
 export async function runGameOrphanAuditTick(env,now=Date.now()){
   const bucket=env?.CAPTAIN_BUCKET;
-  if(!bucket?.get||!bucket?.put||!bucket?.list)return {status:"storage-unavailable"};
+  if(!bucket?.get||!bucket?.put||!bucket?.list||
+      !env?.ROSTER_BATCH_LOCK?.get)return {status:"storage-unavailable"};
+  const holder=crypto.randomUUID();
+  try{
+    if(!await lease(env,holder,"acquire"))return {status:"busy"};
+  }catch{return {status:"lock-unavailable"};}
   try{
     const active=await getSmall(bucket,ACTIVE,4096);
     if(!RUN.test(active?.runId||""))return {status:"not-started"};
@@ -240,4 +257,5 @@ export async function runGameOrphanAuditTick(env,now=Date.now()){
     return {status:s.status,phase:s.phase,objects:s.objects.listed,
       orphaned:s.objects.orphaned,receipts:s.receipts.listed};
   }catch{return {status:"orphan-audit-unavailable"};}
+  finally{try{await lease(env,holder,"release");}catch{}}
 }
