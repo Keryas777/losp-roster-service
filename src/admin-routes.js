@@ -3,6 +3,7 @@ import {rosterSyncPreflight,saveRosterSyncApprovals} from "./roster-sync-preflig
 import {handlePrivateRosterPilot} from "./private-roster-pilot.js";
 import {handleRosterMicrobatch,getRosterBatchStatus} from "./private-roster-batches.js";
 import {rosterAutoStatus,handleAdminRosterAutoTest} from "./automatic-roster-scheduler.js";
+import {handleRosterR2Coverage} from "./roster-r2-coverage.js";
 import {PUBLIC_SOURCE_ROUTES,handlePublicSourceProbe} from "./public-msf-source-probe.js";
 import {handleGameArchiveAdmin} from "./game-catalog-archive.js";
 import {handleGameArchiveGapAudit} from "./game-archive-gaps.js";
@@ -43,6 +44,10 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<p id="roster-preflight-status" role="status"></p><div id="roster-preflight-list"></div>'+
 '<button id="roster-approve" type="button" disabled>Enregistrer les alliances approuvées</button>'+
 '<p id="roster-approve-status" role="status"></p></section>'+
+'<section><h2>Couverture réelle des rosters privés R2</h2>'+
+'<p>Vérification des alliances déjà approuvées, de leurs progrès et des fichiers R2. Aucun appel Scopely ni lancement de collecte.</p>'+
+'<button id="roster-r2-refresh" type="button">Vérifier les cinq alliances en R2</button>'+
+'<p id="roster-r2-status" role="status"></p><div id="roster-r2-report" class="scroll"></div></section>'+
 '<section><h2>Recherche des services MSF complémentaires</h2>'+ 
 '<p>Test en lecture seule d’une seule route historique /services/api/ à la fois. Aucun jeton joueur transmis. En cas de réponse JSON, archive intégrale dans R2 privé.</p>'+ 
 '<label>Service<select id="msf-secondary-source">'+
@@ -107,6 +112,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-season-ranks.js" defer></script>'+
 '<script src="/admin-pid-diagnostic.js" defer></script>'+
 '<script src="/admin-roster-preflight.js" defer></script>'+ 
+'<script src="/admin-roster-r2-coverage.js" defer></script>'+ 
 '<script src="/admin-secondary-probes.js" defer></script>'+
 '<script src="/admin-game-archive.js" defer></script>'+
 '<script src="/admin-game-archive-inspector.js" defer></script>'+
@@ -155,6 +161,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   if(pathname==="/admin/api/roster-pilot")return handlePrivateRosterPilot(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-batch")return handleRosterMicrobatch(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-batch-status")return getRosterBatchStatus(request,env);
+  if(pathname==="/admin/api/roster-r2-coverage")return handleRosterR2Coverage(request,env);
   if(pathname==="/admin/api/roster-auto-status")return Response.json(
     await rosterAutoStatus(env),{headers:{"Cache-Control":"private, no-store"}});
   if(pathname==="/admin/api/roster-auto-test")
