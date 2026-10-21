@@ -32,7 +32,7 @@ function fixture(){
   const provider=async url=>{
     calls.push(url);
     if(url.includes("/oauth2/token"))
-      return Response.json({access_token:"TEST_TOKEN",expires_in:300});
+      return Response.json({access_token:"TEST_TOKEN",token_type:"Bearer",expires_in:300});
     assert.match(url,/\/game\/v1\/characters\/Hero/);
     return Response.json({data:{id:new URL(url).pathname.split("/").at(-1)},meta:{}});
   };
