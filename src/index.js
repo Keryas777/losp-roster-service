@@ -11,6 +11,7 @@ import { prunePrivateRosterPilots } from "./private-roster-pilot.js";
 import { ROSTER_CRON, runRosterAutoTick } from "./automatic-roster-scheduler.js";
 import {GAME_ARCHIVE_CRON,runGameArchiveTick} from "./game-catalog-archive.js";
 import {runGameArchiveSchemaAuditTick} from "./game-archive-schema-audit.js";
+import {runGameOrphanAuditTick} from "./game-archive-orphan-audit.js";
 
 const SCOPELY_AUTH_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/auth";
 const APP_ORIGIN = "https://losp-roster-service.deliriousfan7.workers.dev";
@@ -163,6 +164,12 @@ export default {
       if(audit.status!=="not-started")console.info("game-schema-audit",JSON.stringify({
         status:audit.status,receiptsListed:audit.receiptsListed||0,
         samples:audit.samples||0
+      }));
+      // Resumable analysis of existing private R2 JSON, independent of provider GETs.
+      const orphanAudit=await runGameOrphanAuditTick(env);
+      if(orphanAudit.status!=="not-started")console.info("game-orphan-audit",JSON.stringify({
+        status:orphanAudit.status,phase:orphanAudit.phase||null,
+        objects:orphanAudit.objects||0,orphaned:orphanAudit.orphaned||0
       }));
       return;
     }
