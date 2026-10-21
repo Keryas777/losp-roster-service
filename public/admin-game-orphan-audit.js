@@ -46,7 +46,7 @@
       }
       summary.append(details);
     }
-    copy.disabled=report.status!=="not-started";
+    copy.disabled=report.status==="not-started";
     if(report.status==="not-started"){
       copy.disabled=true;start.disabled=false;
     }else{
