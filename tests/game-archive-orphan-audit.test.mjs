@@ -42,7 +42,20 @@ function fixture(){
     },
     delete:async()=>{throw Error("delete forbidden");}
   };
-  return {env:{CAPTAIN_BUCKET:r2},store,put,calls,writes};
+  let leaseHolder=null;
+  const lock={idFromName:key=>key,get:()=>({
+    fetch:async request=>{
+      const message=await request.json();
+      if(message.action==="acquire"){
+        if(leaseHolder)return Response.json({status:"busy"},{status:409});
+        leaseHolder=message.holder;
+        return Response.json({status:"acquired"});
+      }
+      if(leaseHolder===message.holder)leaseHolder=null;
+      return Response.json({status:"released"});
+    }
+  })};
+  return {env:{CAPTAIN_BUCKET:r2,ROSTER_BATCH_LOCK:lock},store,put,calls,writes};
 }
 const req=(method="GET",opts={})=>new Request(endpoint,{
   method,headers:method==="POST"?{"Content-Type":"application/json",
