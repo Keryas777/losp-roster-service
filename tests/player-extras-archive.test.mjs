@@ -112,7 +112,7 @@ test("member squads require current rosterShare before and after; no OAuth for t
   assert.equal(result.status,200);
   assert.equal((await result.json()).status,"archived");
   assert.equal(f.calls.length,3);
-  assert.ok(f.calls[1].includes("/squads/member/abc%3A1?"),f.calls.join(" | "));
+  assert.ok(f.calls[1].endsWith("/squads/member/abc%3A1"),f.calls.join(" | "));
   sharing=false;
   result=await f.post({resource:"shared-member-squads",member},
     Date.now()+11*60_000);
