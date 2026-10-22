@@ -9,6 +9,7 @@ import {handleGameArchiveAdmin} from "./game-catalog-archive.js";
 import {handleGameArchiveGapAudit} from "./game-archive-gaps.js";
 import {handleGameArchiveInspect} from "./game-archive-inspector.js";
 import {handleGameArchiveInventory} from "./game-archive-inventory.js";
+import {handleGameOrphanAudit} from "./game-archive-orphan-audit.js";
 import {handleGameArchiveSchemaAudit} from "./game-archive-schema-audit.js";
 import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
 import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron,adminMemberCard} from "./admin-data-api.js";
@@ -80,6 +81,13 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<button id="game-r2-inventory-copy" type="button" disabled>Copier le bilan JSON</button>'+
 '<p id="game-r2-inventory-status" role="status"></p>'+
 '<div id="game-r2-inventory-summary" class="scroll"></div></section>'+
+'<section><h2>Audit de récupérabilité des JSON orphelins R2</h2>'+
+'<p>Analyse reprenable des objets sans reçu, avec contrôle SHA-256, inventaire des indices historiques et classification prudente des structures. Aucun appel Scopely, aucune modification des archives originales.</p>'+
+'<button id="game-orphan-start" type="button">Lancer l’audit des orphelins</button>'+
+'<button id="game-orphan-refresh" type="button">Actualiser le rapport</button>'+
+'<button id="game-orphan-copy" type="button" disabled>Copier le rapport JSON</button>'+
+'<p id="game-orphan-status" role="status"></p>'+
+'<div id="game-orphan-summary" class="health-cards"></div></section>'+
 '<section><h2>Explorer les JSON déjà archivés dans R2</h2>'+
 '<p>Échantillonnage privé en lecture seule : reçus, familles réellement collectées et structure de quelques JSON. Aucun nouvel appel Scopely, aucune modification des archives.</p>'+
 '<button id="game-inspect-start" type="button">Examiner les premières archives</button>'+
@@ -125,6 +133,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-game-archive.js" defer></script>'+
 '<script src="/admin-game-archive-inspector.js" defer></script>'+
 '<script src="/admin-game-r2-inventory.js" defer></script>'+
+'<script src="/admin-game-orphan-audit.js" defer></script>'+
 '<script src="/admin-game-schema-audit.js" defer></script>'+
 '<script src="/admin-game-archive-gaps.js" defer></script></body></html>';
 
@@ -135,6 +144,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
         "/admin/api/roster-batch","/admin/api/roster-auto-test",
         "/admin/api/msf-secondary-probe","/admin/api/game-archive",
         "/admin/api/game-archive-schema-audit",
+        "/admin/api/game-archive-orphan-audit",
         "/admin/api/alliance-season-ranks"].includes(endpoint)))
     return new Response("Method Not Allowed",{status:405});
   if(!adminReady(env))return new Response("Administration désactivée",{
@@ -187,6 +197,8 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     return handleGameArchiveInventory(request,env);
   if(pathname==="/admin/api/game-archive-schema-audit")
     return handleGameArchiveSchemaAudit(request,env);
+  if(pathname==="/admin/api/game-archive-orphan-audit")
+    return handleGameOrphanAudit(request,env);
   if(pathname==="/admin/api/alliance-season-ranks")
     return handleAllianceSeasonRanks(request,env,fetchImpl);
   return new Response("Not Found",{status:404});
