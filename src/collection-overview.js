@@ -71,7 +71,8 @@ async function snapshot(bucket,sid,family,now){
   if(Date.parse(v.expiresAt)<=now)return {state:"expired"};
   const checks=await pool(v.pages,p=>bucket.head(p.key));
   return checks.every(Boolean)?
-    {state:"archived",capturedAt:v.capturedAt,entries:v.total,pages:v.pages.length}:
+    {state:"archived",capturedAt:v.capturedAt,entries:v.total,pages:v.pages.length,
+      trigger:["automatic-campaign","admin-manual"].includes(v.trigger)?v.trigger:"unknown"}:
     {state:"missing-pages"};
 }
 async function personalCoverage(env,now){
@@ -94,6 +95,9 @@ async function personalCoverage(env,now){
       missing:data.filter(x=>x.state==="missing").length,
       broken:data.filter(x=>["invalid","expired","missing-pages"].includes(x.state)).length,
       notGranted:active.length-data.length,
+      automatic:saved.filter(x=>x.trigger==="automatic-campaign").length,
+      manual:saved.filter(x=>x.trigger==="admin-manual").length,
+      provenanceUnknown:saved.filter(x=>x.trigger==="unknown").length,
       totalEntries:saved.reduce((n,x)=>n+x.entries,0),
       lastCapture:saved.map(x=>x.capturedAt).sort().at(-1)||null,
       // null if a family is not authorized for any OAuth account.
