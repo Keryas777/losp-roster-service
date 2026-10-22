@@ -5,7 +5,7 @@
   if(!main)return;
   const groups=[
     {id:"overview",label:"Vue d’ensemble",targets:[
-      "refresh","check-refresh","season-ranks-refresh"]},
+      "collection-dashboard-refresh","refresh","check-refresh","season-ranks-refresh"]},
     {id:"rosters",label:"Rosters",targets:[
       "check-coverage","roster-preflight","roster-r2-refresh"]},
     {id:"archives",label:"Archives R2",targets:[
@@ -36,6 +36,10 @@
     section.dataset.adminGroup=group.id;
     // Explorer rebuilds #output with replaceChildren() after each provider read.
     // Keep it as a normal section: wrapping it would be erased on first result.
+    if(section.id==="collection-dashboard"){
+      section.classList.add("admin-dashboard");
+      continue;
+    }
     if(section.id==="output"){
       section.classList.add("admin-output");
       continue;
