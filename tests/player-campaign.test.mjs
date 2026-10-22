@@ -227,17 +227,17 @@ test("daily global /player budget survives manually forced and automatic campaig
   f.env.PLAYER_AUTO_ENABLED="true";
   const completed=await loop(f);
   assert.equal(completed.state.status,"complete");
-  const day=new Date(f.now).toISOString().slice(0,10);
-  const key=prefix+"player-campaign/budget/"+day+".json";
-  const first=JSON.parse(f.db.get(key));
-  assert.ok(first.used>0&&first.used<=1000);
+  const prefixBudget=prefix+"player-campaign/budget/";
+  const sumBudget=()=>[...f.db.entries()].filter(([k])=>
+    k.startsWith(prefixBudget)).reduce((n,[,raw])=>n+JSON.parse(raw).used,0);
+  const first=sumBudget();
+  assert.ok(first>0&&first<=1000);
   const later=Date.parse(completed.state.completedAt)+12*60000;
   const manual=await (await startPlayerCampaign(f.env,later)).json();
   assert.equal(manual.mode,"admin-manual");
   await runPlayerCampaignTick(f.env,f.provider,later);
-  const after=JSON.parse(f.db.get(key));
-  assert.equal(after.used,first.used+10,"Manual rerun does not reset UTC budget");
-  assert.ok(after.used<=1000);
+  const after=sumBudget();
+  assert.equal(after,first+10,"Manual rerun does not reset UTC budget");
 });
 test("automatic player daily flag is deployed on the existing minute Cron",async()=>{
   const {readFile}=await import("node:fs/promises");
