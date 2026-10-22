@@ -79,5 +79,5 @@
      status.textContent="Copie automatique indisponible : sélectionne le JSON affiché.";
    }
  });
- void call(false);
+ status.textContent="Dernière capture R2 non chargée. Clique sur « Voir la dernière capture ».";
 })();
