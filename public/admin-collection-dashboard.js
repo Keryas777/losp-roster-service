@@ -41,6 +41,7 @@
     const player=data.player||{},pers=data.personal||{};
     const f=Array.isArray(pers.families)?pers.families:[];
     const g=data.game||{},o=data.oauth||{};
+    const diff=data.gameDifferential||{};
     const cards=node("div",null,output,"collection-grid");
     tile(cards,"Rosters des alliances",
       valid+"/"+count(r.approvedCount)+" manifests",
@@ -60,7 +61,11 @@
       "Collecte : "+label(g.status)+
         " · "+count(g.cursor)+"/"+count(g.totalTasks)+
         " tâches · "+count(g.gapCount)+" lacune(s). "+
-        "Compteur du checkpoint, objets non vérifiés ici.",
+        "Compteur du checkpoint, objets non vérifiés ici. "+
+        "Différentiel hebdomadaire : "+label(diff.status)+
+        " · changements : "+count(diff.changed)+
+        " · inchangés : "+count(diff.unchanged)+
+        " · dernier changement : "+time(diff.lastChangedAt),
       g.status==="complete"?"ok":"neutral");
     tile(cards,"Sessions OAuth",
       count(o.checked)+" contrôlées",
