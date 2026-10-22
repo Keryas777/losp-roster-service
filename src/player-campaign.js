@@ -53,6 +53,8 @@ async function read(bucket){
      !Number.isInteger(s.sessionIndex)||!Number.isInteger(s.familyIndex)||
      s.sessionIndex<0||s.sessionIndex>s.sessions.length||
      s.familyIndex<0||s.familyIndex>FAMILIES.length||
+     (!Array.isArray(s.doneShared)||s.doneShared.length>MAX_SESSIONS*MAX_MEMBERS||
+       !s.doneShared.every(x=>SESSION.test(x)))||
      s.members!==null&&(!Array.isArray(s.members)||s.members.length>MAX_MEMBERS||
        !s.members.every(x=>MEMBER.test(x)))||
      !Number.isInteger(s.memberIndex)||s.memberIndex<0||
@@ -193,7 +195,7 @@ export async function startPlayerCampaign(env,now=Date.now()){
     if(!connected.length)return response({error:"no-oauth-accounts"},409);
     const s={version:1,status:"running",startedAt:new Date(now).toISOString(),
       updatedAt:new Date(now).toISOString(),completedAt:null,sessions:connected,
-      sessionIndex:0,familyIndex:0,members:null,memberIndex:0,retries:0,
+      sessionIndex:0,familyIndex:0,members:null,memberIndex:0,retries:0,doneShared:[],
       saved:0,alreadyPresent:0,skipped:0,failed:0,sharedSquads:0,
       requestsDate:date(now),requestsToday:0,nextAttemptAt:null,lastError:null};
     await save(bucket,s,now);
@@ -309,8 +311,12 @@ export async function runPlayerCampaignTick(env,fetchImpl=fetch,now=Date.now()){
     if(!member){s.members=null;move(s);await save(bucket,s,now);
       return {status:"members-finished"};}
     const target=await digest(member);
-    if(await existing(bucket,sid,"shared-member-squads",now,target)){
+    if(s.doneShared.includes(target)){
       s.alreadyPresent++;move(s);await save(bucket,s,now);
+      return {status:"already-collected-by-another-session"};
+    }
+    if(await existing(bucket,sid,"shared-member-squads",now,target)){
+      s.alreadyPresent++;s.doneShared.push(target);move(s);await save(bucket,s,now);
       return {status:"already-archived"};
     }
     const result=await collect({session:sid,resource:"shared-member-squads",member},
@@ -318,7 +324,7 @@ export async function runPlayerCampaignTick(env,fetchImpl=fetch,now=Date.now()){
     if(result.ok&&["archived","recent-capture"].includes(result.status)){
       s.saved+=Number(result.status==="archived");
       s.alreadyPresent+=Number(result.status==="recent-capture");
-      s.sharedSquads++;move(s);
+      s.sharedSquads++;s.doneShared.push(target);move(s);
     }else if(["not-found","not-authorized"].includes(result.error)){
       // Unsupported shared squads route => do not hammer this endpoint for
       // every consenting member of the same OAuth account.
