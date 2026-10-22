@@ -53,6 +53,7 @@ function visible(s,enabled=true){
   return {status:s.status,enabled,intervalHours:168,
     startedAt:s.startedAt||null,completedAt:s.completedAt||null,
     lastCheckedAt:s.lastCheckedAt||null,lastChangedAt:s.lastChangedAt||null,
+    nextRunAt:s.completedAt?new Date(Date.parse(s.completedAt)+WEEK).toISOString():null,
     changed:s.changed||0,unchanged:s.unchanged||0,failed:s.failed||0,
     checked:s.checked||0,queued:s.queued||0,scanPhase:s.scanPhase||null,
     sourceRun:s.sourceRun||null,pauseUntil:s.pauseUntil||null,
@@ -258,14 +259,21 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
     let s=await read(b,STATE);
     const interval=WEEK;
     if(!s||["completed","partial"].includes(s.status)){
-      if(s?.completedAt&&now-Date.parse(s.completedAt)<interval)
+      if(s?.completedAt&&s.sourceRun===active.runId&&
+         now-Date.parse(s.completedAt)<interval)
         return {status:"up-to-date",nextAt:new Date(Date.parse(s.completedAt)+interval).toISOString(),
           ...visible(s,true)};
       // New weekly run. Previous differential objects and latest pointers
       // are retained unchanged, not deleted or overwritten.
       s=make(active.runId,now);await write(b,STATE,s);
     }
-    if(s.sourceRun!==active.runId)return {status:"baseline-switched"};
+    if(s.sourceRun!==active.runId){
+      // Another admin started a full archive between weekly checks. Keep
+      // the old checkpoint for inspection and resume from the new baseline.
+      await write(b,ROOT+"runs/"+s.runId+"/superseded.json",{
+        ...visible(s,true),supersededAt:new Date(now).toISOString()});
+      s=make(active.runId,now);await write(b,STATE,s);
+    }
     if(s.pauseUntil&&Date.parse(s.pauseUntil)>now)
       return {status:"cooldown",nextAt:s.pauseUntil};
     if(s.status==="scanning"){
