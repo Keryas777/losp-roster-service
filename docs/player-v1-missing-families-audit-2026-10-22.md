@@ -77,8 +77,9 @@ les autres routes. Aucune route publique de données personnelles.
   purge ciblée des snapshots de cette famille lors de cette vérification.
 - Payloads officiels complets : `data`, `meta`, champs inconnus ;
   aucune réponse brute ne remonte via le POST ou GET de capture.
-- Tableaux paginés à 100 entrées et au plus huit pages par clic ;
-  `SquadsInfo` personnel est un objet unique. Toute incohérence de
+- Inventaire, souhaits et événements paginés à 100 entrées et au plus
+  huit pages par clic ; les squads personnels et des membres utilisent
+  chacun un GET sans paramètres de pagination, comme dans l'OpenAPI. Toute incohérence de
   pagination, limite, erreur fournisseur ou changement de consentement
   **interdit** la publication du pointeur `latest.json`.
   Un plafond de huit pages est une sécurité, **pas** une garantie
