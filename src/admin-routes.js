@@ -12,6 +12,7 @@ import {handleGameArchiveInventory} from "./game-archive-inventory.js";
 import {handleGameOrphanAudit} from "./game-archive-orphan-audit.js";
 import {handleGameArchiveSchemaAudit} from "./game-archive-schema-audit.js";
 import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
+import {handlePlayerExtraArchive} from "./player-extras-archive.js";
 import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron,adminMemberCard} from "./admin-data-api.js";
 
 const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
@@ -51,6 +52,23 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<button id="roster-r2-refresh" type="button">Vérifier les alliances en R2</button>'+
 '<button id="roster-r2-copy" type="button" disabled>Copier le diagnostic JSON</button>'+
 '<p id="roster-r2-status" role="status"></p><div id="roster-r2-report" class="scroll"></div></section>'+
+'<section><h2>Archives privées /player non couvertes par les rosters</h2>'+
+'<p>Différencier les comptes OAuth (équipes, inventaire, souhaits, événements) et les membres non connectés (uniquement équipes si partage du roster actif). Capture manuelle, réponses sources intégrales conservées en R2 privé sept jours. Aucune collecte automatique supplémentaire.</p>'+
+'<label>Famille<select id="player-extra-resource">'+
+'<option value="personal-squads">Mes équipes enregistrées (OAuth)</option>'+
+'<option value="personal-inventory">Mon inventaire (OAuth)</option>'+
+'<option value="personal-wishlist">Ma liste de souhaits (OAuth)</option>'+
+'<option value="personal-events">Mes événements/progression (OAuth)</option>'+
+'<option value="shared-member-squads">Équipes d’un membre partageant son roster</option>'+
+'</select></label>'+
+'<div id="player-extra-member-wrap" hidden>'+
+'<button id="player-extra-members-load" type="button">Charger les membres partageant leur roster</button>'+
+'<label>Membre<select id="player-extra-member"><option value="">Charger les membres…</option></select></label></div>'+
+'<p>Le compte OAuth est celui sélectionné dans l’Explorer ci-dessous.</p>'+
+'<button id="player-extra-capture" type="button">Archiver cette famille</button>'+
+'<button id="player-extra-inspect" type="button">Contrôler les archives R2 (zéro appel Scopely)</button>'+
+'<p id="player-extra-status" role="status"></p>'+
+'<pre id="player-extra-report" class="scroll"></pre></section>'+
 '<section><h2>Recherche des services MSF complémentaires</h2>'+ 
 '<p>Test en lecture seule d’une seule route historique /services/api/ à la fois. Aucun jeton joueur transmis. En cas de réponse JSON, archive intégrale dans R2 privé.</p>'+ 
 '<label>Service<select id="msf-secondary-source">'+
@@ -129,6 +147,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-pid-diagnostic.js" defer></script>'+
 '<script src="/admin-roster-preflight.js" defer></script>'+ 
 '<script src="/admin-roster-r2-coverage.js" defer></script>'+ 
+'<script src="/admin-player-extras.js" defer></script>'+ 
 '<script src="/admin-secondary-probes.js" defer></script>'+
 '<script src="/admin-game-archive.js" defer></script>'+
 '<script src="/admin-game-archive-inspector.js" defer></script>'+
@@ -145,7 +164,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
         "/admin/api/msf-secondary-probe","/admin/api/game-archive",
         "/admin/api/game-archive-schema-audit",
         "/admin/api/game-archive-orphan-audit",
-        "/admin/api/alliance-season-ranks"].includes(endpoint)))
+        "/admin/api/alliance-season-ranks","/admin/api/player-extras"].includes(endpoint)))
     return new Response("Method Not Allowed",{status:405});
   if(!adminReady(env))return new Response("Administration désactivée",{
     status:503,headers:{"Cache-Control":"no-store"}
@@ -201,5 +220,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     return handleGameOrphanAudit(request,env);
   if(pathname==="/admin/api/alliance-season-ranks")
     return handleAllianceSeasonRanks(request,env,fetchImpl);
+  if(pathname==="/admin/api/player-extras")
+    return handlePlayerExtraArchive(request,env,fetchImpl);
   return new Response("Not Found",{status:404});
 }
