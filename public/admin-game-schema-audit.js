@@ -144,5 +144,5 @@
       status.textContent="Copie automatique indisponible : sélectionne le JSON affiché.";
     }
   });
-  void load();
+  status.textContent="Rapport R2 non chargé. Clique sur « Actualiser le rapport ».";
 })();
