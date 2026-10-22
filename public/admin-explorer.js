@@ -252,7 +252,12 @@ async function loadRefreshInfo(){
   button.disabled=true;
   message.textContent="Lecture des sessions et du dernier cron…";
   try{
-    await loadSessions(true);
+    // Health summary is already in R2; avoid an implicit provider refresh.
+    if(!sessions.length){
+      const area=el("refresh-sessions");
+      clear(area);
+      node("p","Pour afficher les détails par session, charge explicitement les comptes ci-dessus (requêtes Scopely).",area);
+    }else renderRefreshSessions();
     const cron=await request("/admin/api/refresh-cron");
     message.textContent=cron.status==="not-yet-observed"?
       "Aucun cron enregistré depuis l'activation du suivi.":
@@ -389,7 +394,8 @@ el("more").onclick=()=>loadSessions(false);
 async function init(){
   try{
     const c=await request("/admin/api/catalog");catalog=c.resources;
-    makeOptions();await loadSessions();
+    makeOptions();
+    status("Explorateur prêt. Aucun compte interrogé : utilise « Charger / actualiser les comptes (API MSF) » pour une consultation volontaire.");
   }catch(err){status("Panneau désactivé ou accès administrateur non autorisé : "+err.message);}
 }
 init();
