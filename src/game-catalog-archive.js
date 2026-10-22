@@ -171,7 +171,7 @@ export async function appToken(env,fetchImpl,now=Date.now()){
       token:data.access_token,expiresAt:now+data.expires_in*1000});
   return data.access_token;
 }
-export async function readGameBody(res,bucket,runId){
+export async function readGameBody(res,bucket,runId,storageRoot=GAME_ARCHIVE_ROOT+"runs/"+runId){
   if(!res.body)return {status:"invalid-body"};
   const reader=res.body.getReader(),chunks=[];
   let size=0,done=false;
@@ -186,7 +186,7 @@ export async function readGameBody(res,bucket,runId){
     // Multipart R2 accepts streams with unknown Content-Length and keeps
     // Worker memory bounded. A generic ReadableStream cannot be passed to
     // R2.put without a known length in the production runtime.
-    const objectKey=GAME_ARCHIVE_ROOT+"runs/"+runId+"/raw/"+crypto.randomUUID()+".json";
+    const objectKey=storageRoot+"/raw/"+crypto.randomUUID()+".json";
     const upload=await bucket.createMultipartUpload(objectKey,{
       httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
     });
