@@ -3,6 +3,7 @@
 // Routed only after Cloudflare Access + admin allowlist verification.
 import {captainConfigReady,CAPTAIN_PREFIX,getCaptainRecord} from "./captain-vault.js";
 import {gameArchiveStatus} from "./game-catalog-archive.js";
+import {gameDifferentialStatus} from "./game-differential-sync.js";
 import {rosterAutoStatus} from "./automatic-roster-scheduler.js";
 import {handleRosterR2Coverage} from "./roster-r2-coverage.js";
 import {getPlayerCampaignStatus} from "./player-campaign.js";
@@ -120,7 +121,7 @@ export async function handleCollectionOverview(request,env,now=Date.now()){
     return answer({error:"storage-unavailable"},503);
   // Every dependency reads existing R2 state only. In particular NO
   // adminSessionList/adminCoverage/refresh action is called.
-  const [rosters,rosterScheduler,game,player,oauth,personal]=await Promise.all([
+  const [rosters,rosterScheduler,game,player,oauth,personal,gameDifferential]=await Promise.all([
     safeRead(async()=>{
       const res=await handleRosterR2Coverage(new Request(
         "https://admin-status.internal/admin/api/roster-r2-coverage"),env,now);
@@ -152,11 +153,12 @@ export async function handleCollectionOverview(request,env,now=Date.now()){
       if(!res.ok)throw Error("oauth-monitor-unavailable");
       return res.json();
     }),
-    safeRead(()=>personalCoverage(env,now))
+    safeRead(()=>personalCoverage(env,now)),
+    safeRead(()=>gameDifferentialStatus(env))
   ]);
   return answer({status:"ok",source:"private-r2-only",
     checkedAt:new Date(now).toISOString(),rosters,rosterScheduler,
-    game,player,oauth,personal,
+    game,player,oauth,personal,gameDifferential,
     warning:"Les comptes et endpoints manquants ou non autorisés ne sont jamais comptés comme archivés. "+
       "Rosters : manifests non vérifiés physiquement en détail dans ce bilan; "+
       "l'audit R2 complet reste dans l'onglet Rosters."});
