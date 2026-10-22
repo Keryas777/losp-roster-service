@@ -116,10 +116,10 @@ test("read-only method and query checks, protected admin Access boundary",async(
 });
 test("overview is visible, mobile-first, and uses one bounded R2-only endpoint",async()=>{
   const [html,nav,js,css]=await Promise.all([
-    readFile(new URL("../src/admin-routes.js",import.meta.url),"utf8"),
-    readFile(new URL("../public/admin-navigation.js",import.meta.url),"utf8"),
-    readFile(new URL("../public/admin-collection-dashboard.js",import.meta.url),"utf8"),
-    readFile(new URL("../public/admin-explorer.css",import.meta.url),"utf8")
+    readFile(new globalThis.URL("../src/admin-routes.js",import.meta.url),"utf8"),
+    readFile(new globalThis.URL("../public/admin-navigation.js",import.meta.url),"utf8"),
+    readFile(new globalThis.URL("../public/admin-collection-dashboard.js",import.meta.url),"utf8"),
+    readFile(new globalThis.URL("../public/admin-explorer.css",import.meta.url),"utf8")
   ]);
   assert.match(html,/id="collection-dashboard"/);
   assert.match(html,/id="collection-dashboard-refresh"/);
