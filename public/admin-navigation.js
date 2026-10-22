@@ -66,10 +66,8 @@
       button.setAttribute("aria-current",active?"page":"false");
       button.classList.toggle("active",active);
     }
-    if(!byGroup.get(id).some(s=>s.querySelector("details.admin-disclosure[open]"))){
-      const first=byGroup.get(id)[0]?.querySelector("details.admin-disclosure");
-      if(first)first.open=true;
-    }
+    // Keep every panel collapsed by default. A user's manual choices stay
+    // unchanged when switching between tabs; navigation never expands one.
     if(updateHash&&window.history?.replaceState)
       window.history.replaceState(null,"","#"+id);
   }
