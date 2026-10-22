@@ -1,4 +1,4 @@
-// One-click, admin-initiated and cron-resumed collection of the /player families
+// Automatic daily, admin-overrideable and cron-resumed collection of /player families
 // absent from the existing roster/alliance archives. No browser polling required.
 // Only existing OAuth grants; never reads a co-member's private inventory/events.
 // All state and provider JSON are private, under the pre-existing 7-day R2 rule.
@@ -18,6 +18,10 @@ const FAMILIES=Object.freeze(["personal-squads","personal-inventory",
 const MAX_SESSIONS=100,MAX_MEMBERS=100;
 const DAILY_BUDGET=1000,PER_TICK_BUDGET=10;
 const AGE=7*86400000,COOLDOWN=10*60000;
+const AUTO_INTERVAL=24*3600000;
+const AUTO_STATE="roster-batches/v1/player-campaign/auto-state.json";
+const BUDGET_PREFIX="roster-batches/v1/player-campaign/budget/";
+const budgetKey=now=>BUDGET_PREFIX+date(now)+".json";
 const headers={"Cache-Control":"private, no-store","X-Robots-Tag":"noindex",
   "X-Content-Type-Options":"nosniff","Referrer-Policy":"no-referrer"};
 const response=(body,status=200)=>Response.json(body,{status,headers});
@@ -28,8 +32,16 @@ const digest=async v=>[...new Uint8Array(await crypto.subtle.digest(
 const archiveKey=(sid,family,target="self")=>
   "roster-batches/v1/player-extras/"+sid+"/"+family+"/"+target+"/latest.json";
 
-function clean(s){
-  return {status:s?.status||"not-started",startedAt:s?.startedAt||null,
+function clean(s,autoEnabled=false,auto=null){
+  const lastAutoAttempt=auto?.lastAttemptAt||null;
+  const nextFromRun=s?.completedAt?Date.parse(s.completedAt)+AUTO_INTERVAL:null;
+  const nextFromEmpty=!s&&lastAutoAttempt?
+    Date.parse(lastAutoAttempt)+AUTO_INTERVAL:null;
+  const nextRunAt=autoEnabled&&s?.status!=="running"?
+    new Date(nextFromRun||nextFromEmpty||Date.now()).toISOString():null;
+  return {status:s?.status||"not-started",autoEnabled,intervalHours:24,
+    mode:s?.mode||null,nextRunAt,lastAutoAttempt,
+    startedAt:s?.startedAt||null,
     updatedAt:s?.updatedAt||null,completedAt:s?.completedAt||null,
     connectedAccounts:s?.sessions?.length||0,
     accountsProcessed:s?.sessionIndex||0,
@@ -67,6 +79,28 @@ async function read(bucket){
 async function save(bucket,s,now){
   s.updatedAt=new Date(now).toISOString();
   await bucket.put(KEY,JSON.stringify(s),meta);
+}
+async function readAuto(bucket){
+  const x=await bucket.get(AUTO_STATE);
+  if(!x)return null;
+  const a=JSON.parse(await x.text());
+  if(a?.version!==1||!Number.isFinite(Date.parse(a.lastAttemptAt)))
+    throw Error("invalid-auto-state");
+  return a;
+}
+async function reserveDayBudget(bucket,now){
+  const k=budgetKey(now),saved=await bucket.get(k);
+  const v=saved?JSON.parse(await saved.text()):{version:1,date:date(now),used:0};
+  if(v.version!==1||v.date!==date(now)||
+     !Number.isSafeInteger(v.used)||v.used<0||v.used>DAILY_BUDGET)
+    throw Error("invalid-day-budget");
+  if(v.used+PER_TICK_BUDGET>DAILY_BUDGET)return false;
+  // Count the whole upper bound BEFORE upstream GET. Shared by manual
+  // and automatic campaigns; a new run never resets the UTC daily ceiling.
+  await bucket.put(k,JSON.stringify({
+    version:1,date:date(now),used:v.used+PER_TICK_BUDGET
+  }),meta);
+  return true;
 }
 async function gate(env,action,holder){
   const b=env?.ROSTER_BATCH_LOCK;
@@ -180,6 +214,19 @@ async function sharedMembers(sid,env,fetchImpl){
     .map(x=>x.id)};
 }
 
+async function beginLocked(env,now,mode){
+  const bucket=env.CAPTAIN_BUCKET;
+  const connected=await sessions(bucket);
+  if(!connected.length)return {error:"no-oauth-accounts"};
+  const s={version:1,status:"running",mode,
+    startedAt:new Date(now).toISOString(),
+    updatedAt:new Date(now).toISOString(),completedAt:null,sessions:connected,
+    sessionIndex:0,familyIndex:0,members:null,memberIndex:0,retries:0,doneShared:[],
+    saved:0,alreadyPresent:0,skipped:0,failed:0,sharedSquads:0,
+    requestsDate:date(now),requestsToday:0,nextAttemptAt:null,lastError:null};
+  await save(bucket,s,now);
+  return {state:s};
+}
 export async function startPlayerCampaign(env,now=Date.now()){
   if(!captainConfigReady(env)||!env?.ROSTER_BATCH_LOCK?.get||
      !env.CAPTAIN_BUCKET?.list||!env.CAPTAIN_BUCKET?.head)
@@ -191,22 +238,20 @@ export async function startPlayerCampaign(env,now=Date.now()){
     if(old?.status==="running")return response(clean(old));
     if(old?.completedAt&&now-Date.parse(old.completedAt)<COOLDOWN)
       return response({...clean(old),recent:true});
-    const connected=await sessions(bucket);
-    if(!connected.length)return response({error:"no-oauth-accounts"},409);
-    const s={version:1,status:"running",startedAt:new Date(now).toISOString(),
-      updatedAt:new Date(now).toISOString(),completedAt:null,sessions:connected,
-      sessionIndex:0,familyIndex:0,members:null,memberIndex:0,retries:0,doneShared:[],
-      saved:0,alreadyPresent:0,skipped:0,failed:0,sharedSquads:0,
-      requestsDate:date(now),requestsToday:0,nextAttemptAt:null,lastError:null};
-    await save(bucket,s,now);
-    return response(clean(s));
+    const result=await beginLocked(env,now,"admin-manual");
+    if(result.error)return response({error:result.error},409);
+    return response(clean(result.state,env.PLAYER_AUTO_ENABLED==="true"));
   }catch{return response({error:"start-unavailable"},503);}
   finally{await gate(env,"release",holder);}
 }
 export async function getPlayerCampaignStatus(env){
   if(!captainConfigReady(env))return response({error:"not-configured"},503);
-  try{return response(clean(await read(env.CAPTAIN_BUCKET)));}
-  catch{return response({error:"status-unavailable"},503);}
+  try{
+    const [s,auto]=await Promise.all([
+      read(env.CAPTAIN_BUCKET),readAuto(env.CAPTAIN_BUCKET)
+    ]);
+    return response(clean(s,env.PLAYER_AUTO_ENABLED==="true",auto));
+  }catch{return response({error:"status-unavailable"},503);}
 }
 export async function handlePlayerCampaignAdmin(request,env,now=Date.now()){
   if(request.method==="GET"&&new URL(request.url).search==="")
@@ -228,20 +273,39 @@ export async function runPlayerCampaignTick(env,fetchImpl=fetch,now=Date.now()){
   const bucket=env.CAPTAIN_BUCKET;
   let current;
   try{current=await read(bucket);}catch{return {status:"invalid-state"};}
-  if(current?.status!=="running")return {status:"idle"};
-  if(current.nextAttemptAt&&Date.parse(current.nextAttemptAt)>now)
-    return {status:"cooldown"};
+  const autoEnabled=env.PLAYER_AUTO_ENABLED==="true";
+  if(current?.status!=="running"&&!autoEnabled)return {status:"idle"};
+  if(current?.status==="running"&&current.nextAttemptAt&&
+     Date.parse(current.nextAttemptAt)>now)return {status:"cooldown"};
   const holder=crypto.randomUUID();
   if(!(await gate(env,"acquire",holder)))return {status:"busy"};
   try{
-    const s=await read(bucket);
-    if(s?.status!=="running")return {status:"idle"};
+    let s=await read(bucket);
+    if(s?.status!=="running"){
+      if(!autoEnabled)return {status:"idle"};
+      const auto=await readAuto(bucket);
+      const last=auto?.lastAttemptAt?Date.parse(auto.lastAttemptAt):null;
+      const completed=s?.completedAt?Date.parse(s.completedAt):null;
+      // Completed runs refresh daily. Empty vaults are not polled each minute.
+      if(completed&&now-completed<AUTO_INTERVAL)
+        return {status:"up-to-date",nextRunAt:new Date(completed+AUTO_INTERVAL).toISOString()};
+      if(!s&&last&&now-last<AUTO_INTERVAL)
+        return {status:"awaiting-oauth",nextRunAt:new Date(last+AUTO_INTERVAL).toISOString()};
+      const result=await beginLocked(env,now,"automatic-daily");
+      await bucket.put(AUTO_STATE,JSON.stringify({
+        version:1,lastAttemptAt:new Date(now).toISOString(),
+        lastOutcome:result.error||"started"
+      }),meta);
+      if(result.error)return {status:"awaiting-oauth"};
+      s=result.state;
+    }
     if(s.nextAttemptAt&&Date.parse(s.nextAttemptAt)>now)
       return {status:"cooldown"};
     if(s.requestsDate!==date(now)){
       s.requestsDate=date(now);s.requestsToday=0;
     }
-    if(s.requestsToday+PER_TICK_BUDGET>DAILY_BUDGET){
+    if(s.requestsToday+PER_TICK_BUDGET>DAILY_BUDGET||
+       !(await reserveDayBudget(bucket,now))){
       s.nextAttemptAt=new Date(now+60*60000).toISOString();
       await save(bucket,s,now);
       return {status:"daily-budget-reached"};
