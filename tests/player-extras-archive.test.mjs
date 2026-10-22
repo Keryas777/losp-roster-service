@@ -90,7 +90,7 @@ test("OAuth-only data are archived raw and with 7-day TTL, R2 status uses zero p
 });
 test("a 105-item inventory is not called complete until all pages are present",async()=>{
   const f=fixture(url=>{
-    const page=Number(new URL(url).searchParams.get("page"));
+    const page=Number(new globalThis.URL(url).searchParams.get("page"));
     return ok(Array.from({length:page===1?100:5},(_,i)=>({id:page+"-"+i})),
       {page,perTotal:105});
   });
@@ -112,7 +112,7 @@ test("member squads require current rosterShare before and after; no OAuth for t
   assert.equal(result.status,200);
   assert.equal((await result.json()).status,"archived");
   assert.equal(f.calls.length,3);
-  assert.ok(f.calls[1].endsWith("/squads/member/abc%3A1"),f.calls.join(" | "));
+  assert.ok(f.calls[1].includes("/squads/member/abc%3A1?"),f.calls.join(" | "));
   sharing=false;
   result=await f.post({resource:"shared-member-squads",member},
     Date.now()+11*60_000);
@@ -128,7 +128,7 @@ test("429 and partial pagination never publish a completed latest record",async(
   assert.equal((await response.json()).error,"rate-limited");
   assert.equal(f.db.size,0);
   const g=fixture((url)=>{
-    const page=Number(new URL(url).searchParams.get("page"));
+    const page=Number(new globalThis.URL(url).searchParams.get("page"));
     return ok(Array.from({length:100},(_,i)=>({id:page+"-"+i})),
       {page,perTotal:1200});
   });
