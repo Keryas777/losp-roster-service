@@ -99,7 +99,7 @@ async function grantForKey(env,key){
       observedRotations:Number.isSafeInteger(body.observedRotations)?body.observedRotations:null
     }:null;
 }
-async function tokenForKey(env,key){
+export async function tokenForKey(env,key){
   return (await grantForKey(env,key))?.accessToken||null;
 }
 // Private aggregate only. Never forward arbitrary contents from R2.
