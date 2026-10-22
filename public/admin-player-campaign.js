@@ -7,7 +7,7 @@
   const status=document.getElementById("player-campaign-status");
   const report=document.getElementById("player-campaign-report");
   const labels={
-    "not-started":"Aucune campagne lancée",
+    "not-started":"Aucune campagne encore enregistrée",
     running:"Collecte en cours, poursuivie automatiquement",
     complete:"Collecte terminée",
     partial:"Collecte terminée avec certaines données indisponibles"
@@ -17,8 +17,23 @@
     const title=document.createElement("strong");
     title.textContent=labels[data.status]||"État : "+(data.status||"indisponible");
     report.append(title);
+    if(data.autoEnabled){
+      const p=document.createElement("p");
+      p.textContent="Synchronisation automatique active · cadence : "+ 
+        (data.intervalHours||24)+" h après la fin du cycle. "+
+        (data.status==="not-started"?"Première exécution au prochain Cron. ":"")+
+        (data.nextRunAt?"Prochaine vérification prévue : "+
+        new Date(data.nextRunAt).toLocaleString("fr-FR")+".":"");
+      report.append(p);
+    }else{
+      const p=document.createElement("p");
+      p.textContent="Synchronisation automatique désactivée.";
+      report.append(p);
+    }
     if(data.status==="not-started")return;
     const rows=[
+      ["Type de collecte",data.mode==="automatic-daily"?"Automatique":
+        data.mode==="admin-manual"?"Manuelle":"Ancienne campagne"],
       ["Comptes OAuth trouvés",data.connectedAccounts],
       ["Comptes entièrement parcourus",data.accountsProcessed],
       ["Nouvelles archives",data.saved],
