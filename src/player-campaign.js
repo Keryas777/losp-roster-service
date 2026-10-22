@@ -152,7 +152,7 @@ async function collect(req,env,fetchImpl,now){
   const r=await handlePlayerExtraArchive(new Request(ORIGIN+"/admin/api/player-extras",{
     method:"POST",headers:{Origin:ORIGIN,"Content-Type":"application/json"},
     body:JSON.stringify(req)
-  }),env,fetchImpl,now);
+  }),env,fetchImpl,now,{trigger:"automatic-campaign"});
   let body=null;
   try{body=await r.json();}catch{}
   return {ok:r.ok,status:body?.status||null,error:body?.error||null,http:r.status};

@@ -103,7 +103,7 @@ function validResponse(def,payload){
       Array.isArray(payload.data));
 }
 
-export async function handlePlayerExtraArchive(request,env,fetchImpl=fetch,now=Date.now()){
+export async function handlePlayerExtraArchive(request,env,fetchImpl=fetch,now=Date.now(),internal={}){
   if(!["GET","POST"].includes(request.method))return json({error:"method-not-allowed"},405);
   if(!captainConfigReady(env)||!env?.ROSTER_BATCH_LOCK||
     !env?.CAPTAIN_BUCKET?.put||!env.CAPTAIN_BUCKET?.get)
@@ -225,6 +225,7 @@ export async function handlePlayerExtraArchive(request,env,fetchImpl=fetch,now=D
       resource:body.resource,pagesSaved:pages.length,complete:false},409);
     const summary={version:1,complete:true,resource:body.resource,
       scope:def.scope,mode:def.shared?"shared-member":"oauth-personal",
+      trigger:internal?.trigger==="automatic-campaign"?"automatic-campaign":"admin-manual",
       capturedAt,expiresAt:new Date(now+AGE_MS).toISOString(),
       total,pages,asOf:asOfs.size?[...asOfs][0]:null};
     // Publish latest ONLY after all verified pages were written.

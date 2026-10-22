@@ -14,6 +14,7 @@ import {handleGameArchiveSchemaAudit} from "./game-archive-schema-audit.js";
 import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
 import {handlePlayerExtraArchive} from "./player-extras-archive.js";
 import {handlePlayerCampaignAdmin} from "./player-campaign.js";
+import {handleCollectionOverview} from "./collection-overview.js";
 import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron,adminMemberCard} from "./admin-data-api.js";
 
 const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
@@ -21,7 +22,12 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<title>Administration LoSP — API MSF</title>'+
 '<link rel="stylesheet" href="/admin-explorer.css"></head><body>'+
 '<header><h1>Administration LoSP — API MSF</h1><p>Outils privés · données chargées à la demande · aucun appel Scopely au simple affichage.</p></header>'+
-'<main><section><h2>Comptes et alliances</h2><p id="summary">Aucun compte interrogé à l’ouverture. Utilise le bouton ci-dessous uniquement quand tu souhaites actualiser les profils et alliances depuis Scopely.</p>'+
+'<main><section id="collection-dashboard"><h2>État réel des collectes</h2>'+ 
+'<p>Vue automatique des archives existantes : rosters, /player, /game et OAuth. Aucune requête vers Scopely.</p>'+ 
+'<button type="button" id="collection-dashboard-refresh">Actualiser les preuves R2</button>'+ 
+'<p id="collection-dashboard-status" role="status">Lecture des archives privées…</p>'+ 
+'<div id="collection-dashboard-content" aria-live="polite"></div></section>'+ 
+'<section><h2>Comptes et alliances</h2><p id="summary">Aucun compte interrogé à l’ouverture. Utilise le bouton ci-dessous uniquement quand tu souhaites actualiser les profils et alliances depuis Scopely.</p>'+
 '<button id="refresh" type="button">Charger / actualiser les comptes (API MSF)</button> <button id="more" hidden>Comptes suivants</button><div id="alliances" class="scroll"></div></section>'+
 '<section><h2>Santé des sessions OAuth</h2>'+
 '<p>Rotations réellement confirmées depuis l\'activation du suivi ; les anciennes rotations ne sont pas reconstituées.</p>'+
@@ -151,7 +157,8 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '</div><p class="muted">Tous les champs des réponses, y compris les sous-objets, sont consultables en JSON brut.</p>'+
 '<button id="load">Afficher les données</button><p id="status" role="status"></p></section>'+
 '<section id="output">Choisis un compte et une rubrique.</section></main>'+
-'<script src="/admin-navigation.js" defer></script>'+
+'<script src="/admin-navigation.js" defer></script>'+ 
+'<script src="/admin-collection-dashboard.js" defer></script>'+
 '<script src="/admin-explorer.js" defer></script>'+
 '<script src="/admin-season-ranks.js" defer></script>'+
 '<script src="/admin-pid-diagnostic.js" defer></script>'+
@@ -200,6 +207,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
       "Content-Security-Policy":"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"
     }});
   }
+  if(pathname==="/admin/api/collection-overview")return handleCollectionOverview(request,env);
   if(pathname==="/admin/api/catalog")return adminCatalog();
   if(pathname==="/admin/api/sessions")return adminSessionList(env,fetchImpl,new URL(request.url));
   if(pathname==="/admin/api/coverage")return adminCoverage(env,fetchImpl);
