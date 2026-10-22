@@ -104,7 +104,8 @@ test("weekly /game comparison stores changed objects only, ignoring meta.asOf",a
   assert.ok(first.status.changed>=1);
   const objects=[...f.store.keys()].filter(x=>x.includes("/diff/runs/")&&
     x.includes("/objects/"));
-  assert.equal(objects.length,first.status.changed);
+  assert.ok(objects.length>0&&objects.length<=first.status.changed,
+    "identical payload bytes across URLs share one content-addressed object");
   const today=await runGameDifferentialTick(f.env,f.provider,first.ts+3600000);
   assert.equal(today.status,"completed");
   assert.ok(!f.calls.some(x=>x.url.includes("/player/v1")));
