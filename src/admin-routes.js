@@ -15,6 +15,7 @@ import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
 import {handlePlayerExtraArchive} from "./player-extras-archive.js";
 import {handlePlayerCampaignAdmin} from "./player-campaign.js";
 import {handleCollectionOverview} from "./collection-overview.js";
+import {gameDifferentialStatus} from "./game-differential-sync.js";
 import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron,adminMemberCard} from "./admin-data-api.js";
 
 const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
@@ -207,6 +208,8 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
       "Content-Security-Policy":"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"
     }});
   }
+  if(pathname==="/admin/api/game-differential")return Response.json(
+    await gameDifferentialStatus(env),{headers:{"Cache-Control":"private, no-store"}});
   if(pathname==="/admin/api/collection-overview")return handleCollectionOverview(request,env);
   if(pathname==="/admin/api/catalog")return adminCatalog();
   if(pathname==="/admin/api/sessions")return adminSessionList(env,fetchImpl,new URL(request.url));

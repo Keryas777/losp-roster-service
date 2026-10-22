@@ -149,7 +149,7 @@ async function withLock(env,action,holder){
 // Best-effort isolate-local reuse: never store app OAuth tokens in R2 or logs.
 // Workers may start a fresh isolate at any time, so reauthentication remains safe.
 const appTokenCache=new WeakMap();
-async function appToken(env,fetchImpl,now=Date.now()){
+export async function appToken(env,fetchImpl,now=Date.now()){
   if(!env.SCOPELY_CLIENT_ID||!env.SCOPELY_CLIENT_SECRET)return null;
   const cached=appTokenCache.get(env);
   if(cached?.clientId===env.SCOPELY_CLIENT_ID&&cached.expiresAt>now+60_000)
@@ -171,7 +171,7 @@ async function appToken(env,fetchImpl,now=Date.now()){
       token:data.access_token,expiresAt:now+data.expires_in*1000});
   return data.access_token;
 }
-async function readGameBody(res,bucket,runId){
+export async function readGameBody(res,bucket,runId,storageRoot=GAME_ARCHIVE_ROOT+"runs/"+runId){
   if(!res.body)return {status:"invalid-body"};
   const reader=res.body.getReader(),chunks=[];
   let size=0,done=false;
@@ -186,7 +186,7 @@ async function readGameBody(res,bucket,runId){
     // Multipart R2 accepts streams with unknown Content-Length and keeps
     // Worker memory bounded. A generic ReadableStream cannot be passed to
     // R2.put without a known length in the production runtime.
-    const objectKey=GAME_ARCHIVE_ROOT+"runs/"+runId+"/raw/"+crypto.randomUUID()+".json";
+    const objectKey=storageRoot+"/raw/"+crypto.randomUUID()+".json";
     const upload=await bucket.createMultipartUpload(objectKey,{
       httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
     });

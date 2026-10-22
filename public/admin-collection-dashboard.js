@@ -26,6 +26,9 @@
   }
   const label=v=>({
     running:"En cours",complete:"Terminée",partial:"Partielle",
+    completed:"Terminée", "completed-with-gaps":"Terminée avec lacunes",
+    scanning:"Indexation R2",checking:"Vérification des données",
+    "up-to-date":"À jour",cooldown:"En pause",
     "not-started":"Non démarrée",ready:"Programmée",disabled:"Désactivée",
     "not-configured":"Non configurée",archived:"Archivé",
     missing:"Absent",expired:"Expiré",valid:"Manifeste présent",
@@ -41,6 +44,7 @@
     const player=data.player||{},pers=data.personal||{};
     const f=Array.isArray(pers.families)?pers.families:[];
     const g=data.game||{},o=data.oauth||{};
+    const diff=data.gameDifferential||{};
     const cards=node("div",null,output,"collection-grid");
     tile(cards,"Rosters des alliances",
       valid+"/"+count(r.approvedCount)+" manifests",
@@ -60,7 +64,14 @@
       "Collecte : "+label(g.status)+
         " · "+count(g.cursor)+"/"+count(g.totalTasks)+
         " tâches · "+count(g.gapCount)+" lacune(s). "+
-        "Compteur du checkpoint, objets non vérifiés ici.",
+        "Compteur du checkpoint, objets non vérifiés ici. "+
+        "Différentiel hebdomadaire : "+label(diff.status)+
+        " · changements : "+count(diff.changed)+
+        " · inchangés : "+count(diff.unchanged)+
+        " · échecs : "+count(diff.failed)+
+        " · dernière vérification : "+time(diff.lastCheckedAt)+
+        " · dernier changement : "+time(diff.lastChangedAt)+
+        " · prochaine passe : "+time(diff.nextRunAt),
       g.status==="complete"?"ok":"neutral");
     tile(cards,"Sessions OAuth",
       count(o.checked)+" contrôlées",
