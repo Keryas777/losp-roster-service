@@ -16,7 +16,7 @@ const LOCK="f".repeat(64); // Reserved private lock namespace (not an alliance f
 const FAMILIES=Object.freeze(["personal-squads","personal-inventory",
   "personal-wishlist","personal-events"]);
 const MAX_SESSIONS=100,MAX_MEMBERS=100;
-const DAILY_BUDGET=150,PER_TICK_BUDGET=10;
+const DAILY_BUDGET=1000,PER_TICK_BUDGET=10;
 const AGE=7*86400000,COOLDOWN=10*60000;
 const headers={"Cache-Control":"private, no-store","X-Robots-Tag":"noindex",
   "X-Content-Type-Options":"nosniff","Referrer-Policy":"no-referrer"};
@@ -122,10 +122,14 @@ function move(s){
   s.retries=0;s.nextAttemptAt=null;s.lastError=null;
   if(s.members!==null){
     s.memberIndex++;
-    if(s.memberIndex>=s.members.length){s.members=null;s.memberIndex=0;
-      s.familyIndex=FAMILIES.length;}
-  }else{s.familyIndex++;}
-  if(s.familyIndex>=FAMILIES.length&&s.members===null){
+    if(s.memberIndex>=s.members.length){
+      s.members=null;s.memberIndex=0;s.sessionIndex++;s.familyIndex=0;
+    }
+  }else if(s.familyIndex<FAMILIES.length){
+    // After four personal resources, discover the consented members,
+    // not the next OAuth account.
+    s.familyIndex++;
+  }else{
     s.sessionIndex++;s.familyIndex=0;s.memberIndex=0;
   }
 }
