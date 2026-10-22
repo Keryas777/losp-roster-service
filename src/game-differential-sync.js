@@ -103,7 +103,9 @@ async function scan(b,s){
   if(s.scanPhase==="roots"){
     const roots=GAME_ROOTS.map(r=>({path:r.path+
       (r.pageable?"?page=1&perPage=100":"")}));
-    const phase=phase2RootTasks();
+    const phase=phase2RootTasks().map(t=>({
+      path:t.path+(t.mode==="list"?"?page=1&perPage=100":"")
+    }));
     await queue(b,s,[...roots,...phase]);
     s.scanPhase="done";s.status="checking";s.cursor=null;
     s.lastOutcome="baseline-indexed";
@@ -157,7 +159,8 @@ async function discover(bucket,s,path,payload){
     }
   }
   // A newly grown paginated root must not stop at the old last page.
-  if(root?.pageable&&Array.isArray(data)&&payload.meta){
+  const episodicList=/^\/game\/v1\/episodics\/[^/?]+$/.test(path.split("?")[0]);
+  if((root?.pageable||episodicList)&&Array.isArray(data)&&payload.meta){
     const url=new URL("https://api.example"+path);
     const page=Number(url.searchParams.get("page"));
     const per=Number(url.searchParams.get("perPage"));
@@ -195,8 +198,8 @@ async function checkOne(b,s,task,token,fetchImpl,now){
   if(!response.ok)return {error:"http-"+response.status,
     retry:![403,404,422,464,474].includes(response.status)};
   let parsed;
-  try{parsed=await readGameBody(response,b,ROOT.slice(GAME_ARCHIVE_ROOT.length)+
-    "runs/"+s.runId);}
+  try{parsed=await readGameBody(response,b,s.runId,
+    ROOT+"runs/"+s.runId);}
   catch{return {error:"parse-or-r2-error",retry:true};}
   if(parsed.status==="archived-unindexed")
     return {error:"unindexed-large-json",objectKey:parsed.objectKey,retry:false};
