@@ -79,14 +79,17 @@
       const scroll=node("div",null,output,"scroll");
       const table=node("table",null,scroll);
       const tr=node("tr",null,node("thead",null,table));
-      for(const col of ["Famille","Archivées","Manquantes","Incomplètes","Sans permission","Dernière archive"])
+      for(const col of ["Famille","Archivées","Manquantes","Incomplètes","Sans permission","Origine","Dernière archive"])
         node("th",col,tr);
       const tbody=node("tbody",null,table);
       for(const family of f){
         const row=node("tr",null,tbody);
         const cells=[family.label||family.id,count(family.archived)+"/"+
           count(family.eligible),count(family.missing),count(family.broken),
-          count(family.notGranted),time(family.lastCapture)];
+          count(family.notGranted),
+          count(family.automatic)+" auto · "+count(family.manual)+" manuel"+
+            (family.provenanceUnknown?" · "+count(family.provenanceUnknown)+" inconnu":""),
+          time(family.lastCapture)];
         cells.forEach(v=>node("td",v,row));
       }
       node("p", "Une archive /player n'est comptée que si son manifeste et "+
