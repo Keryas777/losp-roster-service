@@ -242,10 +242,10 @@ test("daily global /player budget survives manually forced and automatic campaig
 test("automatic player daily flag is deployed on the existing minute Cron",async()=>{
   const {readFile}=await import("node:fs/promises");
   const wrangler=JSON.parse(await readFile(
-    new URL("../wrangler.jsonc",import.meta.url),"utf8"));
+    new globalThis.URL("../wrangler.jsonc",import.meta.url),"utf8"));
   assert.equal(wrangler.vars.PLAYER_AUTO_ENABLED,"true");
   assert.ok(wrangler.triggers.crons.includes("* * * * *"));
-  const frontend=await readFile(new URL("../public/admin-player-campaign.js",import.meta.url),"utf8");
+  const frontend=await readFile(new globalThis.URL("../public/admin-player-campaign.js",import.meta.url),"utf8");
   assert.match(frontend,/autoEnabled/);
   assert.match(frontend,/Prochaine vérification prévue/);
   assert.match(frontend,/void work\("GET"\)/);
