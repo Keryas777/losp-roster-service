@@ -2,6 +2,7 @@
 const gameArchiveStatus=document.getElementById("game-archive-status");
 const gameArchiveStart=document.getElementById("game-archive-start");
 const gameArchiveTick=document.getElementById("game-archive-tick");
+const gameArchiveRefresh=document.getElementById("game-archive-refresh");
 const gameArchiveMessage=document.getElementById("game-archive-action-status");
 if(gameArchiveStatus&&gameArchiveStart&&gameArchiveTick&&gameArchiveMessage){
   let busy=false;
@@ -43,7 +44,7 @@ if(gameArchiveStatus&&gameArchiveStart&&gameArchiveTick&&gameArchiveMessage){
   };
   gameArchiveStart.addEventListener("click",()=>act("start"));
   gameArchiveTick.addEventListener("click",()=>act("tick"));
-  void status().catch(()=>{
+  if(gameArchiveRefresh)gameArchiveRefresh.addEventListener("click",()=>void status().catch(()=>{
     gameArchiveStatus.textContent="Impossible de lire le statut de l’archive privée.";
-  });
+  }));
 }

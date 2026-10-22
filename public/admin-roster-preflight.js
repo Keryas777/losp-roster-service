@@ -254,4 +254,5 @@ rosterEl("roster-approve").addEventListener("click",submitRosterApprovals);
 
 const rosterAutoTestButton=rosterEl("roster-auto-test");
 if(rosterAutoTestButton)rosterAutoTestButton.addEventListener("click",runOneAutoRosterTest);
-void showRosterAutoStatus();
+const rosterAutoRefresh=rosterEl("roster-auto-refresh");
+if(rosterAutoRefresh)rosterAutoRefresh.addEventListener("click",()=>void showRosterAutoStatus());

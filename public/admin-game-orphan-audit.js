@@ -97,5 +97,5 @@
       status.textContent="Copie indisponible : sélectionne le rapport affiché.";
     }
   });
-  void load("GET");
+  status.textContent="Rapport R2 non chargé. Clique sur « Actualiser le rapport » pour suivre l’audit en cours.";
 })();

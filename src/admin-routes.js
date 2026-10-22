@@ -18,15 +18,15 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<meta name="viewport" content="width=device-width,initial-scale=1">'+
 '<title>Administration LoSP — API MSF</title>'+
 '<link rel="stylesheet" href="/admin-explorer.css"></head><body>'+
-'<header><h1>Administration LoSP — API MSF</h1><p>Données privées. Lecture seule.</p></header>'+
-'<main><section><h2>Comptes et alliances</h2><p id="summary"></p>'+
-'<button id="refresh">Actualiser</button> <button id="more" hidden>Comptes suivants</button><div id="alliances" class="scroll"></div></section>'+
+'<header><h1>Administration LoSP — API MSF</h1><p>Outils privés · données chargées à la demande · aucun appel Scopely au simple affichage.</p></header>'+
+'<main><section><h2>Comptes et alliances</h2><p id="summary">Aucun compte interrogé à l’ouverture. Utilise le bouton ci-dessous uniquement quand tu souhaites actualiser les profils et alliances depuis Scopely.</p>'+
+'<button id="refresh" type="button">Charger / actualiser les comptes (API MSF)</button> <button id="more" hidden>Comptes suivants</button><div id="alliances" class="scroll"></div></section>'+
 '<section><h2>Santé des sessions OAuth</h2>'+
 '<p>Rotations réellement confirmées depuis l\'activation du suivi ; les anciennes rotations ne sont pas reconstituées.</p>'+
 '<button id="check-refresh" type="button">Actualiser les renouvellements</button>'+
 '<p id="refresh-status" role="status"></p><div id="refresh-sessions"></div></section>'+
 '<section><h2>Couverture des alliances</h2>'+
-'<p>Bilan privé des sessions déjà autorisées. Relecture en direct de Scopely, sans téléchargement de rosters ni activation du scan quotidien.</p>'+
+'<p>Bilan privé des sessions autorisées. Action manuelle : effectue des lectures officielles Scopely, sans téléchargement des rosters.</p>'+
 '<button id="check-coverage" type="button">Vérifier toutes les alliances</button>'+
 '<p id="coverage-status" role="status"></p><div id="coverage" class="scroll"></div></section>'+
 '<section><h2>Sauvegarde des classements raid / guerre</h2>'+
@@ -39,7 +39,8 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<div id="season-ranks-table" class="scroll"></div></section>'+
 '<section><h2>Préparation de la collecte automatique des rosters</h2>'+
 '<p>Collecte privée des alliances approuvées, par lots avec reprise. Planification automatique conditionnée à la règle R2 de rétention et au paramètre d’activation. Aucune publication vers la WebApp.</p>'+
-'<p id="roster-auto-status" role="status">État de l’automatisation : chargement…</p>'+
+'<p id="roster-auto-status" role="status">État de l’automatisation : à consulter sur demande (R2 uniquement).</p>'+
+'<button id="roster-auto-refresh" type="button">Actualiser l’état automatique (R2)</button>'+
 '<button id="roster-auto-test" type="button">Tester un micro-lot automatique maintenant (2 joueurs maximum)</button>'+
 '<p id="roster-auto-test-status" role="status"></p>'+
 '<button id="roster-preflight" type="button">Vérifier les alliances connectées</button>'+
@@ -63,7 +64,8 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<div id="msf-secondary-batch-results" class="scroll" aria-live="polite"></div></section>'+
 '<section><h2>Collecte officielle des données générales /game/v1</h2>'+
 '<p>Collecte privée paginée, avec reprise automatique, jeton OAuth applicatif et zéro donnée joueur. Pas de modification des collectes de rosters.</p>'+
-'<p id="game-archive-status" role="status">Statut en attente…</p>'+
+'<p id="game-archive-status" role="status">Statut disponible à la demande (R2 uniquement).</p>'+
+'<button id="game-archive-refresh" type="button">Actualiser l’état de la collecte (R2)</button>'+
 '<button id="game-archive-start" type="button">Démarrer une collecte générale</button>'+
 '<button id="game-archive-tick" type="button">Exécuter le premier micro-lot maintenant</button>'+
 '<p id="game-archive-action-status" role="status"></p>'+ 
@@ -124,6 +126,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '</div><p class="muted">Tous les champs des réponses, y compris les sous-objets, sont consultables en JSON brut.</p>'+
 '<button id="load">Afficher les données</button><p id="status" role="status"></p></section>'+
 '<section id="output">Choisis un compte et une rubrique.</section></main>'+
+'<script src="/admin-navigation.js" defer></script>'+
 '<script src="/admin-explorer.js" defer></script>'+
 '<script src="/admin-season-ranks.js" defer></script>'+
 '<script src="/admin-pid-diagnostic.js" defer></script>'+

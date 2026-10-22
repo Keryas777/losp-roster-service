@@ -38,3 +38,44 @@ details{margin:.4rem 0;border-radius:8px;padding:.55rem;border:1px solid #364765
 .member-card button{justify-self:start}
 .muted{color:#a7bdd6;font-size:.85rem}.badge{border:1px solid #4e78a2;border-radius:1rem;padding:.12rem .48rem;display:inline-block;font-size:.75rem}
 @media(min-width:720px){.controls{grid-template-columns:2fr 2fr 1fr 1fr}.panels{display:grid;grid-template-columns:1fr 1fr;gap:1rem}}
+
+
+/* Progressive enhancement: without JS, the original sections remain usable. */
+.admin-nav-ready .admin-tabs{
+ position:sticky;top:0;z-index:10;display:flex;gap:.35rem;overflow-x:auto;
+ -webkit-overflow-scrolling:touch;scrollbar-width:thin;padding:.6rem max(.7rem,env(safe-area-inset-right));
+ background:#0b1321;border-bottom:1px solid #34435b;
+}
+.admin-nav-ready .admin-tabs .admin-tab{
+ flex:0 0 auto;white-space:nowrap;min-height:44px;padding:.55rem .85rem;
+ border-radius:9px;background:#152238;border-color:#34435b;font-size:.91rem;
+}
+.admin-nav-ready .admin-tabs .admin-tab.active{
+ background:#27578c;border-color:#88bee9;color:#fff;font-weight:700;
+}
+.admin-nav-ready .admin-tabs .admin-tab:focus-visible,
+.admin-nav-ready .admin-disclosure-title:focus-visible{
+ outline:3px solid #8acbff;outline-offset:2px;
+}
+.admin-nav-ready main>section:not(.admin-output){padding:0;overflow:clip}
+.admin-nav-ready main>section>.admin-disclosure{
+ border:0;margin:0;padding:0;border-radius:12px;
+}
+.admin-nav-ready .admin-disclosure-title{
+ padding:1rem;min-height:52px;display:list-item;list-style-position:inside;
+ font-size:1rem;line-height:1.4;overflow-wrap:anywhere;
+}
+.admin-nav-ready .admin-disclosure[open]>.admin-disclosure-title{
+ background:#1b304e;border-bottom:1px solid #35445f;
+}
+.admin-nav-ready .admin-disclosure-body{padding:1rem}
+.admin-nav-ready .admin-disclosure-body>p:first-child{margin-top:0}
+.admin-nav-ready .admin-output{padding:1rem}
+.admin-nav-ready main{padding-top:.75rem}
+@media(max-width:560px){
+ .admin-nav-ready .admin-disclosure-body>button{
+   display:block;width:100%;margin:.45rem 0;text-align:left;
+ }
+ .admin-nav-ready .admin-disclosure-body .actions button{width:auto}
+ .admin-nav-ready .admin-tabs{gap:.3rem}
+}
