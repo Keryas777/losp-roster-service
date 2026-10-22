@@ -10,7 +10,7 @@ export const PLAYER_EXTRA_FAMILIES=Object.freeze({
   "personal-inventory": {path:"/player/v1/inventory",scope:"m3p.f.pr.inv",kind:"array"},
   "personal-wishlist": {path:"/player/v1/itemWishlist",scope:"m3p.f.pr.inv",kind:"array"},
   "personal-events": {path:"/player/v1/events",scope:"m3p.f.pr.act",kind:"array"},
-  "shared-member-squads": {path:"/player/v1/squads/member/",scope:"m3p.f.ar.ros",kind:"array",shared:true}
+  "shared-member-squads": {path:"/player/v1/squads/member/",scope:"m3p.f.ar.ros",kind:"array",shared:true,single:true}
 });
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const ROOT="https://api.marvelstrikeforce.com";
@@ -91,7 +91,7 @@ async function purgeIfPresent(bucket,prefix){
 }
 function pathFor(def,member,page){
   const base=def.path+(def.shared?encodeURIComponent(member):"");
-  if(def.kind==="object")return base;
+  if(def.kind==="object"||def.single)return base;
   const params=new URLSearchParams({lang:"fr",page:String(page),perPage:String(PER_PAGE)});
   if(def.path==="/player/v1/events")params.set("eventInfo","full");
   return base+"?"+params.toString();
@@ -179,7 +179,7 @@ export async function handlePlayerExtraArchive(request,env,fetchImpl=fetch,now=D
     const runId=crypto.randomUUID(),capturedAt=new Date(now).toISOString();
     const pages=[],asOfs=new Set();
     let total=0,expected=null,complete=false;
-    for(let page=1;page<=(def.kind==="object"?1:MAX_PAGES);page++){
+    for(let page=1;page<=(def.kind==="object"||def.single?1:MAX_PAGES);page++){
       const path=pathFor(def,member,page),response=await providerGet(path,token,fetchImpl);
       if(response.error)return json({status:"incomplete",error:response.error,
         upstreamStatus:response.httpStatus||null,resource:body.resource,
@@ -208,7 +208,7 @@ export async function handlePlayerExtraArchive(request,env,fetchImpl=fetch,now=D
       await env.CAPTAIN_BUCKET.put(key,source,options);
       pages.push({key,page,count});
       total+=count;
-      if(def.kind==="object"||expected!==null&&total===expected||
+      if(def.kind==="object"||def.single||expected!==null&&total===expected||
         expected===null&&count<PER_PAGE){complete=true;break;}
       if(expected!==null&&total>expected||count===0)
         return json({error:"inconsistent-pagination",pagesSaved:pages.length},409);
