@@ -23,7 +23,7 @@ const date=now=>new Date(now).toISOString().slice(0,10);
 const budgetKey=now=>GAME_ARCHIVE_ROOT+"budget/"+date(now)+".json";
 const key=(run,i)=>ROOT+"runs/"+run+"/tasks/"+String(i).padStart(7,"0")+".json";
 const receiptKey=(run,i)=>ROOT+"runs/"+run+"/checks/"+String(i).padStart(8,"0")+".json";
-const seenKey=(run,h)=>ROOT+"runs/"+run+"/seen/"+h+".json";
+const seenKey=(run,shard)=>ROOT+"runs/"+run+"/seen-shards/"+shard+".json";
 const latestKey=h=>ROOT+"latest/"+h+".json";
 const runSource=id=>GAME_ARCHIVE_ROOT+"runs/"+id+"/receipts/";
 const read=async(b,k)=>{
@@ -71,25 +71,37 @@ async function lock(env,holder,action){
     (action==="acquire"?"acquired":"released");
 }
 async function queue(b,s,candidates){
-  const fresh=[],seen=new Set();
+  // One compact seen-set per SHA nibble, not two R2 requests PER endpoint.
+  // Max 16 reads + 16 writes regardless of candidate count. This keeps
+  // Cloudflare subrequests bounded for hundreds of discovered IDs.
+  const groups=new Map(),fresh=[];
   for(const candidate of candidates){
-    if(!valid(candidate?.path)||seen.has(candidate.path))continue;
-    seen.add(candidate.path);
-    const h=await hash(candidate.path);
-    if(await b.head(seenKey(s.runId,h)))continue;
+    if(!valid(candidate?.path))continue;
+    const h=await hash(candidate.path),shard=h[0];
+    if(!groups.has(shard)){
+      const v=await read(b,seenKey(s.runId,shard));
+      if(v!==null&&(!Array.isArray(v)||!v.every(x=>SHA.test(x))))
+        throw Error("invalid-seen-shard");
+      groups.set(shard,{seen:new Set(v||[]),added:false});
+    }
+    const group=groups.get(shard);
+    if(group.seen.has(h))continue;
+    group.seen.add(h);group.added=true;
     fresh.push({path:candidate.path,
       sha256:SHA.test(candidate.sha256||"")?candidate.sha256:null,
       objectKey:typeof candidate.objectKey==="string"?candidate.objectKey:null});
   }
-  // Durable queue before progress and dedup markers: crashes may create
-  // harmless duplicate checks, but cannot silently lose an endpoint.
+  // Write tasks and updated checkpoint BEFORE the seen markers. An
+  // interrupted tick can repeat an endpoint, never silently omit one.
   for(let i=0;i<fresh.length;i+=80){
     const slice=fresh.slice(i,i+80);
     const index=s.writeIndex++;
     await write(b,key(s.runId,index),slice);
     s.queued+=slice.length;
     await write(b,STATE,s);
-    for(const v of slice)await write(b,seenKey(s.runId,await hash(v.path)),{v:1});
+  }
+  for(const [shard,group] of groups){
+    if(group.added)await write(b,seenKey(s.runId,shard),[...group.seen]);
   }
 }
 function make(source,now){
@@ -114,7 +126,7 @@ async function scan(b,s){
     return "checking";
   }
   const prefix=s.scanPhase==="base"?runSource(s.sourceRun):ROOT+"latest/";
-  const listed=await b.list({prefix,limit:50,...(s.cursor?{cursor:s.cursor}:{})});
+  const listed=await b.list({prefix,limit:12,...(s.cursor?{cursor:s.cursor}:{})});
   if(!Array.isArray(listed.objects)||
      listed.truncated===true&&(!listed.cursor||listed.cursor===s.cursor))
     throw Error("invalid-r2-list");
