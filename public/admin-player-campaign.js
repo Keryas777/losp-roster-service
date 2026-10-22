@@ -83,4 +83,6 @@
   }
   start.addEventListener("click",()=>work("POST"));
   refresh.addEventListener("click",()=>work("GET"));
+  // R2-only status on opening the admin tab: no Scopely request or collection.
+  void work("GET");
 })();
