@@ -162,3 +162,92 @@ test("admin one-button endpoint rejects cross-origin and unauthorized clients",a
   assert.equal(blocked.status,403);
   assert.equal(f.calls.length,0);
 });
+
+
+test("automatic Cron starts a first /player campaign without an admin click",async()=>{
+  const f=await fixture();
+  f.env.PLAYER_AUTO_ENABLED="true";
+  const prior=await (await getPlayerCampaignStatus(f.env)).json();
+  assert.equal(prior.status,"not-started");
+  assert.equal(prior.autoEnabled,true);
+  assert.equal(prior.intervalHours,24);
+  assert.equal(f.calls.length,0,"Status checks are R2-only");
+  const result=await runPlayerCampaignTick(f.env,f.provider,f.now);
+  assert.equal(result.status,"archived");
+  const active=await (await getPlayerCampaignStatus(f.env)).json();
+  assert.equal(active.status,"running");
+  assert.equal(active.mode,"automatic-daily");
+  assert.ok(f.db.has(prefix+"player-campaign/current.json"));
+  assert.ok(f.db.has(prefix+"player-campaign/auto-state.json"));
+});
+test("finished /player campaigns restart after 24h and remain idle in between",async()=>{
+  const f=await fixture();
+  f.env.PLAYER_AUTO_ENABLED="true";
+  const one=await loop(f);
+  assert.equal(one.state.status,"complete");
+  assert.equal(one.state.mode,"automatic-daily");
+  assert.equal(one.state.saved,5);
+  const completed=Date.parse(one.state.completedAt);
+  const count=f.calls.length;
+  const idle=await runPlayerCampaignTick(f.env,f.provider,completed+23*3600000);
+  assert.equal(idle.status,"up-to-date");
+  assert.equal(f.calls.length,count);
+  const fresh=await runPlayerCampaignTick(f.env,f.provider,completed+24*3600000);
+  assert.equal(fresh.status,"archived");
+  const active=await (await getPlayerCampaignStatus(f.env)).json();
+  assert.equal(active.status,"running");
+  assert.equal(active.mode,"automatic-daily");
+  assert.ok(f.calls.length>count);
+});
+test("empty OAuth vault is throttled and never starts fake campaigns",async()=>{
+  const f=await fixture();
+  f.env.PLAYER_AUTO_ENABLED="true";
+  f.db.delete(CAPTAIN_PREFIX+f.id);
+  const first=await runPlayerCampaignTick(f.env,f.provider,f.now);
+  assert.equal(first.status,"awaiting-oauth");
+  const retry=await runPlayerCampaignTick(f.env,f.provider,f.now+60000);
+  assert.equal(retry.status,"awaiting-oauth");
+  assert.equal(f.calls.length,0);
+  assert.ok(!f.db.has(prefix+"player-campaign/current.json"));
+  const status=await (await getPlayerCampaignStatus(f.env)).json();
+  assert.equal(status.status,"not-started");
+  assert.equal(status.autoEnabled,true);
+  assert.ok(status.nextRunAt);
+});
+test("disabled auto option leaves existing manual and Cron behavior unchanged",async()=>{
+  const f=await fixture();
+  assert.equal((await runPlayerCampaignTick(f.env,f.provider,f.now)).status,"idle");
+  const manual=await (await startPlayerCampaign(f.env,f.now)).json();
+  assert.equal(manual.status,"running");
+  assert.equal(manual.mode,"admin-manual");
+  assert.equal((await runPlayerCampaignTick(f.env,f.provider,f.now)).status,"archived");
+});
+test("daily global /player budget survives manually forced and automatic campaigns",async()=>{
+  const f=await fixture();
+  f.env.PLAYER_AUTO_ENABLED="true";
+  const completed=await loop(f);
+  assert.equal(completed.state.status,"complete");
+  const day=new Date(f.now).toISOString().slice(0,10);
+  const key=prefix+"player-campaign/budget/"+day+".json";
+  const first=JSON.parse(f.db.get(key));
+  assert.ok(first.used>0&&first.used<=1000);
+  const later=Date.parse(completed.state.completedAt)+12*60000;
+  const manual=await (await startPlayerCampaign(f.env,later)).json();
+  assert.equal(manual.mode,"admin-manual");
+  await runPlayerCampaignTick(f.env,f.provider,later);
+  const after=JSON.parse(f.db.get(key));
+  assert.equal(after.used,first.used+10,"Manual rerun does not reset UTC budget");
+  assert.ok(after.used<=1000);
+});
+test("automatic player daily flag is deployed on the existing minute Cron",async()=>{
+  const {readFile}=await import("node:fs/promises");
+  const wrangler=JSON.parse(await readFile(
+    new URL("../wrangler.jsonc",import.meta.url),"utf8"));
+  assert.equal(wrangler.vars.PLAYER_AUTO_ENABLED,"true");
+  assert.ok(wrangler.triggers.crons.includes("* * * * *"));
+  const frontend=await readFile(new URL("../public/admin-player-campaign.js",import.meta.url),"utf8");
+  assert.match(frontend,/autoEnabled/);
+  assert.match(frontend,/Prochaine vérification prévue/);
+  assert.match(frontend,/void work\("GET"\)/);
+  assert.doesNotMatch(frontend,/setInterval|\/admin\/api\/sessions|\/player\/v1/);
+});
