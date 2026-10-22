@@ -13,6 +13,7 @@ import {GAME_ARCHIVE_CRON,runGameArchiveTick} from "./game-catalog-archive.js";
 import {runGameArchiveSchemaAuditTick} from "./game-archive-schema-audit.js";
 import {runGameOrphanAuditTick} from "./game-archive-orphan-audit.js";
 import {runPlayerCampaignTick} from "./player-campaign.js";
+import {runGameDifferentialTick} from "./game-differential-sync.js";
 
 const SCOPELY_AUTH_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/auth";
 const APP_ORIGIN = "https://losp-roster-service.deliriousfan7.workers.dev";
@@ -163,6 +164,15 @@ export default {
         completedTasks:result.completedTasks||0,
         requestsToday:result.requestsToday||0
       }));
+      // The weekly /game differential reuses the primary collector lock and
+      // budget, and starts only after the initial archive has completed.
+      const differential=await runGameDifferentialTick(env);
+      if(!["disabled","up-to-date","awaiting-initial-archive",
+        "awaiting-initial-completion","awaiting-phase2"].includes(differential.status))
+        console.info("game-differential-cron",JSON.stringify({
+          status:differential.status,changed:differential.changed||0,
+          unchanged:differential.unchanged||0,failed:differential.failed||0
+        }));
       // Independent R2-only analysis, after the provider collector has run.
       // No Scopely GET, no roster access and no writes to archive receipts.
       const audit=await runGameArchiveSchemaAuditTick(env);
