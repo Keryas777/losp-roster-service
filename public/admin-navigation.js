@@ -33,6 +33,12 @@
     if(!group)continue; // Preserve future admin sections visibly if unknown.
     byGroup.get(group.id).push(section);
     section.dataset.adminGroup=group.id;
+    // Explorer rebuilds #output with replaceChildren() after each provider read.
+    // Keep it as a normal section: wrapping it would be erased on first result.
+    if(section.id==="output"){
+      section.classList.add("admin-output");
+      continue;
+    }
     const title=section.querySelector(":scope > h2");
     const panel=document.createElement("details");
     panel.className="admin-disclosure";
