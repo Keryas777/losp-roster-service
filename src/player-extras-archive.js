@@ -98,7 +98,8 @@ function pathFor(def,member,page){
 }
 function validResponse(def,payload){
   return object(payload)&&object(payload.meta)&&
-    (def.kind==="object"?object(payload.data)||Array.isArray(payload.data):
+    (def.kind==="object"||def.single?
+      object(payload.data)||Array.isArray(payload.data):
       Array.isArray(payload.data));
 }
 
@@ -190,7 +191,7 @@ export async function handlePlayerExtraArchive(request,env,fetchImpl=fetch,now=D
       const meta=payload.meta;
       if(typeof meta.asOf==="string")asOfs.add(meta.asOf);
       if(asOfs.size>1)return json({error:"changed-during-pagination",pagesSaved:pages.length},409);
-      const count=def.kind==="object"?1:payload.data.length;
+      const count=Array.isArray(payload.data)?payload.data.length:1;
       if(meta.page!==undefined&&def.kind==="array"&&meta.page!==page)
         return json({error:"inconsistent-page",pagesSaved:pages.length},409);
       if(meta.perTotal!==undefined){
