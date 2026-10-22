@@ -95,7 +95,7 @@ test("a 105-item inventory is not called complete until all pages are present",a
       {page,perTotal:105});
   });
   const response=await f.post({resource:"personal-inventory"});
-  assert.equal(response.status,200);
+  assert.equal(response.status,200,JSON.stringify(await response.clone().json()));
   const body=await response.json();
   assert.equal(body.pages,2);assert.equal(body.entries,105);
   assert.equal(f.calls.length,2);
@@ -112,7 +112,7 @@ test("member squads require current rosterShare before and after; no OAuth for t
   assert.equal(result.status,200);
   assert.equal((await result.json()).status,"archived");
   assert.equal(f.calls.length,3);
-  assert.ok(f.calls[1].endsWith("/squads/member/abc%3A1"));
+  assert.ok(f.calls[1].endsWith("/squads/member/abc%3A1"),f.calls.join(" | "));
   sharing=false;
   result=await f.post({resource:"shared-member-squads",member},
     Date.now()+11*60_000);
@@ -133,7 +133,7 @@ test("429 and partial pagination never publish a completed latest record",async(
       {page,perTotal:1200});
   });
   const result=await g.post({resource:"personal-inventory"});
-  assert.equal(result.status,409);
+  assert.equal(result.status,409,JSON.stringify(await result.clone().json()));
   assert.equal((await result.json()).error,"page-budget");
   assert.ok(![...g.db.keys()].some(k=>k.endsWith("latest.json")));
 });
