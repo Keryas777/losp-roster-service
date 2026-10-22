@@ -17,6 +17,7 @@ export const API_RESOURCES=Object.freeze([
   {id:"alliance-card",label:"Fiche d’alliance",path:"/player/v1/alliance/card",scope:"m3p.f.ar.pro"},
   {id:"alliance-members",label:"Membres de l’alliance",path:"/player/v1/alliance/members",scope:"m3p.f.ar.pro"},
   {id:"alliance-roster",label:"Roster partagé d’un membre",path:"/player/v1/roster/member/",scope:"m3p.f.ar.ros"},
+  {id:"alliance-squads",label:"Équipes partagées d’un membre",path:"/player/v1/squads/member/",scope:"m3p.f.ar.ros"},
   {id:"game-characters",label:"Catalogue des personnages",path:"/game/v1/characters",scope:null},
   {id:"game-events",label:"Événements de jeu",path:"/game/v1/events",scope:null},
   {id:"game-traits",label:"Traits",path:"/game/v1/traits",scope:null},
@@ -99,7 +100,7 @@ async function grantForKey(env,key){
       observedRotations:Number.isSafeInteger(body.observedRotations)?body.observedRotations:null
     }:null;
 }
-async function tokenForKey(env,key){
+export async function tokenForKey(env,key){
   return (await grantForKey(env,key))?.accessToken||null;
 }
 // Private aggregate only. Never forward arbitrary contents from R2.
@@ -204,7 +205,7 @@ export async function adminResource(request,env,fetchImpl=fetch){
   const token=await tokenForKey(env,key);
   if(!token)return json({error:"session-unavailable"},503);
   let path=resource.path;
-  if(resource.id==="alliance-roster"){
+  if(["alliance-roster","alliance-squads"].includes(resource.id)){
     if(!validId(member))return json({error:"member-required"},400);
     // Always revalidate on the CURRENT alliance. Cannot query past members
     // or anyone who has not explicitly enabled roster sharing.
@@ -216,7 +217,7 @@ export async function adminResource(request,env,fetchImpl=fetch){
       return json({error:"not-a-current-shared-member"},403);
     path+=encodeURIComponent(member);
   }
-  if(resource.path.endsWith("/") && resource.id!=="alliance-roster"){
+  if(resource.path.endsWith("/") && !["alliance-roster","alliance-squads"].includes(resource.id)){
     const entity=url.searchParams.get("entity");
     if(!validId(entity))return json({error:"entity-required"},400);
     path+=encodeURIComponent(entity);

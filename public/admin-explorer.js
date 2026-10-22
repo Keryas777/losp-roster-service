@@ -307,9 +307,9 @@ function makeOptions(){
   toggleMember();
 }
 function toggleMember(){
-  el("member-wrap").hidden=resourceSelect.value!=="alliance-roster";
+  el("member-wrap").hidden=!["alliance-roster","alliance-squads"].includes(resourceSelect.value);
   el("entity-wrap").hidden=!catalog.some(v=>v.id===resourceSelect.value &&
-    v.path.endsWith("/") && v.id!=="alliance-roster");
+    v.path.endsWith("/") && !["alliance-roster","alliance-squads"].includes(v.id));
   el("pages-wrap").hidden=!["personal-roster","personal-inventory",
     "personal-wishlist","personal-events","alliance-roster",
     "game-characters","game-events"].includes(resourceSelect.value);
@@ -363,12 +363,12 @@ async function loadResource(){
     query.set("perPage",el("perPage").value);
   }
   const definition=catalog.find(v=>v.id===resource);
-  if(definition?.path.endsWith("/")&&resource!=="alliance-roster"){
+  if(definition?.path.endsWith("/")&&!["alliance-roster","alliance-squads"].includes(resource)){
     const entity=el("entity").value.trim();
     if(!entity){status("Indique l’identifiant du détail souhaité.");return;}
     query.set("entity",entity);
   }
-  if(resource==="alliance-roster"){
+  if(["alliance-roster","alliance-squads"].includes(resource)){
     const member=el("member").value.trim();
     if(memberChoiceSession!==currentSession || !member){
       status("Charge d'abord les membres de cette alliance et choisis un pseudo.");
