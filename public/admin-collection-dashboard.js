@@ -26,6 +26,9 @@
   }
   const label=v=>({
     running:"En cours",complete:"Terminée",partial:"Partielle",
+    completed:"Terminée", "completed-with-gaps":"Terminée avec lacunes",
+    scanning:"Indexation R2",checking:"Vérification des données",
+    "up-to-date":"À jour",cooldown:"En pause",
     "not-started":"Non démarrée",ready:"Programmée",disabled:"Désactivée",
     "not-configured":"Non configurée",archived:"Archivé",
     missing:"Absent",expired:"Expiré",valid:"Manifeste présent",
@@ -65,7 +68,10 @@
         "Différentiel hebdomadaire : "+label(diff.status)+
         " · changements : "+count(diff.changed)+
         " · inchangés : "+count(diff.unchanged)+
-        " · dernier changement : "+time(diff.lastChangedAt),
+        " · échecs : "+count(diff.failed)+
+        " · dernière vérification : "+time(diff.lastCheckedAt)+
+        " · dernier changement : "+time(diff.lastChangedAt)+
+        " · prochaine passe : "+time(diff.nextRunAt),
       g.status==="complete"?"ok":"neutral");
     tile(cards,"Sessions OAuth",
       count(o.checked)+" contrôlées",
