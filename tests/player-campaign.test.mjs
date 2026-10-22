@@ -122,7 +122,7 @@ test("no private inventory or progression without personal grant",async()=>{
   const {state}=await loop(f);
   assert.equal(state.status,"complete");
   assert.equal(state.saved,2); // self squads + shared squad
-  assert.equal(state.skipped,2);
+  assert.equal(state.skipped,3); // inventory, wishlist, events
   assert.ok(f.calls.every(x=>!x.includes("/inventory")&&
     !x.includes("/itemWishlist")&&!x.includes("/events")));
 });
