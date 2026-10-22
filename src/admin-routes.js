@@ -13,6 +13,7 @@ import {handleGameOrphanAudit} from "./game-archive-orphan-audit.js";
 import {handleGameArchiveSchemaAudit} from "./game-archive-schema-audit.js";
 import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
 import {handlePlayerExtraArchive} from "./player-extras-archive.js";
+import {handlePlayerCampaignAdmin} from "./player-campaign.js";
 import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron,adminMemberCard} from "./admin-data-api.js";
 
 const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
@@ -53,6 +54,12 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<button id="roster-r2-refresh" type="button">Vérifier les alliances en R2</button>'+
 '<button id="roster-r2-copy" type="button" disabled>Copier le diagnostic JSON</button>'+
 '<p id="roster-r2-status" role="status"></p><div id="roster-r2-report" class="scroll"></div></section>'+
+'<section><h2>Collecte globale /player/v1</h2>'+ 
+'<p>Un seul lancement pour tous les comptes OAuth actifs et les équipes des membres dont le roster est partagé. Les rosters, profils et fiches d’alliance sont déjà gérés par la collecte existante : pas de doublons. Exécution automatique par étapes même quand cette page est fermée, avec accès privé R2 et respect du consentement.</p>'+ 
+'<button id="player-campaign-start" type="button">Collecter toutes les données /player</button>'+ 
+'<button id="player-campaign-refresh" type="button">Voir l’avancement (R2)</button>'+ 
+'<p id="player-campaign-status" role="status">Aucune vérification automatique à l’ouverture.</p>'+ 
+'<div id="player-campaign-report" class="scroll"></div></section>'+ 
 '<section><h2>Archives privées /player non couvertes par les rosters</h2>'+
 '<p>Différencier les comptes OAuth (équipes, inventaire, souhaits, événements) et les membres non connectés (uniquement équipes si partage du roster actif). Capture manuelle, réponses sources intégrales conservées en R2 privé sept jours. Aucune collecte automatique supplémentaire.</p>'+
 '<label>Famille<select id="player-extra-resource">'+
@@ -151,6 +158,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-roster-preflight.js" defer></script>'+ 
 '<script src="/admin-roster-r2-coverage.js" defer></script>'+ 
 '<script src="/admin-player-extras.js" defer></script>'+ 
+'<script src="/admin-player-campaign.js" defer></script>'+ 
 '<script src="/admin-secondary-probes.js" defer></script>'+
 '<script src="/admin-game-archive.js" defer></script>'+
 '<script src="/admin-game-archive-inspector.js" defer></script>'+
@@ -167,7 +175,8 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
         "/admin/api/msf-secondary-probe","/admin/api/game-archive",
         "/admin/api/game-archive-schema-audit",
         "/admin/api/game-archive-orphan-audit",
-        "/admin/api/alliance-season-ranks","/admin/api/player-extras"].includes(endpoint)))
+        "/admin/api/alliance-season-ranks","/admin/api/player-extras",
+         "/admin/api/player-campaign"].includes(endpoint)))
     return new Response("Method Not Allowed",{status:405});
   if(!adminReady(env))return new Response("Administration désactivée",{
     status:503,headers:{"Cache-Control":"no-store"}
@@ -225,5 +234,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     return handleAllianceSeasonRanks(request,env,fetchImpl);
   if(pathname==="/admin/api/player-extras")
     return handlePlayerExtraArchive(request,env,fetchImpl);
+  if(pathname==="/admin/api/player-campaign")
+    return handlePlayerCampaignAdmin(request,env);
   return new Response("Not Found",{status:404});
 }
