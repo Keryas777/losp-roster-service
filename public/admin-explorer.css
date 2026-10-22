@@ -79,3 +79,19 @@ details{margin:.4rem 0;border-radius:8px;padding:.55rem;border:1px solid #364765
  .admin-nav-ready .admin-disclosure-body .actions button{width:auto}
  .admin-nav-ready .admin-tabs{gap:.3rem}
 }
+
+/* Private read-only collection observability: clear even on narrow phones. */
+.collection-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,215px),1fr));gap:.65rem;margin:.7rem 0 1rem}
+.collection-tile,.collection-alliance{background:#101d30;border:1px solid #3b4d65;border-radius:10px;padding:.85rem;min-width:0;overflow-wrap:anywhere}
+.collection-tile strong,.collection-alliance strong{display:block;color:#ebf4ff}
+.collection-metric{font-size:1.35rem;font-weight:700;font-variant-numeric:tabular-nums;margin:.35rem 0}
+.collection-tile.collection-ok{border-left:3px solid #72bda4}
+.collection-tile.collection-warn{border-left:3px solid #e5af67}
+.collection-caveat{font-size:.83rem;color:#aac1dc;margin:.45rem 0 .8rem}
+.collection-timestamp{font-size:.8rem;color:#b0c0d5}
+.admin-dashboard h3{font-size:1rem;margin:1.05rem 0 .5rem}
+.admin-dashboard table{min-width:520px}
+.admin-dashboard th{white-space:nowrap}
+.admin-dashboard .collection-alliance p{margin:.35rem 0;font-size:.86rem}
+.admin-dashboard #collection-dashboard-status{font-size:.85rem}
+@media(max-width:560px){.admin-dashboard #collection-dashboard-refresh{width:100%}}
