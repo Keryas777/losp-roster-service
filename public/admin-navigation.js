@@ -9,10 +9,10 @@
     {id:"rosters",label:"Rosters",targets:[
       "check-coverage","roster-preflight","roster-r2-refresh"]},
     {id:"archives",label:"Archives R2",targets:[
-      "game-archive-status","game-r2-inventory-start","game-orphan-start",
+      "player-campaign-start","game-archive-status","game-r2-inventory-start","game-orphan-start",
       "game-inspect-start","game-schema-start"]},
     {id:"advanced",label:"Outils avancés",targets:[
-      "msf-secondary-probe","pid-check","load","output"]}
+      "player-extra-capture","msf-secondary-probe","pid-check","load","output"]}
   ];
   const sections=[...main.children].filter(el=>el.tagName==="SECTION");
   const byGroup=new Map(groups.map(g=>[g.id,[]]));
@@ -25,6 +25,7 @@
     if(section.querySelector("#refresh,#check-coverage,#roster-preflight,"+
         "#pid-check,#msf-secondary-probe,#load"))return " · API à la demande";
     if(section.querySelector("#season-ranks-refresh"))return " · R2 / capture manuelle";
+    if(section.querySelector("#player-campaign-start"))return " · collecte globale /player";
     return " · R2";
   }
   for(const section of sections){
