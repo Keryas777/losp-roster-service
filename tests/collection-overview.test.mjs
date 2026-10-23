@@ -156,6 +156,7 @@ test("missing complete roster manifest is explained when a co-member opts out",a
   assert.equal(alliance.personalRosterCollected,true);
   assert.equal(alliance.personalFilePresent,true);
   assert.equal(alliance.snapshot,"missing");
+  assert.equal(alliance.manifestCoverage,null);
   assert.ok(!JSON.stringify(result).includes(FP),
     "The overview must not leak alliance fingerprints");
 });
@@ -192,5 +193,6 @@ test("roster alliance color tags are rendered as bounded CSS colors without HTML
   assert.match(files[0],/personalFilePresent===true/);
   assert.match(files[0],/collection-coverage-info/);
   assert.match(files[1],/Rosters autorisés terminés/);
-  assert.match(files[1],/Manifeste d'exhaustivité/);
+  assert.match(files[1],/Manifeste des rosters autorisés/);
+  assert.match(files[0],/manifestCoverage==="all-members"/);
 });
