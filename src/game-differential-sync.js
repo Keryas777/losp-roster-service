@@ -12,6 +12,11 @@ const STATE=ROOT+"state.json",ACTIVE=GAME_ARCHIVE_ROOT+"active.json";
 const API="https://api.marvelstrikeforce.com";
 const LOCK="e".repeat(64); // Shared with the existing /game collector and daily budget.
 const HOUR=3600000,WEEK=7*24*HOUR,TICK=3,DAILY=1500;
+// The Scopely terms require a maximum 30-day data TTL. Re-materialize
+// otherwise-identical source bytes before day 30, rather than indefinitely
+// extending a pointer to an old R2 object. Actual R2 deletion requires a
+// separately verified lifecycle policy.
+const RENEW_AFTER=21*24*HOUR;
 const PATH=/^\/game\/v1\/[A-Za-z0-9/_:?.=%&,+-]{1,800}$/;
 const SHA=/^[0-9a-f]{64}$/;
 const UID=/^[0-9a-f-]{36}$/;
@@ -23,6 +28,8 @@ const date=now=>new Date(now).toISOString().slice(0,10);
 const budgetKey=now=>GAME_ARCHIVE_ROOT+"budget/"+date(now)+".json";
 const key=(run,i)=>ROOT+"runs/"+run+"/tasks/"+String(i).padStart(7,"0")+".json";
 const receiptKey=(run,i)=>ROOT+"runs/"+run+"/checks/"+String(i).padStart(8,"0")+".json";
+const failureKey=(run,i)=>ROOT+"runs/"+run+"/failures/"+
+  String(i).padStart(8,"0")+"-"+crypto.randomUUID()+".json";
 const seenKey=(run,shard)=>ROOT+"runs/"+run+"/seen-shards/"+shard+".json";
 const latestKey=h=>ROOT+"latest/"+h+".json";
 const runSource=id=>GAME_ARCHIVE_ROOT+"runs/"+id+"/receipts/";
@@ -54,7 +61,7 @@ function visible(s,enabled=true){
     startedAt:s.startedAt||null,completedAt:s.completedAt||null,
     lastCheckedAt:s.lastCheckedAt||null,lastChangedAt:s.lastChangedAt||null,
     nextRunAt:s.completedAt?new Date(Date.parse(s.completedAt)+WEEK).toISOString():null,
-    changed:s.changed||0,unchanged:s.unchanged||0,failed:s.failed||0,
+    changed:s.changed||0,unchanged:s.unchanged||0,refreshed:s.refreshed||0,failed:s.failed||0,
     checked:s.checked||0,queued:s.queued||0,scanPhase:s.scanPhase||null,
     sourceRun:s.sourceRun||null,pauseUntil:s.pauseUntil||null,
     lastOutcome:s.lastOutcome||null,runId:s.runId||null,
@@ -89,7 +96,8 @@ async function queue(b,s,candidates){
     group.seen.add(h);group.added=true;
     fresh.push({path:candidate.path,
       sha256:SHA.test(candidate.sha256||"")?candidate.sha256:null,
-      objectKey:typeof candidate.objectKey==="string"?candidate.objectKey:null});
+      objectKey:typeof candidate.objectKey==="string"?candidate.objectKey:null,
+      storedAt:typeof candidate.storedAt==="string"?candidate.storedAt:null});
   }
   // Write tasks and updated checkpoint BEFORE the seen markers. An
   // interrupted tick can repeat an endpoint, never silently omit one.
@@ -108,7 +116,7 @@ function make(source,now){
   return {version:1,runId:crypto.randomUUID(),sourceRun:source,
     status:"scanning",scanPhase:"base",cursor:null,
     writeIndex:0,readIndex:0,readOffset:0,queued:0,checked:0,
-    changed:0,unchanged:0,failed:0,retries:0,pauseUntil:null,
+    changed:0,unchanged:0,refreshed:0,failed:0,retries:0,pauseUntil:null,
     startedAt:new Date(now).toISOString(),lastCheckedAt:null,
     lastChangedAt:null,completedAt:null,lastOutcome:null};
 }
@@ -137,9 +145,11 @@ async function scan(b,s){
       const v=await read(b,item.key);
       if(s.scanPhase==="base"){
         if(v?.status===200&&valid(v.path))
-          candidates.push({path:v.path,sha256:v.sha256,objectKey:v.objectKey});
+          candidates.push({path:v.path,sha256:v.sha256,objectKey:v.objectKey,
+            storedAt:v.capturedAt||null});
       }else if(valid(v?.path)){
-        candidates.push({path:v.path,sha256:v.sha256,objectKey:v.objectKey});
+        candidates.push({path:v.path,sha256:v.sha256,objectKey:v.objectKey,
+          storedAt:v.storedAt||null});
       }
     }catch{s.failed++;s.lastOutcome="unreadable-source-receipt";}
   }
@@ -196,7 +206,82 @@ async function discover(bucket,s,path,payload){
   catch{s.failed++;s.lastOutcome="linked-discovery-failed";}
   await queue(bucket,s,candidates);
 }
-async function checkOne(b,s,task,token,fetchImpl,now){
+// A SHA-addressed pointer must describe the ACTUAL bytes kept in R2.
+// A previous V1 pointer could contain the newest observed SHA despite still
+// targeting older bytes (meta.asOf-only changes). Such pointers are refreshed.
+function validObjectKey(key,storedSha){
+  if(typeof key!=="string"||!SHA.test(storedSha||""))return false;
+  if(!(key.startsWith(GAME_ARCHIVE_ROOT+"runs/")||
+       key.startsWith(ROOT+"runs/")))return false;
+  return key.endsWith("/objects/"+storedSha+".json")&&
+    !key.includes("/../")&&!key.includes("//");
+}
+function validStamp(value,now){
+  if(typeof value!=="string")return null;
+  const stamp=Date.parse(value);
+  return Number.isFinite(stamp)&&stamp<=now+5*60000&&stamp>=0?stamp:null;
+}
+async function usableReference(bucket,ref,now){
+  if(!validObjectKey(ref?.objectKey,ref?.sha256))return null;
+  const head=await bucket.head(ref.objectKey);
+  if(!head)return null;
+  // Prefer the date when these exact stored bytes were archived, not the
+  // last check time. A missing date is treated as unknown, never "fresh".
+  const storedAt=ref.storedAt||ref.capturedAt||
+    (head.uploaded instanceof Date?head.uploaded.toISOString():
+      typeof head.uploaded==="string"?head.uploaded:null);
+  const time=validStamp(storedAt,now);
+  if(time===null||now-time>=RENEW_AFTER)return null;
+  return {sha256:ref.sha256,objectKey:ref.objectKey,storedAt};
+}
+function pointerFromReceipt(receipt,run,source){
+  return {version:2,path:receipt.path,sha256:receipt.sha256,
+    observedSha256:receipt.observedSha256||receipt.sha256,
+    semanticHash:receipt.semanticHash,objectKey:receipt.objectKey,
+    storedAt:receipt.storedAt,checkedAt:receipt.checkedAt,
+    lastChangedAt:receipt.lastChangedAt||null,
+    changed:receipt.status==="changed",refreshed:receipt.refreshed===true,
+    receiptKey:receiptKey(run,source),runId:run};
+}
+// Finish a partially committed task WITHOUT an additional Scopely GET.
+// A receipt is the recovery journal: it is durably saved before latest/.
+// All side effects after it (latest, linked discovery, counters/checkpoint)
+// may be safely replayed when a Worker is interrupted.
+async function finishCommitted(b,s,task,receipt,now){
+  if(receipt?.path!==task.path||
+     !["changed","unchanged"].includes(receipt.status)||
+     !SHA.test(receipt.semanticHash||"")||
+     !validObjectKey(receipt.objectKey,receipt.sha256)||
+     validStamp(receipt.storedAt,now)===null)
+    return {error:"invalid-committed-receipt",retry:false};
+  if(!await b.head(receipt.objectKey))
+    return {error:"committed-object-missing",retry:false};
+  const source=await b.get(receipt.objectKey);
+  if(!source||Number.isFinite(source.size)&&source.size>8_000_000)
+    return {error:"committed-object-unreadable",retry:false};
+  let doc;
+  try{doc=JSON.parse(await source.text());}
+  catch{return {error:"committed-object-invalid-json",retry:false};}
+  if(!doc||typeof doc!=="object"||Array.isArray(doc)||!Object.hasOwn(doc,"data"))
+    return {error:"committed-object-invalid-shape",retry:false};
+  // Recompute/repair latest pointer only after the referenced object and
+  // receipt exist. No false-complete state can be published before this.
+  const pathHash=await hash(task.path);
+  const pointer=pointerFromReceipt(receipt,s.runId,s.checked);
+  const current=await read(b,latestKey(pathHash));
+  if(!current||current.receiptKey!==pointer.receiptKey||
+     current.sha256!==pointer.sha256||current.objectKey!==pointer.objectKey)
+    await write(b,latestKey(pathHash),pointer);
+  await discover(b,s,task.path,doc);
+  if(receipt.status==="changed"){
+    s.changed++;s.lastChangedAt=receipt.lastChangedAt||receipt.checkedAt;
+  }else s.unchanged++;
+  if(receipt.refreshed===true)s.refreshed=(s.refreshed||0)+1;
+  s.checked++;s.lastCheckedAt=receipt.checkedAt;
+  return {status:receipt.status,replayed:true};
+}
+async function checkOne(b,s,task,token,fetchImpl,now,committed=null){
+  if(committed)return finishCommitted(b,s,task,committed,now);
   const h=await hash(task.path),last=await read(b,latestKey(h));
   const ref=last&&last.path===task.path?last:task;
   let response;
@@ -222,24 +307,33 @@ async function checkOne(b,s,task,token,fetchImpl,now){
   const oldSem=await priorSemantic(b,ref);
   const unchanged=(oldSem&&sem===oldSem)||(!oldSem&&raw===ref.sha256);
   const capturedAt=new Date(now).toISOString();
-  let objectKey=ref.objectKey||null;
-  if(!unchanged){
+  const usable=unchanged?await usableReference(b,ref,now):null;
+  const refreshed=Boolean(unchanged&&!usable);
+  let objectKey=usable?.objectKey||null;
+  let storedSha=usable?.sha256||null;
+  let storedAt=usable?.storedAt||null;
+  if(!objectKey){
+    storedSha=raw;storedAt=capturedAt;
     objectKey=ROOT+"runs/"+s.runId+"/objects/"+raw+".json";
     if(!await b.head(objectKey))
       await b.put(objectKey,parsed.bytes,opts);
-    s.changed++;s.lastChangedAt=capturedAt;
-  }else s.unchanged++;
-  // The latest pointer is updated only after source bytes are durably saved.
-  await write(b,latestKey(h),{version:1,path:task.path,sha256:raw,
-    semanticHash:sem,objectKey,checkedAt:capturedAt,
+    // HEAD is the storage barrier before any success receipt/pointer.
+    if(!await b.head(objectKey))
+      return {error:"stored-object-not-visible",retry:true};
+  }
+  // The receipt is a per-task write-ahead journal. Its deterministic key
+  // is replayed, NEVER overwritten. A retry resumes finishCommitted.
+  const receipt={version:2,path:task.path,
+    status:unchanged?"unchanged":"changed",
+    checkedAt:capturedAt,sha256:storedSha,observedSha256:raw,
+    semanticHash:sem,objectKey,storedAt,refreshed,
     lastChangedAt:unchanged?last?.lastChangedAt||null:capturedAt,
-    changed:!unchanged,runId:s.runId});
-  await write(b,receiptKey(s.runId,s.checked),{
-    version:1,path:task.path,status:unchanged?"unchanged":"changed",
-    checkedAt:capturedAt,sha256:raw,objectKey});
-  await discover(b,s,task.path,parsed.data);
-  s.checked++;s.lastCheckedAt=capturedAt;
-  return {status:unchanged?"unchanged":"changed"};
+    sourceRun:s.sourceRun,sourceReceipt:ref.receiptKey||null};
+  const journal=receiptKey(s.runId,s.checked);
+  if(await b.head(journal))
+    return {error:"receipt-raced-before-commit",retry:true};
+  await write(b,journal,receipt);
+  return finishCommitted(b,s,task,receipt,now);
 }
 function done(s,now){
   s.status=s.failed?"partial":"completed";s.completedAt=new Date(now).toISOString();
@@ -303,13 +397,10 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
       return {status:"invalid-budget"};
     if(budget.diffUsed!==undefined&&(!Number.isSafeInteger(budget.diffUsed)||
        budget.diffUsed<0||budget.diffUsed>DAILY))return {status:"invalid-diff-budget"};
-    const token=await appToken(env,fetchImpl,now);
-    if(!token){s.pauseUntil=new Date(now+HOUR).toISOString();
-      s.lastOutcome="app-oauth-unavailable";await write(b,STATE,s);
-      return {status:"app-oauth-unavailable"};}
-    let calls=0;
-    while(calls<TICK&&s.readIndex<s.writeIndex&&budget.used<GAME_ARCHIVE_DAILY_LIMIT&&
-          (budget.diffUsed||0)<DAILY){
+    let token=null,calls=0,processed=0;
+    // Replays do not consume a provider GET or its budget. The existing
+    // journal is inspected before reserving a request.
+    while(processed<TICK&&s.readIndex<s.writeIndex){
       const batch=await read(b,key(s.runId,s.readIndex));
       if(!Array.isArray(batch)||!batch.length||batch.length>80)
         return {status:"invalid-queue"};
@@ -318,9 +409,23 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
       }
       const task=batch[s.readOffset];
       if(!valid(task?.path))return {status:"invalid-path"};
-      budget.used++;budget.diffUsed=(budget.diffUsed||0)+1;
-      calls++;await write(b,budgetKey(now),budget);
-      const result=await checkOne(b,s,task,token,fetchImpl,now);
+      const journal=await read(b,receiptKey(s.runId,s.checked));
+      if(journal&&journal.path!==task.path)
+        return {status:"receipt-task-mismatch"};
+      if(!journal){
+        if(budget.used>=GAME_ARCHIVE_DAILY_LIMIT|| (budget.diffUsed||0)>=DAILY)
+          break;
+        if(!token){
+          token=await appToken(env,fetchImpl,now);
+          if(!token){s.pauseUntil=new Date(now+HOUR).toISOString();
+            s.lastOutcome="app-oauth-unavailable";await write(b,STATE,s);
+            return {status:"app-oauth-unavailable"};}
+        }
+        budget.used++;budget.diffUsed=(budget.diffUsed||0)+1;
+        calls++;await write(b,budgetKey(now),budget);
+      }
+      processed++;
+      const result=await checkOne(b,s,task,token,fetchImpl,now,journal);
       if(result.error){
         s.lastOutcome=result.error;
         s.retries++;
@@ -331,8 +436,10 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
           return {status:"cooldown",lastOutcome:result.error,calls};
         }
         s.failed++;
-        await write(b,receiptKey(s.runId,s.checked),{
-          version:1,path:task.path,status:"failed",reason:result.error,
+        // Failed checks are recorded separately. Never replace a successfully
+        // committed journal merely because its finalization later failed.
+        await write(b,failureKey(s.runId,s.checked),{
+          version:2,path:task.path,status:"failed",reason:result.error,
           checkedAt:new Date(now).toISOString(),
           ...(result.objectKey?{objectKey:result.objectKey}:{})});
         s.checked++;
