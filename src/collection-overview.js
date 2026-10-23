@@ -138,7 +138,11 @@ export async function handleCollectionOverview(request,env,now=Date.now()){
           // Manifest validity != physical verification of all files.
           verified:false,completed:a.progress?.completed??null,
           eligible:a.progress?.eligibleCoMembers??null,
+          observedMembers:a.progress?.observedMembers??null,
+          noShareCount:Number.isSafeInteger(a.progress?.noShareCount)&&
+            a.progress.noShareCount>=0?a.progress.noShareCount:null,
           personalRosterCollected:a.progress?.personalRosterCollected===true,
+          personalFilePresent:a.progress?.personalFilePresent??null,
           lastCampaign:a.progress?.campaign||null
         }))};
     }),
