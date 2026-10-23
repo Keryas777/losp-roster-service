@@ -60,7 +60,12 @@ test("file catalogue covers collector declarations and exposes cadence without p
   assert.equal(player.lastAt,"2026-10-23T08:00:00Z");
   const game=list.find(r=>r.id==="game-characters");
   assert.equal(game.enabled,true);
-  assert.match(game.when,/7 jours/);
+  assert.equal(game.automatic,false);
+  assert.match(game.when,/clic administrateur/);
+  assert.ok(list.filter(r=>r.group==="/game").every(r=>r.automatic===false),
+    "Each /game source inherits the manual initial trigger, even when cron continuation is enabled");
+  assert.equal(roster.automatic,true);
+  assert.equal(player.automatic,true);
   assert.match(game.evidence,/non vérifiée individuellement/);
   const secondary=list.find(r=>r.id==="secondary-get-character-list");
   assert.equal(secondary.automatic,false);
@@ -84,7 +89,8 @@ test("disabled collectors are not described as running",async()=>{
   assert.equal(rows.find(r=>r.id==="player-personal-events").enabled,false);
   assert.equal(rows.find(r=>r.id==="player-personal-roster").enabled,false);
   assert.equal(rows.find(r=>r.id==="alliance-coverage").enabled,false);
-  assert.match(rows.find(r=>r.id==="game-characters").when,/différentiel inactif/);
+  assert.equal(rows.find(r=>r.id==="game-characters").automatic,false);
+  assert.match(rows.find(r=>r.id==="game-characters").when,/clic administrateur/);
 });
 
 test("inventory frontend is vanilla JS and has no additional API calls",async()=>{
@@ -92,5 +98,6 @@ test("inventory frontend is vanilla JS and has no additional API calls",async()=
   assert.doesNotThrow(()=>new Script(js));
   assert.match(js,/Inventaire des fichiers et horaires/);
   assert.match(js,/renderFileCatalog\(output,data.catalog\)/);
+  assert.match(js,/Déclenchement initial automatique/);
   assert.doesNotMatch(js,/innerHTML|localStorage|sessionStorage|setInterval/);
 });
