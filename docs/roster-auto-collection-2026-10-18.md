@@ -122,7 +122,9 @@ de GitHub Actions utilisent des réponses simulées.
   roster personnel du compte OAuth ;
 - `roster-batches/v1/<fp>/progress.json` : état privé de reprise ;
 - `roster-batches/v1/<fp>/latest-complete.json` :
-  pointeur privé mis à jour **après** achèvement complet ;
+  manifeste privé publié **après** sauvegarde de tous les rosters autorisés,
+  même lorsqu'un membre ne partage pas. Les champs `coverage` et
+  `notSharedCount` indiquent si la couverture est intégrale ou limitée ;
 - `roster-auto/v1/days/YYYY-MM-DD.json` : compteurs agrégés
   et verrouillage logique du passage ;
 - `roster-auto/v1/cooldown/<fp>.json` : temporisation par alliance.
