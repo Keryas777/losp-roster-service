@@ -68,6 +68,25 @@ test("file catalogue covers collector declarations and exposes cadence without p
   assert.equal(roster.automatic,true);
   assert.equal(player.automatic,true);
   assert.match(game.evidence,/non vérifiée individuellement/);
+  const snapshot=(await buildCollectionFileCatalog(env,{
+    ...state,
+    gameDifferential:{status:"checking",checked:18,queued:36,
+      lastCheckedAt:"2026-10-23T10:30:00Z"},
+    player:{status:"running",accountsProcessed:2,connectedAccounts:5,
+      updatedAt:"2026-10-23T10:32:00Z"},
+    rosterScheduler:{status:"ready",lastTick:"2026-10-23T10:34:00Z"},
+    rosters:{status:"ok",alliances:[{progress:"in-progress"}]}
+  })).monitors;
+  assert.deepEqual(snapshot.find(m=>m.id==="game").progress,{done:18,total:36});
+  assert.equal(snapshot.find(m=>m.id==="game").lastAt,"2026-10-23T10:30:00Z");
+  assert.deepEqual(snapshot.find(m=>m.id==="player").progress,{done:2,total:5});
+  assert.equal(snapshot.find(m=>m.id==="rosters").status,"running");
+  assert.equal(snapshot.find(m=>m.id==="rosters").progress,null);
+  assert.equal(snapshot.find(m=>m.id==="rosters").lastAt,"2026-10-23T10:34:00Z");
+  assert.equal(game.activity.scope,"global");
+  assert.equal(game.activity.status,"completed");
+  assert.deepEqual(player.activity.progress,{done:1,total:2});
+  assert.equal(player.activity.status,"partial");
   const secondary=list.find(r=>r.id==="secondary-get-character-list");
   assert.equal(secondary.automatic,false);
   assert.equal(secondary.evidence,"Objet R2 présent");
@@ -100,5 +119,26 @@ test("inventory frontend is vanilla JS and has no additional API calls",async()=
   assert.match(js,/Inventaire des fichiers et horaires/);
   assert.match(js,/renderFileCatalog\(output,data.catalog\)/);
   assert.match(js,/Collecte automatique/);
+  assert.match(js,/renderProgress/);
+  assert.match(js,/Progression des campagnes enregistrées dans R2/);
+  assert.match(js,/État observé/);
   assert.doesNotMatch(js,/innerHTML|localStorage|sessionStorage|setInterval/);
+});
+
+test("uncertain, disabled and scanning collection metrics never generate fictitious progress",async()=>{
+  const {env}=fixture();
+  const data=await buildCollectionFileCatalog(env,{
+    ...state,gameDifferential:{status:"scanning",checked:0,queued:42},
+    player:{status:"running",accountsProcessed:5,connectedAccounts:3},
+    rosterScheduler:{status:"ready",lastTick:"not-a-date"}
+  });
+  assert.equal(data.monitors.find(m=>m.id==="game").progress,null);
+  assert.equal(data.monitors.find(m=>m.id==="player").progress,null);
+  assert.equal(data.monitors.find(m=>m.id==="rosters").lastAt,null);
+  assert.equal(data.rows.find(r=>r.id==="player-member-card").activity.status,"on-demand");
+  assert.equal(data.rows.find(r=>r.id==="secondary-get-character-list").activity.status,"archived");
+  env.GAME_DIFF_ENABLED="false";env.PLAYER_AUTO_ENABLED="false";
+  const disabled=await buildCollectionFileCatalog(env,state);
+  assert.equal(disabled.monitors.find(m=>m.id==="game").status,"disabled");
+  assert.equal(disabled.monitors.find(m=>m.id==="player").progress,null);
 });
