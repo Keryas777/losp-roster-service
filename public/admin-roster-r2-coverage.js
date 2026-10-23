@@ -10,7 +10,7 @@
   const label={
     "not-started":"Non commencée","in-progress":"En cours",
     "complete-co-members":"Coéquipiers terminés, roster personnel en attente",
-    "complete":"Complète","partial-consent":"Partages incomplets",
+    "complete":"Complète","partial-consent":"Rosters autorisés terminés (partages limités)",
     "expired":"Expiré","invalid":"Données invalides",
     "missing":"Absent","valid":"Valide"
   };
@@ -56,13 +56,14 @@
             p.personalFilePresent?"présent":"fichier manquant":
             "non confirmé")+".");
       }
-      line(card,"Manifeste complet : "+(label[m.status]||m.status)+
+      line(card,"Manifeste d'exhaustivité : "+
+        (p.status==="partial-consent"&&m.status==="missing"?
+          "non publié (choix de partage respectés)":(label[m.status]||m.status))+
         (m.members!==undefined?" ("+m.members+" membres)":"")+".");
       if(p.status==="partial-consent"&&m.status==="missing"&&
          Number.isSafeInteger(p.noShareCount)&&p.noShareCount>0)
-        line(card,"Le manifeste complet n’est pas créé car "+
-          p.noShareCount+" membre(s) ne partagent pas leur roster ; "+
-          "les rosters autorisés peuvent néanmoins être terminés.");
+        line(card,p.noShareCount+" membre(s) ne partagent pas leur roster : "+
+          "les collectes autorisées sont terminées, sans échec de collecte.");
       if(m.files){
         line(card,"Fichiers du manifeste : "+m.files.checked+
           " contrôlés, "+m.files.missing+" manquant(s).");
