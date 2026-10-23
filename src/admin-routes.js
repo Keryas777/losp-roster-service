@@ -61,11 +61,11 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<button id="roster-r2-refresh" type="button">Vérifier les alliances en R2</button>'+
 '<button id="roster-r2-copy" type="button" disabled>Copier le diagnostic JSON</button>'+
 '<p id="roster-r2-status" role="status"></p><div id="roster-r2-report" class="scroll"></div></section>'+
-'<section><h2>Collecte globale /player/v1</h2>'+ 
-'<p>Un seul lancement pour tous les comptes OAuth actifs et les équipes des membres dont le roster est partagé. Les rosters, profils et fiches d’alliance sont déjà gérés par la collecte existante : pas de doublons. Exécution automatique par étapes même quand cette page est fermée, avec accès privé R2 et respect du consentement.</p>'+ 
-'<button id="player-campaign-start" type="button">Collecter toutes les données /player</button>'+ 
+'<section><h2>Collecte automatique /player/v1</h2>'+  
+'<p>Synchronisation quotidienne automatique des familles /player autorisées pour chaque compte OAuth et des équipes des membres partageant leur roster. Première campagne lancée par le Cron, aucune action nécessaire. Les rosters et fiches d’alliance restent collectés séparément, sans doublons. Stockage privé R2 (7 jours), même page fermée.</p>'+  
+'<button id="player-campaign-start" type="button">Forcer une collecte maintenant</button>'+  
 '<button id="player-campaign-refresh" type="button">Voir l’avancement (R2)</button>'+ 
-'<p id="player-campaign-status" role="status">Aucune vérification automatique à l’ouverture.</p>'+ 
+'<p id="player-campaign-status" role="status">Vérifier le statut de la synchronisation automatique dans R2.</p>'+  
 '<div id="player-campaign-report" class="scroll"></div></section>'+ 
 '<section><h2>Archives privées /player non couvertes par les rosters</h2>'+
 '<p>Différencier les comptes OAuth (équipes, inventaire, souhaits, événements) et les membres non connectés (uniquement équipes si partage du roster actif). Capture manuelle, réponses sources intégrales conservées en R2 privé sept jours. Aucune collecte automatique supplémentaire.</p>'+
