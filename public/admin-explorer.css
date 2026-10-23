@@ -129,3 +129,7 @@ details{margin:.4rem 0;border-radius:8px;padding:.55rem;border:1px solid #364765
 .collection-alliance-name span{white-space:normal}
 .collection-alliance .collection-coverage-warning{color:#ffd19a;font-size:.88rem;
  border-left:3px solid #dd9f62;padding-left:.6rem;margin:.5rem 0}
+
+/* Consent refusals are normal, not a collector error. */
+.collection-alliance .collection-coverage-info{color:#b5d9d1;font-size:.88rem;
+ border-left:3px solid #72bda4;padding-left:.6rem;margin:.5rem 0}
