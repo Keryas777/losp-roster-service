@@ -135,6 +135,8 @@ export async function handleCollectionOverview(request,env,now=Date.now()){
           capturedAt:a.manifest?.capturedAt||null,
           expiresAt:a.manifest?.expiresAt||null,
           snapshot:a.manifest?.status||"missing",
+          manifestCoverage:a.manifest?.coverage||null,
+          manifestNotSharedCount:a.manifest?.notSharedCount??null,
           // Manifest validity != physical verification of all files.
           verified:false,completed:a.progress?.completed??null,
           eligible:a.progress?.eligibleCoMembers??null,
