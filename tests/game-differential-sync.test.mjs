@@ -230,8 +230,8 @@ test("old bytes are re-materialized before the 30-day limit even without semanti
   assert.notEqual(latest.objectKey,source.objectKey);
   assert.equal(latest.refreshed,true);
   assert.equal(latest.sha256,latest.observedSha256);
-  assert.equal(latest.storedAt,new Date(NOW+3*60000).toISOString()===latest.storedAt
-    ?latest.storedAt:latest.storedAt);
+  assert.ok(Date.parse(latest.storedAt)>=NOW,
+    "renewed object must carry the capture time of fresh bytes");
   assert.equal(sha(f.store.get(latest.objectKey)),latest.sha256);
   const receipt=JSON.parse(f.store.get(latest.receiptKey));
   assert.equal(receipt.status,"unchanged");
