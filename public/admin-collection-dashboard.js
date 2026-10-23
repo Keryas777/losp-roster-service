@@ -45,7 +45,7 @@
   })[v]||v||"Inconnu";
 
   // Render official MSF color markers as text + a bounded CSS color.
-  // The alliance label remains the original Unicode text; never use innerHTML.
+  // Keep the original Unicode text and create only safe DOM text nodes.
   function allianceNameParts(value){
     const raw=String(value??"");
     const markers=raw.match(/<#[0-9a-f]{6}>/gi);
