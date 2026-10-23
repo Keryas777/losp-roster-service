@@ -33,8 +33,106 @@
     "not-configured":"Non configurée",archived:"Archivé",
     missing:"Absent",expired:"Expiré",valid:"Manifeste présent",
     "in-progress":"En cours","missing-pages":"Pages manquantes",
+    "on-demand":"À la demande","not-verified":"Non vérifié",
+    "archived-unindexed":"Archive brute, non indexée",
+    "awaiting-initial-archive":"En attente de l'archive initiale",
+    "awaiting-initial-completion":"Archive initiale en cours",
+    "awaiting-phase2":"En attente de la phase 2",
+    "not-yet-observed":"Pas encore observé",
     unavailable:"État indisponible"
   })[v]||v||"Inconnu";
+
+  function renderProgress(parent,metric,description){
+    if(!metric||!Number.isSafeInteger(metric.done)||
+       !Number.isSafeInteger(metric.total)||metric.total<=0||
+       metric.done<0||metric.done>metric.total)return;
+    const text=metric.done+" / "+metric.total;
+    const track=node("progress",null,parent,"collection-progress");
+    track.max=metric.total;track.value=metric.done;
+    track.setAttribute("aria-label",description+" : "+text);
+    node("small",description+" : "+text+" ("+
+      Math.round(metric.done*100/metric.total)+" %)",parent,"collection-progress-label");
+  }
+  function renderFileCatalog(parent,catalog){
+    node("h3","Inventaire des fichiers et horaires de collecte",parent);
+    if(catalog?.status!=="ok"||!Array.isArray(catalog.rows)){
+      node("p","Inventaire indisponible ; aucune collecte n'est supposée réussie.",parent);
+      return;
+    }
+    node("h4","Progression des campagnes enregistrées dans R2",parent);
+    const monitors=node("div",null,parent,"collection-grid");
+    for(const monitor of catalog.monitors||[]){
+      const card=node("article",null,monitors,"collection-alliance");
+      node("strong",monitor.title,card);
+      node("p",label(monitor.status),card,"collection-monitor-status");
+      renderProgress(card,monitor.progress,
+        monitor.id==="game"?"URLs vérifiées":
+        monitor.id==="player"?"Comptes OAuth traités":"Membres traités");
+      node("p","Dernière activité : "+time(monitor.lastAt),card);
+      if(monitor.nextAt)node("p","Prochaine passe : "+time(monitor.nextAt),card);
+      node("p",monitor.detail,card,"collection-caveat");
+    }
+    node("p","Les barres représentent des compteurs réels de la campagne, pas "+
+      "la totalité des données accessibles sur MSF. Le dénominateur /game "+
+      "peut évoluer quand de nouvelles URLs sont découvertes. "+
+      "Actualiser la vue après un passage Cron pour lire le nouveau checkpoint.",
+      parent,"collection-caveat");
+    node("p","« Automatique ? » décrit les collectes programmées en fonctionnement courant. "+
+      "Pour /game, l’archive initiale manuelle est historique : le différentiel est automatique tous les 7 jours. "+
+      "Chemins entre {accolades} = modèles de fichiers ; horaires UTC.",parent,"collection-caveat");
+    const controls=node("div",null,parent,"controls");
+    const searchLabel=node("label","Recherche",controls);
+    const search=node("input",null,searchLabel);
+    search.type="search";search.placeholder="Route, fichier ou contenu…";
+    const groupLabel=node("label","Source",controls);
+    const group=node("select",null,groupLabel);
+    for(const g of ["Toutes",...new Set(catalog.rows.map(x=>x.group))]){
+      const option=node("option",g,group);option.value=g;
+    }
+    const counter=node("p",null,parent,"collection-caveat");
+    const scroll=node("div",null,parent,"scroll");
+    const table=node("table",null,scroll,"collection-file-table");
+    const head=node("tr",null,node("thead",null,table));
+    for(const col of ["Famille","Route API / source","Fichier(s) R2","Contenu",
+      "Collecte automatique ?","Quand ? (UTC)","État observé",
+      "Preuve disponible","Dernière capture"])
+      node("th",col,head);
+    const body=node("tbody",null,table);
+    function redraw(){
+      const q=search.value.trim().toLocaleLowerCase("fr-FR");
+      const filtered=catalog.rows.filter(r=>
+        (group.value==="Toutes"||r.group===group.value)&&
+        (!q||[r.group,r.source,r.file,r.contains,r.when,r.evidence,r.note]
+          .some(x=>String(x||"").toLocaleLowerCase("fr-FR").includes(q))));
+      body.replaceChildren();
+      for(const info of filtered){
+        const tr=node("tr",null,body);
+        node("td",info.group,tr);
+        node("td",info.source,tr);
+        node("td",info.file,tr);
+        const desc=node("td",info.contains,tr);
+        if(info.note)node("small",info.note,desc);
+        node("td",info.automatic?(info.enabled?"Oui":"Non · désactivé"):
+          "Non · manuel",tr);
+        node("td",info.when,tr);
+        const activity=node("td",null,tr);
+        node("strong",label(info.activity?.status),activity);
+        if(info.activity?.lastAt)node("small","Dernier signal : "+
+          time(info.activity.lastAt),activity);
+        if(info.activity?.scope==="global")
+          node("small","État global du collecteur, pas de cette route",activity);
+        renderProgress(activity,info.activity?.progress,"Couverture R2");
+        node("td",info.evidence,tr);
+        node("td",time(info.lastAt),tr);
+      }
+      counter.textContent=filtered.length+" ligne(s) sur "+catalog.rows.length;
+      if(!filtered.length)node("tr","Aucun résultat",body);
+    }
+    search.addEventListener("input",redraw);
+    group.addEventListener("change",redraw);
+    redraw();
+    node("p",catalog.note,parent,"collection-caveat");
+  }
   function render(data){
     output.replaceChildren();
     const r=data.rosters||{},sched=data.rosterScheduler||{};
@@ -83,6 +181,7 @@
       "Un manifeste de roster ou le compteur /game ne prouve pas à lui seul "+
       "que tous les fichiers sources sont physiquement présents.";
 
+    renderFileCatalog(output,data.catalog);
     const heading=node("h3","Données /player : preuves d'archivage par famille",output);
     if(pers.status!=="ok"){
       node("p","Inventaire des familles indisponible ; il serait trompeur d'afficher zéro.",output);
@@ -122,6 +221,9 @@
         node("p","Membres traités : "+count(a.completed)+"/"+
           count(a.eligible)+" · roster OAuth : "+
           (a.personalRosterCollected?"signalé comme collecté":"non confirmé"),article);
+        if(["in-progress","complete","complete-co-members","partial-consent"].includes(a.progress))
+          renderProgress(article,{done:a.completed,total:a.eligible},
+            "Coprésents traités");
         node("p","Campagne : "+(a.lastCampaign||"—")+
           " · expire : "+time(a.expiresAt),article);
       }

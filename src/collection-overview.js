@@ -8,6 +8,7 @@ import {rosterAutoStatus} from "./automatic-roster-scheduler.js";
 import {handleRosterR2Coverage} from "./roster-r2-coverage.js";
 import {getPlayerCampaignStatus} from "./player-campaign.js";
 import {adminRefreshCron} from "./admin-data-api.js";
+import {buildCollectionFileCatalog} from "./collection-file-catalog.js";
 
 const HEADERS={"Cache-Control":"private, no-store","X-Robots-Tag":"noindex",
   "X-Content-Type-Options":"nosniff","Referrer-Policy":"no-referrer"};
@@ -156,9 +157,12 @@ export async function handleCollectionOverview(request,env,now=Date.now()){
     safeRead(()=>personalCoverage(env,now)),
     safeRead(()=>gameDifferentialStatus(env))
   ]);
+  const catalog=await safeRead(()=>buildCollectionFileCatalog(env,{
+    rosters,rosterScheduler,game,player,oauth,personal,gameDifferential
+  }));
   return answer({status:"ok",source:"private-r2-only",
     checkedAt:new Date(now).toISOString(),rosters,rosterScheduler,
-    game,player,oauth,personal,gameDifferential,
+    game,player,oauth,personal,gameDifferential,catalog,
     warning:"Les comptes et endpoints manquants ou non autorisés ne sont jamais comptés comme archivés. "+
       "Rosters : manifests non vérifiés physiquement en détail dans ce bilan; "+
       "l'audit R2 complet reste dans l'onglet Rosters."});
