@@ -34,12 +34,22 @@ function validProgress(p,fp){
     (p.campaign===undefined||typeof p.campaign==="string");
 }
 function validManifest(m,fp){
-  return m?.version===1&&m.fingerprint===fp&&RUN.test(m.runId)&&
-    FP.test(m.membershipDigest)&&Number.isInteger(m.total)&&
-    m.total>=1&&m.total<=100&&m.includesPersonal===true&&
-    Number.isInteger(m.coMembers)&&m.coMembers===m.total-1&&
-    Number.isInteger(m.observedMembers)&&m.observedMembers===m.total&&
-    validDate(m.capturedAt)&&validDate(m.expiresAt);
+  if(!m||m.version!==1||m.fingerprint!==fp||!RUN.test(m.runId)||
+     !FP.test(m.membershipDigest)||!Number.isInteger(m.total)||
+     m.total<1||m.total>100||m.includesPersonal!==true||
+     !Number.isInteger(m.coMembers)||m.coMembers!==m.total-1||
+     !Number.isInteger(m.observedMembers)||m.observedMembers<m.total||
+     m.observedMembers>100||!validDate(m.capturedAt)||
+     !validDate(m.expiresAt))return false;
+  const missing=m.observedMembers-m.total;
+  // Historical manifests had no coverage field and required full sharing.
+  // New versions attest the exact authorized subset, with opt-outs explicit.
+  if(m.coverage===undefined)
+    return missing===0&&m.notSharedCount===undefined;
+  if(m.coverage==="all-members")
+    return missing===0&&m.notSharedCount===0;
+  return m.coverage==="authorized-only"&&missing>0&&
+    Number.isInteger(m.notSharedCount)&&m.notSharedCount===missing;
 }
 async function checkFiles(bucket,fp,run,coMembers,includeSelf){
   // HEAD checks existence only; it never loads or returns player data.
@@ -83,7 +93,9 @@ async function allianceState(bucket,entry,now,full){
   if(manifestOK){
     const sameRun=progressOK&&p.runId===m.runId&&p.membershipDigest===m.membershipDigest;
     Object.assign(manifest,{capturedAt:m.capturedAt,expiresAt:m.expiresAt,
-      members:m.total,coMembers:m.coMembers,
+      members:m.total,observedMembers:m.observedMembers,coMembers:m.coMembers,
+      coverage:m.coverage||"all-members",
+      notSharedCount:m.notSharedCount??0,
       matchesCurrentProgress:progressOK?sameRun:null});
     manifest.personalFilePresent=Boolean(await bucket.head(selfKey(fp,m.runId)));
     if(full)manifest.files=await checkFiles(bucket,fp,m.runId,m.coMembers,true);

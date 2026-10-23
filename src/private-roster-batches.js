@@ -185,21 +185,27 @@ async function finishSelf(env,fp,previous,selected,baseline,now,fetchImpl,tick){
   await env.CAPTAIN_BUCKET.put(selfKey(fp,previous.runId),raw,{
     httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
   });
-  // Never advertise full coverage when a player opted out of sharing.
-  const coverageComplete=previous.totalEligible+1===previous.observedMembers;
-  if(coverageComplete){
-    const complete={version:1,fingerprint:fp,runId:previous.runId,
-      membershipDigest:previous.membershipDigest,total:previous.totalEligible+1,
-      observedMembers:previous.observedMembers,
-      coMembers:previous.totalEligible,includesPersonal:true,
-      capturedAt:new Date(now).toISOString(),expiresAt:previous.expiresAt};
-    await env.CAPTAIN_BUCKET.put(completeKey(fp),JSON.stringify(complete),{
-      httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
-    });
-  }else{
-    // A previously complete pointer must not remain usable after consent loss.
-    await env.CAPTAIN_BUCKET.delete(completeKey(fp));
-  }
+  // Completion means every currently authorized co-member and this OAuth
+  // account were stored. An opt-out is NOT a failed collection. Encode its
+  // limited coverage explicitly so consumers never mistake it for 100% of
+  // the observed alliance (and never request the unshared roster).
+  const authorizedTotal=previous.totalEligible+1;
+  if(!Number.isSafeInteger(previous.observedMembers)||
+     previous.observedMembers<authorizedTotal||previous.observedMembers>100||
+     previous.completed!==previous.totalEligible)
+    return answer({status:"invalid-membership-count"},409);
+  const notSharedCount=previous.observedMembers-authorizedTotal;
+  const complete={version:1,fingerprint:fp,runId:previous.runId,
+    membershipDigest:previous.membershipDigest,total:authorizedTotal,
+    observedMembers:previous.observedMembers,
+    coMembers:previous.totalEligible,includesPersonal:true,
+    coverage:notSharedCount?"authorized-only":"all-members",notSharedCount,
+    capturedAt:new Date(now).toISOString(),expiresAt:previous.expiresAt};
+  // Each authorized member snapshot and the OAuth roster were written
+  // BEFORE this pointer, so a failed write cannot publish a completed run.
+  await env.CAPTAIN_BUCKET.put(completeKey(fp),JSON.stringify(complete),{
+    httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
+  });
   await env.CAPTAIN_BUCKET.put(stateKey(fp),JSON.stringify({
     ...previous,selfCompleted:true,lastAutoTick:tick
   }),{httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}});

@@ -102,7 +102,12 @@ de GitHub Actions utilisent des réponses simulées.
 - La série est validée seulement après la sauvegarde en R2 des
   coéquipiers **ET** du roster personnel.
 - Si un membre ne partage pas son roster, l'alliance est
-  `partial-consent` : **aucun manifeste complet n'est publié**.
+  `partial-consent` : **un manifeste est publié pour les rosters autorisés**, avec
+  `coverage: "authorized-only"`, `notSharedCount` et `observedMembers`.
+  Ces joueurs sont explicitement exclus du périmètre ; aucun GET de leur roster.
+- Si tous les membres partagent, `coverage: "all-members"` et
+  `notSharedCount: 0`. Les anciens manifestes sans `coverage` restent
+  interprétés comme couvrant tous les membres.
 - Si l'effectif change entre deux campagnes, l'ancienne base n'est
   pas silencieusement reprise : le nouveau cycle peut repartir à zéro.
 - Les identifiants Scopely des membres sont considérés comme
@@ -117,7 +122,9 @@ de GitHub Actions utilisent des réponses simulées.
   roster personnel du compte OAuth ;
 - `roster-batches/v1/<fp>/progress.json` : état privé de reprise ;
 - `roster-batches/v1/<fp>/latest-complete.json` :
-  pointeur privé mis à jour **après** achèvement complet ;
+  manifeste privé publié **après** sauvegarde de tous les rosters autorisés,
+  même lorsqu'un membre ne partage pas. Les champs `coverage` et
+  `notSharedCount` indiquent si la couverture est intégrale ou limitée ;
 - `roster-auto/v1/days/YYYY-MM-DD.json` : compteurs agrégés
   et verrouillage logique du passage ;
 - `roster-auto/v1/cooldown/<fp>.json` : temporisation par alliance.

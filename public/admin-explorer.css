@@ -123,3 +123,13 @@ details{margin:.4rem 0;border-radius:8px;padding:.55rem;border:1px solid #364765
  margin-top:.28rem;color:#aac1dc}
 .collection-file-table td:nth-child(7) .collection-progress{height:10px}
 .admin-dashboard h4{font-size:.92rem;margin:.8rem 0 .25rem}
+
+/* The MSF #RRGGBB marker colors only the alliance name, not the LoSP prefix. */
+.collection-alliance-name{overflow-wrap:anywhere}
+.collection-alliance-name span{white-space:normal}
+.collection-alliance .collection-coverage-warning{color:#ffd19a;font-size:.88rem;
+ border-left:3px solid #dd9f62;padding-left:.6rem;margin:.5rem 0}
+
+/* Consent refusals are normal, not a collector error. */
+.collection-alliance .collection-coverage-info{color:#b5d9d1;font-size:.88rem;
+ border-left:3px solid #72bda4;padding-left:.6rem;margin:.5rem 0}

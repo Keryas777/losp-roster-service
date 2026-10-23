@@ -10,7 +10,7 @@
   const label={
     "not-started":"Non commencée","in-progress":"En cours",
     "complete-co-members":"Coéquipiers terminés, roster personnel en attente",
-    "complete":"Complète","partial-consent":"Partages incomplets",
+    "complete":"Complète","partial-consent":"Rosters autorisés terminés (partages limités)",
     "expired":"Expiré","invalid":"Données invalides",
     "missing":"Absent","valid":"Valide"
   };
@@ -19,8 +19,19 @@
     p.textContent=value;card.append(p);
   };
   const title=(card,value)=>{
+    // Official MSF tags are inline colors, not part of the displayed name.
+    const raw=String(value??"");
+    const markers=raw.match(/<#[0-9a-f]{6}>/gi);
+    const color=markers?.length?"#"+markers[markers.length-1].slice(2,-1):null;
+    const clean=raw.replace(/<#[0-9a-f]{6}>/gi,"")
+      .replace(/\s+/g," ").trim().replace(/^(LoSP\s+){2,}/i,"LoSP ");
+    const match=/^(LoSP\s+)(.+)$/i.exec(clean);
     const strong=document.createElement("strong");
-    strong.textContent=value;card.append(strong);
+    if(match)strong.append(document.createTextNode(match[1]));
+    const alliance=document.createElement("span");
+    alliance.textContent=match?.[2]||clean;
+    if(color)alliance.style.color=color;
+    strong.append(alliance);card.append(strong);
   };
   function render(report){
     container.replaceChildren();
@@ -45,8 +56,17 @@
             p.personalFilePresent?"présent":"fichier manquant":
             "non confirmé")+".");
       }
-      line(card,"Manifeste complet : "+(label[m.status]||m.status)+
-        (m.members!==undefined?" ("+m.members+" membres)":"")+".");
+      line(card,"Manifeste des rosters autorisés : "+
+        (label[m.status]||m.status)+
+        (m.members!==undefined?" ("+m.members+" rosters autorisés)":"")+
+        (m.status==="valid"&&m.coverage==="authorized-only"?
+          " — "+m.notSharedCount+" membre(s) sans partage, hors périmètre":
+          m.status==="valid"?" — tous les membres inclus":"")+".");
+      if(p.status==="partial-consent"&&m.status==="missing"&&
+         Number.isSafeInteger(p.noShareCount)&&p.noShareCount>0)
+        line(card,p.noShareCount+" membre(s) ne partagent pas leur roster : "+
+          "les collectes autorisées sont terminées. "+
+          "Le prochain cycle réussi publiera un manifeste à périmètre limité.");
       if(m.files){
         line(card,"Fichiers du manifeste : "+m.files.checked+
           " contrôlés, "+m.files.missing+" manquant(s).");
