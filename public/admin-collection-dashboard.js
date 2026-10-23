@@ -55,7 +55,7 @@
     }
     const counter=node("p",null,parent,"collection-caveat");
     const scroll=node("div",null,parent,"scroll");
-    const table=node("table",null,scroll);
+    const table=node("table",null,scroll,"collection-file-table");
     const head=node("tr",null,node("thead",null,table));
     for(const col of ["Famille","Route API / source","Fichier(s) R2","Contenu",
       "Automatique ?","Quand ? (UTC)","Preuve disponible","Dernière capture"])
