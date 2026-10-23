@@ -161,6 +161,56 @@ test("missing complete roster manifest is explained when a co-member opts out",a
     "The overview must not leak alliance fingerprints");
 });
 
+test("stale daily Cron ledger never hides a newer proven roster completion",async()=>{
+  const f=await fixture();
+  const run="11111111-2222-4333-8444-555555555555";
+  const expiresAt="2026-10-29T12:00:00Z";
+  await f.env.CAPTAIN_BUCKET.put("roster-auto/v1/days/2026-10-22.json",
+    JSON.stringify({date:"2026-10-22",used:1221,ticks:80,
+      lastTick:"2026-10-22T02:32Z",lastOutcome:"in-progress"}));
+  await f.env.CAPTAIN_BUCKET.put("roster-batches/v1/"+FP+"/progress.json",
+    JSON.stringify({version:1,fingerprint:FP,runId:run,
+      membershipDigest:"c".repeat(64),campaign:"2026-10-22-am",
+      startedAt:"2026-10-22T02:00:00Z",expiresAt,
+      completed:22,totalEligible:22,observedMembers:24,selfCompleted:true}));
+  await f.env.CAPTAIN_BUCKET.put("roster-batches/v1/"+FP+"/latest-complete.json",
+    JSON.stringify({version:1,fingerprint:FP,runId:run,
+      membershipDigest:"c".repeat(64),capturedAt:"2026-10-22T05:58:00Z",
+      expiresAt,total:23,coMembers:22,observedMembers:24,
+      includesPersonal:true,coverage:"authorized-only",notSharedCount:1}));
+  await f.env.CAPTAIN_BUCKET.put(
+    "roster-batches/v1/"+FP+"/"+run+"/member-self.json","{}");
+  const data=await(await handleCollectionOverview(new Request(URL),f.env,now)).json();
+  assert.equal(data.rosters.alliances[0].snapshot,"valid");
+  assert.equal(data.rosterScheduler.lastTick,"2026-10-22T02:32Z");
+  assert.deepEqual(data.rosterTiming,{
+    lastConfirmedCaptureAt:"2026-10-22T05:58:00Z",
+    lastRecordedCronAt:"2026-10-22T02:32Z",
+    cronCheckpointBehindCapture:true
+  });
+  const monitor=data.catalog.monitors.find(x=>x.id==="rosters");
+  assert.equal(monitor.lastAt,"2026-10-22T05:58:00Z");
+  assert.equal(monitor.lastAtLabel,"Dernière collecte attestée");
+  assert.match(monitor.detail,/compteur Cron est en retard/);
+  assert.equal(data.source,"private-r2-only");
+  assert.ok(!JSON.stringify(data).includes(FP));
+  assert.ok(f.history.every(([op])=>["get","head","list"].includes(op)));
+});
+
+test("missing or future manifest is not fabricated as a successful roster capture",async()=>{
+  const f=await fixture();
+  await f.env.CAPTAIN_BUCKET.put("roster-auto/v1/days/2026-10-22.json",
+    JSON.stringify({date:"2026-10-22",used:10,ticks:1,
+      lastTick:"2026-10-22T09:32Z",lastOutcome:"complete"}));
+  const data=await(await handleCollectionOverview(new Request(URL),f.env,now)).json();
+  assert.equal(data.rosterTiming.lastConfirmedCaptureAt,null);
+  assert.equal(data.rosterTiming.cronCheckpointBehindCapture,false);
+  const monitor=data.catalog.monitors.find(x=>x.id==="rosters");
+  assert.equal(monitor.lastAt,"2026-10-22T09:32Z");
+  assert.equal(monitor.lastAtLabel,"Dernier passage comptabilisé");
+  assert.ok(!monitor.detail.includes("compteur Cron est en retard"));
+});
+
 test("roster alliance color tags are rendered as bounded CSS colors without HTML injection",async()=>{
   const files=await Promise.all([
     readFile(new globalThis.URL("../public/admin-collection-dashboard.js",import.meta.url),"utf8"),
@@ -195,4 +245,6 @@ test("roster alliance color tags are rendered as bounded CSS colors without HTML
   assert.match(files[1],/Rosters autorisés terminés/);
   assert.match(files[1],/Manifeste des rosters autorisés/);
   assert.match(files[0],/manifestCoverage==="all-members"/);
+  assert.match(files[0],/dernière collecte attestée par manifeste R2/);
+  assert.match(files[0],/dernier passage enregistré au compteur Cron/);
 });

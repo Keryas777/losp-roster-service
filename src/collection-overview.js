@@ -111,6 +111,28 @@ async function personalCoverage(env,now){
     families:rows,mode:"physical-R2-latest-and-page-head",
     note:"Compte OAuth déchiffré localement, aucune donnée de joueur renvoyée."};
 }
+// A Cron budget checkpoint is NOT a reliable timestamp of successful
+// roster collection. Independent, already-validated R2 manifests record the
+// completion time of each alliance without revealing any roster contents.
+function rosterActivity(rosters,scheduler,now){
+  const safeTime=value=>validDate(value)&&Date.parse(value)<=now?
+    value:null;
+  const cronAt=safeTime(scheduler?.lastTick);
+  let lastCaptureAt=null;
+  if(rosters?.status==="ok"&&Array.isArray(rosters.alliances)){
+    for(const a of rosters.alliances){
+      if(a.snapshot!=="valid")continue;
+      const when=safeTime(a.capturedAt);
+      if(when&&(!lastCaptureAt||Date.parse(when)>Date.parse(lastCaptureAt)))
+        lastCaptureAt=when;
+    }
+  }
+  // A saved Cron slot precedes actual completion by seconds. Flag only
+  // material differences (> 2 minutes), never conflate the two metrics.
+  return {lastConfirmedCaptureAt:lastCaptureAt,lastRecordedCronAt:cronAt,
+    cronCheckpointBehindCapture:Boolean(cronAt&&lastCaptureAt&&
+      Date.parse(lastCaptureAt)-Date.parse(cronAt)>120000)};
+}
 async function safeRead(fn){
   try{return await fn();}catch{return {status:"unavailable"};}
 }
@@ -163,12 +185,13 @@ export async function handleCollectionOverview(request,env,now=Date.now()){
     safeRead(()=>personalCoverage(env,now)),
     safeRead(()=>gameDifferentialStatus(env))
   ]);
+  const rosterTiming=rosterActivity(rosters,rosterScheduler,now);
   const catalog=await safeRead(()=>buildCollectionFileCatalog(env,{
-    rosters,rosterScheduler,game,player,oauth,personal,gameDifferential
+    rosters,rosterScheduler,rosterTiming,game,player,oauth,personal,gameDifferential
   }));
   return answer({status:"ok",source:"private-r2-only",
     checkedAt:new Date(now).toISOString(),rosters,rosterScheduler,
-    game,player,oauth,personal,gameDifferential,catalog,
+    rosterTiming,game,player,oauth,personal,gameDifferential,catalog,
     warning:"Les comptes et endpoints manquants ou non autorisés ne sont jamais comptés comme archivés. "+
       "Rosters : manifests non vérifiés physiquement en détail dans ce bilan; "+
       "l'audit R2 complet reste dans l'onglet Rosters."});
