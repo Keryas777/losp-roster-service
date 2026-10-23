@@ -167,29 +167,29 @@ test("stale daily Cron ledger never hides a newer proven roster completion",asyn
   const expiresAt="2026-10-29T12:00:00Z";
   await f.env.CAPTAIN_BUCKET.put("roster-auto/v1/days/2026-10-22.json",
     JSON.stringify({date:"2026-10-22",used:1221,ticks:80,
-      lastTick:"2026-10-22T09:32Z",lastOutcome:"in-progress"}));
+      lastTick:"2026-10-22T02:32Z",lastOutcome:"in-progress"}));
   await f.env.CAPTAIN_BUCKET.put("roster-batches/v1/"+FP+"/progress.json",
     JSON.stringify({version:1,fingerprint:FP,runId:run,
       membershipDigest:"c".repeat(64),campaign:"2026-10-22-am",
-      startedAt:"2026-10-22T08:00:00Z",expiresAt,
+      startedAt:"2026-10-22T02:00:00Z",expiresAt,
       completed:22,totalEligible:22,observedMembers:24,selfCompleted:true}));
   await f.env.CAPTAIN_BUCKET.put("roster-batches/v1/"+FP+"/latest-complete.json",
     JSON.stringify({version:1,fingerprint:FP,runId:run,
-      membershipDigest:"c".repeat(64),capturedAt:"2026-10-22T11:58:00Z",
+      membershipDigest:"c".repeat(64),capturedAt:"2026-10-22T05:58:00Z",
       expiresAt,total:23,coMembers:22,observedMembers:24,
       includesPersonal:true,coverage:"authorized-only",notSharedCount:1}));
   await f.env.CAPTAIN_BUCKET.put(
     "roster-batches/v1/"+FP+"/"+run+"/member-self.json","{}");
   const data=await(await handleCollectionOverview(new Request(URL),f.env,now)).json();
   assert.equal(data.rosters.alliances[0].snapshot,"valid");
-  assert.equal(data.rosterScheduler.lastTick,"2026-10-22T09:32Z");
+  assert.equal(data.rosterScheduler.lastTick,"2026-10-22T02:32Z");
   assert.deepEqual(data.rosterTiming,{
-    lastConfirmedCaptureAt:"2026-10-22T11:58:00Z",
-    lastRecordedCronAt:"2026-10-22T09:32Z",
+    lastConfirmedCaptureAt:"2026-10-22T05:58:00Z",
+    lastRecordedCronAt:"2026-10-22T02:32Z",
     cronCheckpointBehindCapture:true
   });
   const monitor=data.catalog.monitors.find(x=>x.id==="rosters");
-  assert.equal(monitor.lastAt,"2026-10-22T11:58:00Z");
+  assert.equal(monitor.lastAt,"2026-10-22T05:58:00Z");
   assert.equal(monitor.lastAtLabel,"Dernière collecte attestée");
   assert.match(monitor.detail,/compteur Cron est en retard/);
   assert.equal(data.source,"private-r2-only");
