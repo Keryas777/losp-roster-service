@@ -187,4 +187,10 @@ test("roster alliance color tags are rendered as bounded CSS colors without HTML
   assert.ok(files.every(script=>!script.includes("innerHTML")));
   assert.ok(files.every(script=>!script.includes("eval(")));
   assert.ok(files[1].includes("membre(s) ne partagent pas leur roster"));
+  assert.match(files[0],/collectes accessibles terminées/);
+  assert.match(files[0],/authorizedDone=alliances\.filter/);
+  assert.match(files[0],/personalFilePresent===true/);
+  assert.match(files[0],/collection-coverage-info/);
+  assert.match(files[1],/Rosters autorisés terminés/);
+  assert.match(files[1],/Manifeste d'exhaustivité/);
 });
