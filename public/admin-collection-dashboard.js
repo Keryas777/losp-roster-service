@@ -33,7 +33,7 @@
     "not-configured":"Non configurée",archived:"Archivé",
     missing:"Absent",expired:"Expiré",valid:"Manifeste présent",
     "in-progress":"En cours","missing-pages":"Pages manquantes",
-    "partial-consent":"Partages incomplets",
+    "partial-consent":"Terminée · partages limités",
     "complete-co-members":"Roster personnel en attente",
     "on-demand":"À la demande","not-verified":"Non vérifié",
     "archived-unindexed":"Archive brute, non indexée",
@@ -157,7 +157,13 @@
     output.replaceChildren();
     const r=data.rosters||{},sched=data.rosterScheduler||{};
     const alliances=Array.isArray(r.alliances)?r.alliances:[];
-    const valid=alliances.filter(x=>x.snapshot==="valid").length;
+    const fullManifests=alliances.filter(x=>x.snapshot==="valid").length;
+    // Completion means ALL authorized rosters plus the OAuth owner's roster.
+    // A member's opt-out does not make an otherwise complete campaign fail.
+    const authorizedDone=alliances.filter(a=>
+      ["complete","partial-consent"].includes(a.progress)&&
+      Number.isSafeInteger(a.completed)&&Number.isSafeInteger(a.eligible)&&
+      a.completed===a.eligible&&a.personalFilePresent===true).length;
     const progress=alliances.filter(x=>x.progress==="in-progress").length;
     const player=data.player||{},pers=data.personal||{};
     const f=Array.isArray(pers.families)?pers.families:[];
@@ -165,11 +171,13 @@
     const diff=data.gameDifferential||{};
     const cards=node("div",null,output,"collection-grid");
     tile(cards,"Rosters des alliances",
-      valid+"/"+count(r.approvedCount)+" manifests",
+      authorizedDone+"/"+count(r.approvedCount)+" collectes accessibles terminées",
       "Collecte automatique : "+label(sched.status)+
         " · "+progress+" alliance(s) en progression"+
-        " · dernier Cron : "+time(sched.lastTick),
-      valid&&valid===r.approvedCount?"ok":"warn");
+        " · "+fullManifests+" manifeste(s) d'exhaustivité sur "+
+        count(r.approvedCount)+" · dernier Cron : "+time(sched.lastTick)+
+        ". Un membre sans partage n'empêche pas la réussite des rosters autorisés.",
+      authorizedDone&&authorizedDone===r.approvedCount?"ok":"warn");
     const archives=f.reduce((n,x)=>n+(x.archived||0),0);
     const eligible=f.reduce((n,x)=>n+(x.eligible||0),0);
     tile(cards,"Données /player personnelles",
@@ -249,18 +257,19 @@
           renderProgress(article,{done:a.completed,total:a.eligible},
             "Rosters autorisés traités");
         if(Number.isSafeInteger(a.noShareCount)&&a.noShareCount>0){
-          node("p",a.noShareCount+" membre(s) sans partage de roster sur "+
-            count(a.observedMembers)+" membres observés. "+
-            (a.snapshot==="missing"&&a.progress==="partial-consent"?
-              "Le manifeste complet n’est volontairement pas créé : "+
-              "ce n’est pas un échec d’écriture R2.":""),
-            article,"collection-coverage-warning");
+          node("p",a.noShareCount+" membre(s) ont choisi de ne pas partager "+
+            "leur roster sur "+count(a.observedMembers)+" membres observés. "+
+            (a.progress==="partial-consent"?
+              "Tous les rosters accessibles sont traités ; "+
+              "le manifeste d'exhaustivité n'est pas publié.":""),
+            article,"collection-coverage-info");
         }else if(a.snapshot==="missing"&&a.progress==="complete"){
           node("p","Anomalie : campagne indiquée complète, mais manifeste absent. "+
             "Vérifier le diagnostic R2 détaillé.",article,"collection-coverage-warning");
         }else if(a.snapshot==="missing"&&a.progress==="partial-consent"){
-          node("p","Partages incomplets : manifeste complet non produit. "+
-            "Nombre de membres sans partage non confirmé ici.",article,"collection-coverage-warning");
+          node("p","Collecte autorisée terminée, manifeste d'exhaustivité "+
+            "non publié ; nombre de partages refusés non confirmé ici.",
+            article,"collection-coverage-info");
         }else if(a.snapshot==="missing"&&a.progress==="complete-co-members"){
           node("p","Les coéquipiers sont traités, mais le roster personnel "+
             "reste à collecter avant la création du manifeste.",article,
