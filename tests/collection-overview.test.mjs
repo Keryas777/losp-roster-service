@@ -1,7 +1,7 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
-import {Script} from "node:vm";
+import {Script,runInNewContext} from "node:vm";
 import {handleCollectionOverview} from "../src/collection-overview.js";
 import {handleAdmin} from "../src/admin-routes.js";
 import {putCaptainRecord,CAPTAIN_PREFIX} from "../src/captain-vault.js";
@@ -131,4 +131,60 @@ test("overview is visible, mobile-first, and uses one bounded R2-only endpoint",
   assert.doesNotMatch(js,/localStorage|sessionStorage|innerHTML|setInterval/);
   assert.match(css,/\.collection-grid/);
   assert.doesNotThrow(()=>new Script(js));
+});
+
+test("missing complete roster manifest is explained when a co-member opts out",async()=>{
+  const f=await fixture();
+  const run="11111111-2222-4333-8444-555555555555";
+  const started=now-3600000;
+  await f.env.CAPTAIN_BUCKET.put("roster-batches/v1/"+FP+"/progress.json",
+    JSON.stringify({version:1,fingerprint:FP,runId:run,
+      membershipDigest:"c".repeat(64),
+      startedAt:new Date(started).toISOString(),
+      expiresAt:new Date(started+7*86400000).toISOString(),
+      completed:22,totalEligible:22,observedMembers:24,selfCompleted:true,
+      campaign:"2026-10-22-am"}));
+  await f.env.CAPTAIN_BUCKET.put("roster-batches/v1/"+FP+"/"+run+
+    "/member-self.json","{}");
+  const result=await (await handleCollectionOverview(new Request(URL),f.env,now)).json();
+  const alliance=result.rosters.alliances[0];
+  assert.equal(alliance.progress,"partial-consent");
+  assert.equal(alliance.completed,22);
+  assert.equal(alliance.eligible,22);
+  assert.equal(alliance.observedMembers,24);
+  assert.equal(alliance.noShareCount,1);
+  assert.equal(alliance.personalRosterCollected,true);
+  assert.equal(alliance.personalFilePresent,true);
+  assert.equal(alliance.snapshot,"missing");
+  assert.ok(!JSON.stringify(result).includes(FP),
+    "The overview must not leak alliance fingerprints");
+});
+
+test("roster alliance color tags are rendered as bounded CSS colors without HTML injection",async()=>{
+  const files=await Promise.all([
+    readFile(new globalThis.URL("../public/admin-collection-dashboard.js",import.meta.url),"utf8"),
+    readFile(new globalThis.URL("../public/admin-roster-r2-coverage.js",import.meta.url),"utf8")
+  ]);
+  const js=files[0];
+  const start=js.indexOf("  function allianceNameParts(");
+  const end=js.indexOf("  function renderProgress(",start);
+  assert.ok(start>=0&&end>start);
+  const parse=runInNewContext(js.slice(start,end)+"\nallianceNameParts");
+  const athena=parse("LoSP <#F28C28>Athena");
+  assert.equal(athena.prefix,"LoSP ");
+  assert.equal(athena.name,"Athena");
+  assert.equal(athena.color,"#F28C28");
+  const kronos=parse("LoSP <#FFFFFF>LoSP <#E10D17>Kronos");
+  assert.equal(kronos.prefix,"LoSP ");
+  assert.equal(kronos.name,"Kronos");
+  assert.equal(kronos.color,"#E10D17");
+  const poseidon=parse("LoSP <#00D0FF>Poseidon");
+  assert.equal(poseidon.name,"Poseidon");
+  assert.equal(poseidon.color,"#00D0FF");
+  const unmarked=parse("LoSP Dionysos");
+  assert.equal(unmarked.color,null);
+  assert.equal(unmarked.name,"Dionysos");
+  assert.ok(files.every(script=>!script.includes("innerHTML")));
+  assert.ok(files.every(script=>!script.includes("eval(")));
+  assert.ok(files[1].includes("membre(s) ne partagent pas leur roster"));
 });
