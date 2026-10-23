@@ -95,3 +95,18 @@ details{margin:.4rem 0;border-radius:8px;padding:.55rem;border:1px solid #364765
 .admin-dashboard .collection-alliance p{margin:.35rem 0;font-size:.86rem}
 .admin-dashboard #collection-dashboard-status{font-size:.85rem}
 @media(max-width:560px){.admin-dashboard #collection-dashboard-refresh{width:100%}}
+
+/* Inventory table: keep every field accessible on phones by horizontal scroll. */
+.admin-dashboard .collection-file-table{min-width:1100px;table-layout:fixed}
+.collection-file-table th:nth-child(1){width:95px}
+.collection-file-table th:nth-child(2){width:160px}
+.collection-file-table th:nth-child(3){width:200px}
+.collection-file-table th:nth-child(4){width:190px}
+.collection-file-table th:nth-child(5){width:105px}
+.collection-file-table th:nth-child(6){width:210px}
+.collection-file-table th:nth-child(7){width:200px}
+.collection-file-table th:nth-child(8){width:125px}
+.collection-file-table td{overflow-wrap:anywhere}
+.collection-file-table td:nth-child(2),.collection-file-table td:nth-child(3){font-family:ui-monospace,SFMono-Regular,monospace;font-size:.79rem}
+.collection-file-table td small{display:block;margin-top:.35rem;color:#aac1dc;font:inherit;font-size:.79rem}
+.admin-dashboard .collection-file-table~p{margin-top:.5rem}
