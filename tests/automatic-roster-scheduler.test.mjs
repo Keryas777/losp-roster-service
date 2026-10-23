@@ -175,12 +175,29 @@ test("a rate-limit creates a 60-minute per-alliance cooldown",async()=>{
  assert.equal(second.status,"cooldown");
  assert.equal(f.calls.length,before);
 });
-test("a revoked sharing permission cannot produce a misleading complete snapshot",async()=>{
+test("revoked member sharing still produces a truthful authorized-roster manifest",async()=>{
  const f=fixture();f.flags.revoke=true;
  await runRosterAutoTick(f.env,controller("2026-10-18T02:00:00Z"),f.fetchImpl);
  const last=await runRosterAutoTick(f.env,controller("2026-10-18T02:02:00Z"),f.fetchImpl);
  assert.equal(last.status,"partial-consent");
- assert.equal(f.store.has(completeKey(fp)),false);
+ const manifest=JSON.parse(f.store.get(completeKey(fp)));
+ assert.equal(manifest.coverage,"authorized-only");
+ assert.equal(manifest.total,2); // one consenting co-member + OAuth owner
+ assert.equal(manifest.observedMembers,3);
+ assert.equal(manifest.notSharedCount,1);
+ assert.equal(manifest.coMembers,1);
+ assert.equal(manifest.includesPersonal,true);
+ assert.ok(f.store.has(BATCH_PREFIX+fp+"/"+manifest.runId+"/member-0.json"));
+ assert.ok(f.store.has(BATCH_PREFIX+fp+"/"+manifest.runId+"/member-self.json"));
+ assert.equal(f.calls.some(x=>x.includes("/roster/member/co2")),false,
+   "Never fetch a roster after member opt-out");
+ const next=await runRosterAutoTick(f.env,controller("2026-10-18T14:00:00Z"),f.fetchImpl);
+ assert.ok(["in-progress","complete-co-members"].includes(next.status));
+ const end=await runRosterAutoTick(f.env,controller("2026-10-18T14:02:00Z"),f.fetchImpl);
+ assert.equal(end.status,"partial-consent");
+ const current=JSON.parse(f.store.get(completeKey(fp)));
+ assert.notEqual(current.runId,manifest.runId);
+ assert.equal(current.notSharedCount,1);
 });
 test("daily budget fits five complete 24-member alliance campaigns twice a day",()=>{
  // Each alliance needs ceil(23 / 2)=12 shared-member ticks and one personal tick.
