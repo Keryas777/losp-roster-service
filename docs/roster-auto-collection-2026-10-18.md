@@ -102,7 +102,12 @@ de GitHub Actions utilisent des réponses simulées.
 - La série est validée seulement après la sauvegarde en R2 des
   coéquipiers **ET** du roster personnel.
 - Si un membre ne partage pas son roster, l'alliance est
-  `partial-consent` : **aucun manifeste complet n'est publié**.
+  `partial-consent` : **un manifeste est publié pour les rosters autorisés**, avec
+  `coverage: "authorized-only"`, `notSharedCount` et `observedMembers`.
+  Ces joueurs sont explicitement exclus du périmètre ; aucun GET de leur roster.
+- Si tous les membres partagent, `coverage: "all-members"` et
+  `notSharedCount: 0`. Les anciens manifestes sans `coverage` restent
+  interprétés comme couvrant tous les membres.
 - Si l'effectif change entre deux campagnes, l'ancienne base n'est
   pas silencieusement reprise : le nouveau cycle peut repartir à zéro.
 - Les identifiants Scopely des membres sont considérés comme
