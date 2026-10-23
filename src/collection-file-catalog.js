@@ -37,7 +37,7 @@ const PERSONAL_CONTENT={
   "personal-events":"Événements et progression du compte OAuth",
   "shared-member-squads":"Équipes des membres ayant explicitement partagé leur roster"
 };
-const GAME_FILE="game-archive/v1/runs/{runId}/objects/{sha256}.json (ou raw/{uuid}.json) + receipts/*.json";
+const GAME_FILE="game-archive/v1/runs/{runId}/objects/{sha256}.json (origine) + game-archive/v1/diff/runs/{runId}/objects/{sha256}.json (modifications) + diff/runs/{runId}/checks/*.json";
 const PLAYER_FILE="roster-batches/v1/player-extras/{session}/{famille}/{cible}/latest.json + pages";
 const ROSTER_FILE="roster-batches/v1/{alliance}/{runId}/provider-source/{capture}/*.json";
 const SECONDARY_FILE=id=>PUBLIC_SOURCE_ROOT+id+"/sha256-{hash}.json + latest.json";
@@ -71,33 +71,34 @@ async function secondaryEvidence(bucket,route){
 // Data returned here are metadata, never object contents, OAuth IDs or tokens.
 export async function buildCollectionFileCatalog(env,state){
   const rows=[];
-  const gameOn=env?.GAME_ARCHIVE_AUTO_ENABLED==="true";
+  const gameDiffOn=env?.GAME_DIFF_ENABLED==="true";
   const playerOn=env?.PLAYER_AUTO_ENABLED==="true";
   const rosterOn=env?.ROSTER_AUTO_ENABLED==="true"&&
     env?.ROSTER_RETENTION_CONFIRMED==="true";
-  // The "automatic" column describes ONLY who starts the first campaign.
-  // The Cron's continuation and later differential sync are NOT a new initial trigger.
-  const gameWhen="Sur clic administrateur : « Démarrer une collecte générale » (pas d’horaire de lancement automatique)";
-  const gameEvidence="État global : "+(state.game?.status||"indisponible")+
+  // Inventory shows the ongoing collection, NOT the historical one-off full archive.
+  // The weekly differential is initiated automatically once the full archive is complete.
+  const gameWhen="Automatique : première passe après clôture de l’archive initiale et de sa phase 2 ; puis tous les 7 jours après la fin de la passe précédente";
+  const gameEvidence="Différentiel : "+(state.gameDifferential?.status||"indisponible")+
+    " ; archive de référence : "+(state.game?.status||"indisponible")+
     " ; présence de ce fichier non vérifiée individuellement";
   for(const root of GAME_ROOTS){
     const desc=GAME_CONTENT[root.id]||"Catalogue du jeu";
     rows.push(row("game-"+root.id,"/game",root.path,GAME_FILE,desc,
-      false,gameOn,gameWhen,gameEvidence,null,
+      true,gameDiffOn,gameWhen,gameEvidence,null,
       "Archive d'origine immuable ; une nouvelle version n'est enregistrée par le différentiel que si le contenu change."));
     if(root.detail)rows.push(row("game-detail-"+root.id,"/game",
       root.detail.replace("{id}","{id officiel}"),GAME_FILE,
-      "Détails associés : "+desc.toLowerCase(),false,gameOn,gameWhen,
+      "Détails associés : "+desc.toLowerCase(),true,gameDiffOn,gameWhen,
       gameEvidence,null,"IDs découverts à partir des réponses et listes officielles, sans balayage arbitraire."));
   }
   for(const type of EPISODIC_TYPES)rows.push(row(
     "game-episodic-"+type,"/game","/game/v1/episodics/"+type,
     GAME_FILE,"Épisodes "+type+" et détails liés (chapitres/nœuds documentés)",
-    false,gameOn,gameWhen,gameEvidence,null,
+    true,gameDiffOn,gameWhen,gameEvidence,null,
     "Phase 2 : l'exécution dépend de son activation et de l'avancement de l'archive initiale."));
   rows.push(row("game-linked","/game","/game/v1/items/{id}, orbRewards/{id}, événements et liens documentés",
     GAME_FILE,"Objets, récompenses, associations personnage/objet et ressources liées",
-    false,gameOn,gameWhen,gameEvidence,null,
+    true,gameDiffOn,gameWhen,gameEvidence,null,
     "Découverte ciblée, non une preuve de couverture de toutes les combinaisons de paramètres."));
 
   const rosterEvidence=state.rosters?.status==="ok"?
