@@ -34,7 +34,7 @@ function fixture(){
   }};
 }
 const state={
-  game:{status:"complete"},rosters:{status:"ok"},
+  game:{status:"completed"},gameDifferential:{status:"completed"},rosters:{status:"ok"},
   player:{status:"complete",nextRunAt:"2026-10-24T09:00:00Z"},
   personal:{status:"ok",families:[
     {id:"personal-inventory",archived:1,eligible:2,broken:1,
@@ -60,10 +60,11 @@ test("file catalogue covers collector declarations and exposes cadence without p
   assert.equal(player.lastAt,"2026-10-23T08:00:00Z");
   const game=list.find(r=>r.id==="game-characters");
   assert.equal(game.enabled,true);
-  assert.equal(game.automatic,false);
-  assert.match(game.when,/clic administrateur/);
-  assert.ok(list.filter(r=>r.group==="/game").every(r=>r.automatic===false),
-    "Each /game source inherits the manual initial trigger, even when cron continuation is enabled");
+  assert.equal(game.automatic,true);
+  assert.match(game.when,/tous les 7 jours/);
+  assert.match(game.file,/game-archive\/v1\/diff\/runs/);
+  assert.ok(list.filter(r=>r.group==="/game").every(r=>r.automatic===true&&r.enabled===true),
+    "Each /game family has automatic weekly differential maintenance after its one-off archive");
   assert.equal(roster.automatic,true);
   assert.equal(player.automatic,true);
   assert.match(game.evidence,/non vérifiée individuellement/);
@@ -81,7 +82,7 @@ test("file catalogue covers collector declarations and exposes cadence without p
 test("disabled collectors are not described as running",async()=>{
   const {env}=fixture();
   env.GAME_DIFF_ENABLED="false";
-  env.GAME_ARCHIVE_AUTO_ENABLED="false";
+  env.GAME_ARCHIVE_AUTO_ENABLED="true"; // Weekly diff must be off even when manual archive is enabled.
   env.PLAYER_AUTO_ENABLED="false";
   env.ROSTER_AUTO_ENABLED="false";
   const rows=(await buildCollectionFileCatalog(env,state)).rows;
@@ -89,8 +90,8 @@ test("disabled collectors are not described as running",async()=>{
   assert.equal(rows.find(r=>r.id==="player-personal-events").enabled,false);
   assert.equal(rows.find(r=>r.id==="player-personal-roster").enabled,false);
   assert.equal(rows.find(r=>r.id==="alliance-coverage").enabled,false);
-  assert.equal(rows.find(r=>r.id==="game-characters").automatic,false);
-  assert.match(rows.find(r=>r.id==="game-characters").when,/clic administrateur/);
+  assert.equal(rows.find(r=>r.id==="game-characters").automatic,true);
+  assert.match(rows.find(r=>r.id==="game-characters").when,/7 jours/);
 });
 
 test("inventory frontend is vanilla JS and has no additional API calls",async()=>{
@@ -98,6 +99,6 @@ test("inventory frontend is vanilla JS and has no additional API calls",async()=
   assert.doesNotThrow(()=>new Script(js));
   assert.match(js,/Inventaire des fichiers et horaires/);
   assert.match(js,/renderFileCatalog\(output,data.catalog\)/);
-  assert.match(js,/Déclenchement initial automatique/);
+  assert.match(js,/Collecte automatique/);
   assert.doesNotMatch(js,/innerHTML|localStorage|sessionStorage|setInterval/);
 });
