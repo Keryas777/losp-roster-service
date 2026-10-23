@@ -157,7 +157,9 @@
     output.replaceChildren();
     const r=data.rosters||{},sched=data.rosterScheduler||{};
     const alliances=Array.isArray(r.alliances)?r.alliances:[];
-    const fullManifests=alliances.filter(x=>x.snapshot==="valid").length;
+    const validManifests=alliances.filter(x=>x.snapshot==="valid").length;
+    const fullManifests=alliances.filter(x=>
+      x.snapshot==="valid"&&x.manifestCoverage==="all-members").length;
     // Completion means ALL authorized rosters plus the OAuth owner's roster.
     // A member's opt-out does not make an otherwise complete campaign fail.
     const authorizedDone=alliances.filter(a=>
@@ -174,7 +176,8 @@
       authorizedDone+"/"+count(r.approvedCount)+" collectes accessibles terminées",
       "Collecte automatique : "+label(sched.status)+
         " · "+progress+" alliance(s) en progression"+
-        " · "+fullManifests+" manifeste(s) d'exhaustivité sur "+
+        " · "+validManifests+" manifeste(s) valide(s) ("+
+        fullManifests+" couvrant tous les membres) sur "+
         count(r.approvedCount)+" · dernier Cron : "+time(sched.lastTick)+
         ". Un membre sans partage n'empêche pas la réussite des rosters autorisés.",
       authorizedDone&&authorizedDone===r.approvedCount?"ok":"warn");
@@ -260,15 +263,17 @@
           node("p",a.noShareCount+" membre(s) ont choisi de ne pas partager "+
             "leur roster sur "+count(a.observedMembers)+" membres observés. "+
             (a.progress==="partial-consent"?
-              "Tous les rosters accessibles sont traités ; "+
-              "le manifeste d'exhaustivité n'est pas publié.":""),
+              a.snapshot==="valid"&&a.manifestCoverage==="authorized-only"?
+                "Manifeste des rosters autorisés présent.":
+                "Collecte autorisée terminée ; manifeste de cette campagne "+
+                  "encore absent.":""),
             article,"collection-coverage-info");
         }else if(a.snapshot==="missing"&&a.progress==="complete"){
           node("p","Anomalie : campagne indiquée complète, mais manifeste absent. "+
             "Vérifier le diagnostic R2 détaillé.",article,"collection-coverage-warning");
         }else if(a.snapshot==="missing"&&a.progress==="partial-consent"){
-          node("p","Collecte autorisée terminée, manifeste d'exhaustivité "+
-            "non publié ; nombre de partages refusés non confirmé ici.",
+          node("p","Collecte autorisée terminée, mais le manifeste de "+
+            "cette campagne est absent ; nombre de refus inconnu.",
             article,"collection-coverage-info");
         }else if(a.snapshot==="missing"&&a.progress==="complete-co-members"){
           node("p","Les coéquipiers sont traités, mais le roster personnel "+
