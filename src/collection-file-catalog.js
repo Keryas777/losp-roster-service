@@ -68,9 +68,59 @@ async function secondaryEvidence(bucket,route){
   }catch{return {evidence:"Contrôle R2 indisponible",lastAt:null};}
 }
 
+const nonnegative=v=>Number.isSafeInteger(v)&&v>=0?v:null;
+const boundedProgress=(done,total)=>{
+  const a=nonnegative(done),b=nonnegative(total);
+  return a!==null&&b!==null&&b>0&&a<=b?{done:a,total:b}:null;
+};
+function activityMonitors(env,state){
+  const differential=state.gameDifferential||{};
+  const player=state.player||{};
+  const roster=state.rosterScheduler||{};
+  const alliances=Array.isArray(state.rosters?.alliances)?state.rosters.alliances:[];
+  const diffEnabled=env?.GAME_DIFF_ENABLED==="true";
+  const playerEnabled=env?.PLAYER_AUTO_ENABLED==="true";
+  const rosterEnabled=env?.ROSTER_AUTO_ENABLED==="true"&&
+    env?.ROSTER_RETENTION_CONFIRMED==="true";
+  const diffStatus=!diffEnabled?"disabled":
+    differential.status==="not-started"&&
+    !["completed","completed-with-gaps"].includes(state.game?.status)?
+      "awaiting-initial-archive":differential.status||"unavailable";
+  const game={
+    id:"game",title:"/game — différentiel hebdomadaire",status:diffStatus,
+    progress:diffEnabled&&["checking","completed","partial"].includes(diffStatus)?
+      boundedProgress(differential.checked,differential.queued):null,
+    lastAt:timestamp(differential.lastCheckedAt||differential.completedAt),
+    startedAt:timestamp(differential.startedAt),
+    nextAt:timestamp(differential.nextRunAt),
+    detail:"URLs vérifiées / URLs découvertes. Le total peut augmenter pendant une passe ; "+
+      "ce n’est pas le pourcentage de toutes les ressources /game."
+  };
+  const playerStatus=playerEnabled?player.status||"unavailable":"disabled";
+  const personal={
+    id:"player",title:"/player — campagne quotidienne",status:playerStatus,
+    progress:playerEnabled?boundedProgress(player.accountsProcessed,player.connectedAccounts):null,
+    lastAt:timestamp(player.updatedAt||player.completedAt),
+    startedAt:timestamp(player.startedAt),nextAt:timestamp(player.nextRunAt),
+    detail:"Comptes OAuth entièrement parcourus / comptes connectés (pas le nombre de fichiers). "+
+      "Certaines familles peuvent être refusées ou échouer."
+  };
+  const rosterStatus=!rosterEnabled?"disabled":
+    alliances.some(a=>a.progress==="in-progress")?"running":
+    roster.status==="ready"?"ready":roster.status||"unavailable";
+  const rosters={
+    id:"rosters",title:"/player — rosters des alliances",status:rosterStatus,
+    progress:null,lastAt:timestamp(roster.lastTick),startedAt:null,nextAt:null,
+    detail:"Dernier passage Cron enregistré, non une preuve de succès. "+
+      "Progression des membres disponible séparément pour chaque alliance approuvée."
+  };
+  return {game,player:personal,rosters};
+}
+
 // Data returned here are metadata, never object contents, OAuth IDs or tokens.
 export async function buildCollectionFileCatalog(env,state){
   const rows=[];
+  const monitors=activityMonitors(env,state);
   const gameDiffOn=env?.GAME_DIFF_ENABLED==="true";
   const playerOn=env?.PLAYER_AUTO_ENABLED==="true";
   const rosterOn=env?.ROSTER_AUTO_ENABLED==="true"&&
@@ -169,8 +219,49 @@ export async function buildCollectionFileCatalog(env,state){
     true,env?.CAPTAIN_COVERAGE_ENABLED==="true",
     "Chaque jour à 03h15 UTC (15 3 * * *) si activé",
     "Présence R2 non vérifiée dans cet inventaire"));
-  return {status:"ok",rows,source:"code-collectors-and-private-r2-only",
-    note:"Chemins entre accolades = modèles de fichiers ou d'URLs, pas des fichiers nommément vérifiés. "+
-      "Les statuts par route /game exigent l'audit de reçus R2 ; une campagne en cours "+
-      "ou un compteur global ne prouve pas que chaque route est archivée."};
+  const observedRows=rows.map(item=>{
+    let activity=null;
+    if(item.group==="/game")activity={
+      status:monitors.game.status,lastAt:monitors.game.lastAt,
+      scope:"global",note:"État global du différentiel, pas de preuve propre à cette route"
+    };
+    else if(item.group==="/player"){
+      if(item.id==="player-card"||item.id==="player-member-card"){
+        activity={status:"on-demand",lastAt:null,scope:"route"};
+      }else if(item.id.startsWith("player-personal-")||
+               item.id==="player-shared-member-squads"){
+        const family=state.personal?.families?.find(x=>item.id==="player-"+x.id);
+        const coverage=family&&state.personal?.status==="ok"?
+          boundedProgress(family.archived,family.eligible):null;
+        activity={
+          status:!playerOn?"disabled":coverage&&coverage.done===coverage.total?
+            "archived":coverage?"partial":"not-verified",
+          lastAt:timestamp(family?.lastCapture),progress:coverage,
+          scope:"family",
+          note:"Comptes OAuth autorisés avec archives R2 vérifiées ; non lié au total de la campagne"
+        };
+      }else activity={
+        status:monitors.rosters.status,lastAt:monitors.rosters.lastAt,
+        scope:"global",note:"État Cron global, pas de preuve de cette route"
+      };
+    }else if(item.group==="Services MSF +"){
+      activity={status:item.evidence==="Objet R2 présent"?"archived":
+        item.evidence.startsWith("Objet brut présent")?"archived-unindexed":
+        "not-verified",lastAt:item.lastAt,scope:"route"};
+    }else if(item.id==="oauth-refresh"){
+      activity={status:state.oauth?.status||"unavailable",
+        lastAt:timestamp(state.oauth?.checkedAt),scope:"route"};
+    }else if(item.id==="alliance-coverage"){
+      activity={status:item.enabled?"ready":"disabled",lastAt:null,scope:"route"};
+    }else activity={status:"not-verified",lastAt:null,scope:"route"};
+    return {...item,activity};
+  });
+  return {status:"ok",rows:observedRows,
+    monitors:[monitors.game,monitors.player,monitors.rosters],
+    source:"code-collectors-and-private-r2-only",
+    note:"Progressions calculées à partir des états R2 enregistrés par les Cron, pas du temps écoulé. "+
+      "Les compteurs /game sont globaux et les découvertes peuvent augmenter le total. "+
+      "Les barres /player montrent les comptes traités ou les archives éligibles vérifiées, "+
+      "pas la couverture exhaustive de tous les endpoints. "+
+      "Chemins entre accolades = modèles, pas des fichiers individuellement prouvés."};
 }
