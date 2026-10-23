@@ -35,6 +35,60 @@
     "in-progress":"En cours","missing-pages":"Pages manquantes",
     unavailable:"État indisponible"
   })[v]||v||"Inconnu";
+
+  function renderFileCatalog(parent,catalog){
+    node("h3","Inventaire des fichiers et horaires de collecte",parent);
+    if(catalog?.status!=="ok"||!Array.isArray(catalog.rows)){
+      node("p","Inventaire indisponible ; aucune collecte n'est supposée réussie.",parent);
+      return;
+    }
+    node("p","Les chemins avec {paramètre} sont des modèles de fichiers. Horaires UTC. "+
+      "Un déclenchement ne garantit pas un nouveau fichier.",parent,"collection-caveat");
+    const controls=node("div",null,parent,"controls");
+    const searchLabel=node("label","Recherche",controls);
+    const search=node("input",null,searchLabel);
+    search.type="search";search.placeholder="Route, fichier ou contenu…";
+    const groupLabel=node("label","Source",controls);
+    const group=node("select",null,groupLabel);
+    for(const g of ["Toutes",...new Set(catalog.rows.map(x=>x.group))]){
+      const option=node("option",g,group);option.value=g;
+    }
+    const counter=node("p",null,parent,"collection-caveat");
+    const scroll=node("div",null,parent,"scroll");
+    const table=node("table",null,scroll);
+    const head=node("tr",null,node("thead",null,table));
+    for(const col of ["Famille","Route API / source","Fichier(s) R2","Contenu",
+      "Automatique ?","Quand ? (UTC)","Preuve disponible","Dernière capture"])
+      node("th",col,head);
+    const body=node("tbody",null,table);
+    function redraw(){
+      const q=search.value.trim().toLocaleLowerCase("fr-FR");
+      const filtered=catalog.rows.filter(r=>
+        (group.value==="Toutes"||r.group===group.value)&&
+        (!q||[r.group,r.source,r.file,r.contains,r.when,r.evidence,r.note]
+          .some(x=>String(x||"").toLocaleLowerCase("fr-FR").includes(q))));
+      body.replaceChildren();
+      for(const info of filtered){
+        const tr=node("tr",null,body);
+        node("td",info.group,tr);
+        node("td",info.source,tr);
+        node("td",info.file,tr);
+        const desc=node("td",info.contains,tr);
+        if(info.note)node("small",info.note,desc);
+        node("td",info.automatic?(info.enabled?"Oui · actif":"Oui · désactivé"):
+          "Non · manuel",tr);
+        node("td",info.when,tr);
+        node("td",info.evidence,tr);
+        node("td",time(info.lastAt),tr);
+      }
+      counter.textContent=filtered.length+" ligne(s) sur "+catalog.rows.length;
+      if(!filtered.length)node("tr","Aucun résultat",body);
+    }
+    search.addEventListener("input",redraw);
+    group.addEventListener("change",redraw);
+    redraw();
+    node("p",catalog.note,parent,"collection-caveat");
+  }
   function render(data){
     output.replaceChildren();
     const r=data.rosters||{},sched=data.rosterScheduler||{};
@@ -83,6 +137,7 @@
       "Un manifeste de roster ou le compteur /game ne prouve pas à lui seul "+
       "que tous les fichiers sources sont physiquement présents.";
 
+    renderFileCatalog(output,data.catalog);
     const heading=node("h3","Données /player : preuves d'archivage par famille",output);
     if(pers.status!=="ok"){
       node("p","Inventaire des familles indisponible ; il serait trompeur d'afficher zéro.",output);
