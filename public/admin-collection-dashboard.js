@@ -33,6 +33,8 @@
     "not-configured":"Non configurée",archived:"Archivé",
     missing:"Absent",expired:"Expiré",valid:"Manifeste présent",
     "in-progress":"En cours","missing-pages":"Pages manquantes",
+    "partial-consent":"Partages incomplets",
+    "complete-co-members":"Roster personnel en attente",
     "on-demand":"À la demande","not-verified":"Non vérifié",
     "archived-unindexed":"Archive brute, non indexée",
     "awaiting-initial-archive":"En attente de l'archive initiale",
@@ -42,6 +44,24 @@
     unavailable:"État indisponible"
   })[v]||v||"Inconnu";
 
+  // Render official MSF color markers as text + a bounded CSS color.
+  // The alliance label remains the original Unicode text; never use innerHTML.
+  function allianceNameParts(value){
+    const raw=String(value??"");
+    const markers=raw.match(/<#[0-9a-f]{6}>/gi);
+    const color=markers?.length?"#"+markers[markers.length-1].slice(2,-1):null;
+    const cleaned=raw.replace(/<#[0-9a-f]{6}>/gi,"")
+      .replace(/\s+/g," ").trim().replace(/^(LoSP\s+){2,}/i,"LoSP ");
+    const match=/^(LoSP\s+)(.+)$/i.exec(cleaned);
+    return {prefix:match?.[1]||"",name:match?.[2]||cleaned,color};
+  }
+  function allianceTitle(parent,value){
+    const parts=allianceNameParts(value);
+    const title=node("strong",null,parent,"collection-alliance-name");
+    if(parts.prefix)node("span",parts.prefix,title);
+    const name=node("span",parts.name,title);
+    if(parts.color)name.style.color=parts.color;
+  }
   function renderProgress(parent,metric,description){
     if(!metric||!Number.isSafeInteger(metric.done)||
        !Number.isSafeInteger(metric.total)||metric.total<=0||
@@ -215,15 +235,37 @@
       const grid=node("div",null,output,"collection-grid");
       for(const a of alliances){
         const article=node("article",null,grid,"collection-alliance");
-        node("strong",a.name,article);
+        allianceTitle(article,a.name);
         node("p","Dernier snapshot : "+label(a.snapshot)+
           " · "+time(a.capturedAt),article);
-        node("p","Membres traités : "+count(a.completed)+"/"+
-          count(a.eligible)+" · roster OAuth : "+
-          (a.personalRosterCollected?"signalé comme collecté":"non confirmé"),article);
+        node("p","Collecte : "+label(a.progress)+
+          " · coéquipiers partageant leur roster : "+
+          count(a.completed)+"/"+count(a.eligible)+
+          " · roster OAuth : "+(a.personalRosterCollected?
+            a.personalFilePresent===true?"fichier présent":
+            a.personalFilePresent===false?"fichier introuvable":
+            "signalé comme collecté":"non confirmé"),article);
         if(["in-progress","complete","complete-co-members","partial-consent"].includes(a.progress))
           renderProgress(article,{done:a.completed,total:a.eligible},
-            "Coprésents traités");
+            "Rosters autorisés traités");
+        if(Number.isSafeInteger(a.noShareCount)&&a.noShareCount>0){
+          node("p",a.noShareCount+" membre(s) sans partage de roster sur "+
+            count(a.observedMembers)+" membres observés. "+
+            (a.snapshot==="missing"&&a.progress==="partial-consent"?
+              "Le manifeste complet n’est volontairement pas créé : "+
+              "ce n’est pas un échec d’écriture R2.":""),
+            article,"collection-coverage-warning");
+        }else if(a.snapshot==="missing"&&a.progress==="complete"){
+          node("p","Anomalie : campagne indiquée complète, mais manifeste absent. "+
+            "Vérifier le diagnostic R2 détaillé.",article,"collection-coverage-warning");
+        }else if(a.snapshot==="missing"&&a.progress==="partial-consent"){
+          node("p","Partages incomplets : manifeste complet non produit. "+
+            "Nombre de membres sans partage non confirmé ici.",article,"collection-coverage-warning");
+        }else if(a.snapshot==="missing"&&a.progress==="complete-co-members"){
+          node("p","Les coéquipiers sont traités, mais le roster personnel "+
+            "reste à collecter avant la création du manifeste.",article,
+            "collection-coverage-warning");
+        }
         node("p","Campagne : "+(a.lastCampaign||"—")+
           " · expire : "+time(a.expiresAt),article);
       }
