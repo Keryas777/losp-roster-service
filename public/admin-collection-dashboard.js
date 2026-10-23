@@ -42,8 +42,9 @@
       node("p","Inventaire indisponible ; aucune collecte n'est supposée réussie.",parent);
       return;
     }
-    node("p","Les chemins avec {paramètre} sont des modèles de fichiers. Horaires UTC. "+
-      "Un déclenchement ne garantit pas un nouveau fichier.",parent,"collection-caveat");
+    node("p","« Automatique ? » concerne uniquement le premier lancement de la collecte. "+
+      "La reprise des tâches et les mises à jour ultérieures ne comptent pas. "+
+      "Chemins entre {accolades} = modèles de fichiers ; horaires UTC.",parent,"collection-caveat");
     const controls=node("div",null,parent,"controls");
     const searchLabel=node("label","Recherche",controls);
     const search=node("input",null,searchLabel);
@@ -58,7 +59,7 @@
     const table=node("table",null,scroll,"collection-file-table");
     const head=node("tr",null,node("thead",null,table));
     for(const col of ["Famille","Route API / source","Fichier(s) R2","Contenu",
-      "Automatique ?","Quand ? (UTC)","Preuve disponible","Dernière capture"])
+      "Déclenchement initial automatique ?","Quand ? (UTC)","Preuve disponible","Dernière capture"])
       node("th",col,head);
     const body=node("tbody",null,table);
     function redraw(){
@@ -75,7 +76,7 @@
         node("td",info.file,tr);
         const desc=node("td",info.contains,tr);
         if(info.note)node("small",info.note,desc);
-        node("td",info.automatic?(info.enabled?"Oui · actif":"Oui · désactivé"):
+        node("td",info.automatic?(info.enabled?"Oui":"Non · désactivé"):
           "Non · manuel",tr);
         node("td",info.when,tr);
         node("td",info.evidence,tr);
