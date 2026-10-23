@@ -56,14 +56,17 @@
             p.personalFilePresent?"présent":"fichier manquant":
             "non confirmé")+".");
       }
-      line(card,"Manifeste d'exhaustivité : "+
-        (p.status==="partial-consent"&&m.status==="missing"?
-          "non publié (choix de partage respectés)":(label[m.status]||m.status))+
-        (m.members!==undefined?" ("+m.members+" membres)":"")+".");
+      line(card,"Manifeste des rosters autorisés : "+
+        (label[m.status]||m.status)+
+        (m.members!==undefined?" ("+m.members+" rosters autorisés)":"")+
+        (m.status==="valid"&&m.coverage==="authorized-only"?
+          " — "+m.notSharedCount+" membre(s) sans partage, hors périmètre":
+          m.status==="valid"?" — tous les membres inclus":"")+".");
       if(p.status==="partial-consent"&&m.status==="missing"&&
          Number.isSafeInteger(p.noShareCount)&&p.noShareCount>0)
         line(card,p.noShareCount+" membre(s) ne partagent pas leur roster : "+
-          "les collectes autorisées sont terminées, sans échec de collecte.");
+          "les collectes autorisées sont terminées. "+
+          "Le prochain cycle réussi publiera un manifeste à périmètre limité.");
       if(m.files){
         line(card,"Fichiers du manifeste : "+m.files.checked+
           " contrôlés, "+m.files.missing+" manquant(s).");
