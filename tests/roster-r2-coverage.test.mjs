@@ -113,6 +113,31 @@ test("authorized-only manifest validates the consenting roster subset and reject
   assert.deepEqual(f.writes,[]);
 });
 
+test("Poséidon scenario: 22/22 authorized rosters, 24 observed, one opt-out is a verified manifest",async()=>{
+  const f=fixture();
+  f.store.set(pKey(4),JSON.stringify(progress(4,run2,22,22,24,true)));
+  f.store.set(mKey(4),JSON.stringify({...manifest(4,run2,23),
+    observedMembers:24,coverage:"authorized-only",notSharedCount:1}));
+  for(let i=0;i<22;i++)f.store.set(memberKey(4,run2,i),
+    JSON.stringify({characters:[{id:"PRIVATE"}]}));
+  f.store.set(selfKey(4,run2),JSON.stringify({characters:[{id:"PRIVATE"}]}));
+  const data=await(await handleRosterR2Coverage(
+    request("?fingerprint="+fp(4)),f.env,now)).json();
+  const a=data.alliances[0];
+  assert.equal(a.progress.completed,22);
+  assert.equal(a.progress.eligibleCoMembers,22);
+  assert.equal(a.progress.noShareCount,1);
+  assert.equal(a.progress.status,"partial-consent");
+  assert.equal(a.manifest.status,"valid");
+  assert.equal(a.manifest.coverage,"authorized-only");
+  assert.equal(a.manifest.members,23);
+  assert.equal(a.manifest.observedMembers,24);
+  assert.equal(a.manifest.notSharedCount,1);
+  assert.equal(a.manifest.files.checked,23);
+  assert.equal(a.manifest.verified,true);
+  assert.deepEqual(f.writes,[]);
+});
+
 test("deep check verifies every current member and the previous valid manifest",async()=>{
   const f=fixture();
   const full=await(await handleRosterR2Coverage(request("?fingerprint="+fp(1)),f.env,now)).json();
