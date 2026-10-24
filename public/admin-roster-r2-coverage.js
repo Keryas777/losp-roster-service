@@ -12,7 +12,24 @@
     "complete-co-members":"Coéquipiers terminés, roster personnel en attente",
     "complete":"Complète","partial-consent":"Rosters autorisés terminés (partages limités)",
     "expired":"Expiré","invalid":"Données invalides",
-    "missing":"Absent","valid":"Valide"
+    "missing":"Absent","valid":"Valide",
+    "rate-limited":"Limite API (429)","network-error":"Erreur réseau",
+    "service-unavailable":"Service Scopely indisponible",
+    "request-budget":"Budget de micro-lot atteint",
+    "batch-unavailable":"Échec technique du micro-lot",
+    "membership-changed-restart-required":"Effectif ou partage modifié",
+    "changed-during-read":"Effectif modifié pendant la lecture",
+    "current-membership-unverified":"Compte OAuth non reconnu dans l'alliance",
+    "unauthorized":"Session OAuth non autorisée",
+    "forbidden":"Accès API refusé","no-access":"Roster non accessible",
+    "unavailable":"Diagnostic indisponible",
+    "busy":"Verrou occupé","cooldown":"Pause après erreur",
+    "complete-co-members":"Coéquipiers terminés, roster personnel en attente"
+  };
+  const date=value=>{
+    const d=new Date(value);
+    return Number.isFinite(d.getTime())?
+      d.toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"}):"inconnue";
   };
   const line=(card,value)=>{
     const p=document.createElement("p");
@@ -48,6 +65,25 @@
       title(card,alliance.name);
       line(card,"Collecte : "+(label[p.status]||p.status)+
         (p.campaign?" ("+p.campaign+")":""));
+      const t=alliance.automation||{};
+      if(t.status==="valid"){
+        line(card,"Dernier micro-lot réellement tenté : "+
+          (label[t.outcome]||t.outcome)+" · "+date(t.at)+
+          " · "+t.requests+" appel(s) API · "+t.campaign+".");
+        if(t.failureReason)
+          line(card,"Dernier échec : "+
+            (label[t.failureReason]||t.failureReason)+
+            " (HTTP "+t.httpStatus+").");
+        if(p.campaign&&p.campaign!==t.campaign)
+          line(card,"Ce résultat concerne une campagne précédente.");
+      }else{
+        line(card,"Historique des micro-lots : "+
+          (t.status==="missing"?"pas encore enregistré":
+            "indisponible ou invalide")+".");
+      }
+      if(t.cooldownUntil)
+        line(card,"Collecte temporairement suspendue ; prochain essai "+
+          "possible à partir du "+date(t.cooldownUntil)+".");
       if(p.completed!==undefined){
         line(card,"Coéquipiers : "+p.completed+"/"+p.eligibleCoMembers+
           " ; restants : "+p.remaining+".");
