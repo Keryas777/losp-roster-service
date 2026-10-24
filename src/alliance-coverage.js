@@ -179,7 +179,7 @@ export async function buildPrivateCoverage(env,fetchImpl=fetch){
 // Minimal, deliberately separate scan for urgent alliance season standings.
 // Uses one AllianceCard GET per available captain session; it does not request
 // rosters, members, historical events or non-consenting alliances.
-export async function scanPrivateAllianceRanks(env,fetchImpl=fetch,now=Date.now()){
+export async function scanPrivateAllianceRanks(env,fetchImpl=fetch,now=Date.now(),approved=null){
   if(!captainConfigReady(env)||!env.CAPTAIN_BUCKET?.list)return null;
   const keys=await listCaptainSessionKeys(env.CAPTAIN_BUCKET);
   const byAid=new Map();
@@ -191,6 +191,8 @@ export async function scanPrivateAllianceRanks(env,fetchImpl=fetch,now=Date.now(
     if(!authorization.ok){unavailableSessions++;continue;}
     const card=await discoverAlliance(authorization.token,fetchImpl);
     if(!card.ok){unavailableSessions++;continue;}
+    // Only enrolled LoSP alliances are eligible for recurring rank archives.
+    if(approved&&!approved.has(await sha(card.aid)))continue;
     validSessions++;
     if(!byAid.has(card.aid))byAid.set(card.aid,{
       allianceFingerprint:await sha(card.aid),

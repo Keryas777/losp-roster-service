@@ -115,3 +115,42 @@ export async function saveRosterSyncApprovals(request,env,fetchImpl=fetch){
     return response({status:"approved",count:approved.length,collectionEnabled:false});
   }catch{return response({error:"approval-unavailable"},503);}
 }
+
+/**
+ * Explicit one-alliance enrollment from the private Admin directory.
+ * Never replaces previously approved LoSP alliances. It never fetches rosters.
+ * The target MUST be currently verifiable with an authorized Scopely grant.
+ */
+export async function approveOneRosterAlliance(request,env,fetchImpl=fetch){
+  if(!captainConfigReady(env))return response({error:"storage-unavailable"},503);
+  const url=new URL(request.url);
+  if(request.method!=="POST")return response({error:"method-not-allowed"},405);
+  if(url.search||request.headers.get("Origin")!==url.origin||
+     !(request.headers.get("Content-Type")||"").toLowerCase().startsWith("application/json"))
+    return response({error:"forbidden"},403);
+  let fp;
+  try{
+    const raw=await request.text();
+    if(raw.length>180)throw Error("too-long");
+    const body=JSON.parse(raw);
+    if(!body||Object.keys(body).length!==1||!FP.test(body.fingerprint))
+      throw Error("bad-selection");
+    fp=body.fingerprint;
+  }catch{return response({error:"invalid-selection"},400);}
+  try{
+    const previous=await readApproval(env);
+    if(previous.status==="invalid-registry")
+      return response({error:"invalid-registry"},503);
+    if(previous.alliances.some(a=>a.fingerprint===fp))
+      return response({status:"already-approved",count:previous.alliances.length});
+    const scan=await scanPrivateCoverage(env,fetchImpl);
+    const verified=scan?.alliances?.find(a=>
+      a.allianceFingerprint===fp&&a.status==="available");
+    if(!verified)return response({error:"alliance-not-currently-verifiable"},409);
+    const alliances=[...previous.alliances,{fingerprint:fp,name:verified.name}];
+    await env.CAPTAIN_BUCKET.put(ROSTER_APPROVAL_KEY,JSON.stringify({
+      version:1,approvedAt:new Date().toISOString(),alliances
+    }),{httpMetadata:{contentType:"application/json",cacheControl:"no-store"}});
+    return response({status:"approved",name:verified.name,count:alliances.length});
+  }catch{return response({error:"approval-unavailable"},503);}
+}

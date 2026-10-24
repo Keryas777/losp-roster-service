@@ -4,12 +4,14 @@ import {putCaptainRecord,CAPTAIN_PREFIX} from "../src/captain-vault.js";
 import {startPlayerCampaign,runPlayerCampaignTick,
   getPlayerCampaignStatus,handlePlayerCampaignAdmin} from "../src/player-campaign.js";
 import {handleAdmin} from "../src/admin-routes.js";
+import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
+import {CONNECTED_ALLIANCE_PREFIX} from "../src/connected-alliance-index.js";
 
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const URL=ORIGIN+"/admin/api/player-campaign";
 const prefix="roster-batches/v1/";
 const scope="offline m3p.f.pr.pro m3p.f.pr.ros m3p.f.pr.inv m3p.f.pr.act m3p.f.ar.pro m3p.f.ar.ros";
-async function fixture({scopes=scope,memberShare=true,providerStatus=200}={}){
+async function fixture({scopes=scope,memberShare=true,providerStatus=200,outside=false}={}){
   const db=new Map(),calls=[],leases=new Set();
   const id="d".repeat(64),now=Date.now();
   const bucket={
@@ -51,6 +53,14 @@ async function fixture({scopes=scope,memberShare=true,providerStatus=200}={}){
     accessExpiresAt:now+3600000,accessToken:"TOKEN",refreshToken:"REFRESH",
     scope:scopes
   });
+  const fp=outside?"b".repeat(64):"a".repeat(64);
+  db.set(CONNECTED_ALLIANCE_PREFIX+id,JSON.stringify({
+    version:1,fingerprint:fp,name:outside?"Externe":"Zeus",
+    observedAt:new Date(now).toISOString()
+  }));
+  db.set(ROSTER_APPROVAL_KEY,JSON.stringify({
+    version:1,alliances:[{fingerprint:"a".repeat(64),name:"Zeus"}]
+  }));
   const provider=async(url,options)=>{
     calls.push(url);
     assert.equal(options.method,"GET");
@@ -81,6 +91,16 @@ async function loop(f,num=15){
   }
   return {statuses,state:await (await getPlayerCampaignStatus(f.env)).json()};
 }
+test("an outside OAuth account never enters LoSP /player extras or member squads",async()=>{
+  const f=await fixture({outside:true});
+  const res=await startPlayerCampaign(f.env,f.now);
+  assert.equal(res.status,200);
+  const outcome=await runPlayerCampaignTick(f.env,f.provider,f.now);
+  assert.equal(outcome.status,"external-personal-roster-only");
+  assert.equal(f.calls.length,0);
+  assert.ok(![...f.db.keys()].some(x=>x.includes("/personal-inventory/self/latest.json")));
+});
+
 test("one click starts for all connected grants without calling Scopely",async()=>{
   const f=await fixture();
   const r=await startPlayerCampaign(f.env,f.now);

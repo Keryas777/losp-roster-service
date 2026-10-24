@@ -1,5 +1,5 @@
 import {diagnoseAdminAuth,adminReady} from "./admin-auth.js";
-import {rosterSyncPreflight,saveRosterSyncApprovals} from "./roster-sync-preflight.js";
+import {rosterSyncPreflight,saveRosterSyncApprovals,approveOneRosterAlliance} from "./roster-sync-preflight.js";
 import {handlePrivateRosterPilot} from "./private-roster-pilot.js";
 import {handleRosterMicrobatch,getRosterBatchStatus} from "./private-roster-batches.js";
 import {rosterAutoStatus,handleAdminRosterAutoTest} from "./automatic-roster-scheduler.js";
@@ -184,7 +184,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 export async function handleAdmin(request,env,fetchImpl=fetch){
   const endpoint=new URL(request.url).pathname;
   if(request.method!=="GET"&&!(request.method==="POST"&&
-       ["/admin/api/roster-approvals","/admin/api/roster-pilot",
+       ["/admin/api/roster-approvals","/admin/api/roster-approve-one","/admin/api/roster-pilot",
         "/admin/api/roster-batch","/admin/api/roster-auto-test",
         "/admin/api/msf-secondary-probe","/admin/api/game-archive",
         "/admin/api/game-archive-schema-audit",
@@ -226,6 +226,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   if(pathname==="/admin/api/connected-alliances")return handleConnectedAlliances(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-preflight")return rosterSyncPreflight(env,fetchImpl);
   if(pathname==="/admin/api/roster-approvals")return saveRosterSyncApprovals(request,env,fetchImpl);
+  if(pathname==="/admin/api/roster-approve-one")return approveOneRosterAlliance(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-pilot")return handlePrivateRosterPilot(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-batch")return handleRosterMicrobatch(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-batch-status")return getRosterBatchStatus(request,env);

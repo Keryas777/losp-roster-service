@@ -6,6 +6,7 @@ import { collectAllianceRosterSample } from "./roster-collector.js";
 import { renderLiveRosterViewer } from "./roster-viewer.js";
 import { discoverAlliance, readAllianceCoverage } from "./alliance-coverage.js";
 import {registerConnectedAlliance,saveConnectedAlliance,removeConnectedAlliance} from "./connected-alliance-index.js";
+import {captureConnectedPersonalRoster} from "./connected-personal-rosters.js";
 
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const COOKIE="__Host-losp_captain_session";
@@ -59,7 +60,12 @@ export async function saveCaptainConsent(res,token,env,request,fetchImpl=null){
   if(stored.status!=="stored")throw Error("Captain grant was not persisted");
   // A provider error must not revoke a successfully stored consent.
   // Older sessions are backfilled by the private admin index.
-  if(fetchImpl)await registerConnectedAlliance(env,key,token.access_token,fetchImpl);
+  if(fetchImpl){
+    const indexed=await registerConnectedAlliance(env,key,token.access_token,fetchImpl);
+    if(indexed&&typeof token.scope==="string"&&
+       token.scope.split(/\s+/).includes("m3p.f.pr.ros"))
+      await captureConnectedPersonalRoster(env,key,token.access_token,fetchImpl);
+  }
   const headers=new Headers(res.headers);
   headers.append("Set-Cookie",COOKIE+"="+id+"; Max-Age="+CAPTAIN_COOKIE_AGE+attributes);
   return new Response(res.body,{status:res.status,headers});
