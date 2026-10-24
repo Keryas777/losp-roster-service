@@ -4,9 +4,10 @@ import {readApproval} from "./roster-sync-preflight.js";
 import {handleRosterMicrobatch} from "./private-roster-batches.js";
 
 export const ROSTER_CRON="* 2-5,14-17 * * *";
-// Per-invocation safety ceiling (Cloudflare Free: 50 external subrequests).
-// These are not Scopely daily API quotas.
-export const TICK_API_BUDGET=35;
+// Per-invocation bound, not a Scopely quota: 2 x 24 GET stays below the
+// Cloudflare Workers Free limit of 50 external subrequests per invocation.
+export const TICK_API_BUDGET=24;
+export const ALLIANCES_PER_TICK=2;
 const ROOT="roster-auto/v1/";
 const GLOBAL_LOCK="f".repeat(64); // A separate Durable Object from the alliance locks.
 const BASE_URL="https://losp-roster-service.deliriousfan7.workers.dev";
@@ -56,7 +57,7 @@ export function rosterWindow(cron,scheduledTime){
     stamp:d.toISOString().slice(0,16)+"Z"};
 }
 // A deliberate, admin-authenticated diagnostic invocation may run outside
-// the normal cron windows. It shares the normal global lock, daily budget,
+// the normal cron windows. It shares the normal global lock, measured request counts,
 // 1-minute idempotency key and R2 campaign checkpoints with the scheduler.
 // The requester never controls the clock, campaign or alliance selection.
 export function manualRosterWindow(now){
@@ -146,56 +147,63 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
     const alliances=approval.alliances.map(a=>a.fingerprint).sort();
     if(new Set(alliances).size!==alliances.length||
        alliances.includes(GLOBAL_LOCK))return {status:"invalid-approvals"};
-    const fp=alliances[slot.tick%alliances.length];
-    const pause=await read(bucket,pauseKey(fp));
-    let used=0,outcome="cooldown",statusCode=200;
-    if(!pause||!Number.isFinite(Date.parse(pause.until))||
-       Date.parse(pause.until)<=timestamp){
-      // Reserve the full tick budget BEFORE any Scopely call. A Worker crash
-      // then overcounts rather than losing calls and exceeding the daily cap.
-      await write(bucket,dayKey(slot.date),{
-        date:slot.date,used:d.used+TICK_API_BUDGET,ticks:d.ticks+1,
-        lastTick:slot.stamp,lastOutcome:"reserved"
-      });
-      const limitedFetch=async(url,options)=>{
-        // Count every attempted provider API request, including 344, 429 and 472.
-        if(new URL(url).hostname==="api.marvelstrikeforce.com"){
-          if(used>=TICK_API_BUDGET)throw Error("scopely-tick-budget");
-          used++;
-        }
-        return fetchImpl(url,options);
-      };
-      const req=new Request(BASE_URL+"/admin/api/roster-batch",{
-        method:"POST",headers:{Origin:BASE_URL,"Content-Type":"application/json"},
-        body:JSON.stringify({fingerprint:fp})
-      });
-      try{
-        const res=await handleRosterMicrobatch(req,env,limitedFetch,timestamp,{
-          campaign:slot.campaign,tick:slot.stamp
+    // Idempotency checkpoint. Per-day counts are telemetry, not a daily limit.
+    await write(bucket,dayKey(slot.date),{
+      date:slot.date,used:d.used,ticks:d.ticks+1,
+      lastTick:slot.stamp,lastOutcome:"reserved"
+    });
+    const selected=[];
+    for(let i=0;i<Math.min(manual?1:ALLIANCES_PER_TICK,alliances.length);i++)
+      selected.push(alliances[(slot.tick*(manual?1:ALLIANCES_PER_TICK)+i)%alliances.length]);
+    let used=0;
+    const outcomes=[];
+    for(const fp of selected){
+      const pause=await read(bucket,pauseKey(fp));
+      let count=0,outcome="cooldown",statusCode=200;
+      if(!pause||!Number.isFinite(Date.parse(pause.until))||
+         Date.parse(pause.until)<=timestamp){
+        const limitedFetch=async(url,fetchOptions)=>{
+          if(new URL(url).hostname==="api.marvelstrikeforce.com"){
+            if(count>=TICK_API_BUDGET)throw Error("scopely-invocation-limit");
+            count++;
+          }
+          return fetchImpl(url,fetchOptions);
+        };
+        const req=new Request(BASE_URL+"/admin/api/roster-batch",{
+          method:"POST",headers:{Origin:BASE_URL,"Content-Type":"application/json"},
+          body:JSON.stringify({fingerprint:fp})
         });
-        statusCode=res.status;
-        const result=await res.json();
-        outcome=typeof result.status==="string"?
-          result.status.slice(0,65):"unavailable";
-      }catch{outcome="unavailable";statusCode=503;}
-      if(statusCode!==200&&outcome!=="busy"&&outcome!=="already-processed-tick"){
-        // Back off significantly for rate-limits, and avoid hammering failures.
-        await write(bucket,pauseKey(fp),{
-          until:new Date(timestamp+(outcome==="rate-limited"?60:20)*MINUTE)
-            .toISOString(),reason:outcome==="rate-limited"?"429":"error"
-        });
-      }else{
-        await bucket.delete(pauseKey(fp));
+        try{
+          const res=await handleRosterMicrobatch(req,env,limitedFetch,timestamp,{
+            campaign:slot.campaign,tick:slot.stamp
+          });
+          statusCode=res.status;
+          const result=await res.json();
+          outcome=typeof result.status==="string"?
+            result.status.slice(0,65):"unavailable";
+        }catch{outcome="unavailable";statusCode=503;}
+        if(statusCode!==200&&outcome!=="busy"&&outcome!=="already-processed-tick"){
+          await write(bucket,pauseKey(fp),{
+            until:new Date(timestamp+(outcome==="rate-limited"?60:20)*MINUTE)
+              .toISOString(),reason:outcome==="rate-limited"?"429":"error"
+          });
+        }else await bucket.delete(pauseKey(fp));
       }
+      used+=count;
+      outcomes.push({fingerprint:fp,status:outcome,httpStatus:statusCode,requests:count});
     }
+    const outcome=outcomes.length===1?outcomes[0].status:"processed";
     await write(bucket,dayKey(slot.date),{
       date:slot.date,used:d.used+used,ticks:d.ticks+1,
       lastTick:slot.stamp,lastOutcome:outcome,
-      lastMode:manual?"admin-test":"cron"
+      lastMode:manual?"admin-test":"cron",
+      outcomes:outcomes.map(o=>({status:o.status,requests:o.requests}))
     });
     return {status:outcome,requestsThisTick:used,
-      requestsToday:d.used+used,httpStatus:statusCode,
-      ...(manual?{alliance:approval.alliances.find(a=>a.fingerprint===fp)?.name||"approved"}:{})};
+      requestsToday:d.used+used,
+      ...(outcomes.length===1?{httpStatus:outcomes[0].httpStatus}:{}),
+      alliancesProcessed:outcomes.length,
+      ...(manual?{alliance:approval.alliances.find(a=>a.fingerprint===selected[0])?.name||"approved"}:{})};
   }catch{return {status:"unavailable"};}
   finally{if(acquired)try{await lease(env,"release",holder);}catch{}}
 }
