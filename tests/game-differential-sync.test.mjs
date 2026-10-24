@@ -301,3 +301,95 @@ test("missing or mismatched legacy references do not become falsely fresh",async
   assert.equal(receipt.status,"unchanged");
   assert.equal(receipt.refreshed,true,"the bad baseline SHA must be replaced");
 });
+
+
+test("HTTP 472 on an unpageable root immediately schedules its documented finite details",async()=>{
+  const f=fixture({api:url=>url.endsWith("/game/v1/upgradeData")?
+    new Response("representation too large",{status:472}):
+    Response.json({data:[],meta:{perTotal:0}})});
+  await f.seed();
+  const result=await finish(f);
+  assert.equal(result.status.status,"partial","root 472 remains an explicit gap");
+  assert.ok(f.calls.some(x=>x.url.endsWith(
+    "/game/v1/upgradeData/playerLevelTotalXp")));
+  const pending=[...f.store.entries()].filter(([k])=>
+    k.includes("/diff/recovery/pending/")).map(([,v])=>JSON.parse(v));
+  const root=pending.find(x=>x.path==="/game/v1/upgradeData");
+  assert.equal(root?.reason,"http-472");
+  assert.equal(root?.status,"pending");
+  assert.equal(root?.attempts,1);
+  assert.ok(result.status.recoveryQueued>=12,"the existing finite-ID recovery was reused");
+  assert.notEqual(result.status.lastOutcome,"cooldown");
+});
+
+test("HTTP 472 on pageable list halves perPage and resets to page one without waiting",async()=>{
+  const f=fixture({api:url=>url.includes(
+    "/game/v1/characters?page=1&perPage=100")?
+    new Response("oversized",{status:472}):
+    Response.json({data:[],meta:{perTotal:0,page:1}})});
+  await f.seed();
+  const result=await finish(f);
+  assert.equal(result.status.status,"partial");
+  assert.ok(f.calls.some(x=>x.url.includes(
+    "/game/v1/characters?page=1&perPage=50")));
+  assert.equal(result.status.pauseUntil,null);
+});
+
+test("character 472 uses the already-approved split abilities, with bounded tasks",async()=>{
+  const f=fixture({api:url=>{
+    if(url.includes("/game/v1/characters?page=1"))
+      return Response.json({data:[{id:"ExampleMSF"}],meta:{page:1,perTotal:1}});
+    if(url.endsWith("/game/v1/characters/ExampleMSF")||
+       url.includes("/game/v1/characters/ExampleMSF?")&&
+         url.includes("abilityKits=full"))
+      return new Response("too large",{status:472});
+    return Response.json({data:{id:"ExampleMSF"},meta:{}});
+  }});
+  await f.seed();
+  const result=await finish(f);
+  assert.equal(result.status.status,"partial");
+  for(const ability of ["basic","special","ultimate","passive"])
+    assert.ok(f.calls.some(x=>x.url.includes(
+      "/game/v1/characters/ExampleMSF?")&&x.url.includes(
+      "abilityKits="+ability)),"split not collected: "+ability);
+  assert.ok(result.status.queued<100,"strictly finite documented recovery");
+});
+
+test("previously failed checks are backfilled in place without resetting the active run",async()=>{
+  const f=fixture();await f.seed();
+  const run="70aa2222-3333-4333-8333-aabbccddeeff";
+  const root=GAME_ARCHIVE_ROOT+"diff/";
+  f.store.set(root+"state.json",JSON.stringify({
+    version:1,runId:run,sourceRun:SOURCE,status:"checking",
+    scanPhase:"done",writeIndex:0,readIndex:0,readOffset:0,
+    queued:0,checked:1,changed:0,unchanged:0,failed:1,
+    retries:0,pauseUntil:null,startedAt:new Date(NOW-3600000).toISOString()
+  }));
+  f.store.set(root+"runs/"+run+"/checks/00000000.json",
+    JSON.stringify({version:1,path:"/game/v1/upgradeData",
+      reason:"http-472",status:"failed"}));
+  const status=await runGameDifferentialTick(f.env,f.provider,NOW);
+  assert.notEqual(status.status,"unavailable");
+  const state=JSON.parse(f.store.get(root+"state.json"));
+  assert.equal(state.runId,run,"existing runId retained");
+  assert.equal(state.recoveryBackfill.cursor,1);
+  assert.equal(state.recoveryBackfill.end,1);
+  assert.ok(state.queued>=12,"historical 472 generated finite-detail tasks");
+  assert.ok(f.store.has(root+"recovery/pending/"+
+    sha("/game/v1/upgradeData")+".json"));
+});
+
+test("recovery ledger feeds a later run and a successful check marks it resolved",async()=>{
+  const f=fixture();await f.seed();
+  const path="/game/v1/characters/LegacyFailed";
+  const k=GAME_ARCHIVE_ROOT+"diff/recovery/pending/"+sha(path)+".json";
+  f.store.set(k,JSON.stringify({version:1,path,status:"pending",
+    attempts:1,reason:"http-472",lastRun:"different",
+    nextAt:new Date(NOW-60000).toISOString(),
+    firstSeenAt:new Date(NOW-WEEK_MS).toISOString()}));
+  const result=await finish(f);
+  assert.equal(result.status.status,"completed");
+  assert.ok(f.calls.some(x=>x.url.endsWith(path)),"pending URL is retried");
+  assert.equal(JSON.parse(f.store.get(k)).status,"resolved");
+});
+const WEEK_MS=7*86400000;
