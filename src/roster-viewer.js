@@ -101,6 +101,12 @@ export function renderLiveRosterViewer(report) {
       '<option value="level">Niveau décroissant</option>' +
       '<option value="name">Nom A → Z</option></select></label></div>' +
       '<p class="visible-count" id="visible-count" aria-live="polite"></p>' + groups
+    : report.status==="personal-only"?
+      '<section class="permissions"><h2>Connexion Scopely autorisée</h2>'+
+      '<p>Votre roster personnel est le seul roster archivé automatiquement '+
+      'pour cette connexion extérieure à LoSP, si sa lecture est autorisée '+
+      'et complète. Aucun roster de coéquipier n’est récupéré.</p>'+
+      '<p><a href="/captain">Mon espace capitaine</a></p></section>'
     : '<section class="failure"><h2>Les rosters ne sont pas disponibles</h2>' +
       '<p>Lecture interrompue : ' + escape(report.status || "erreur inconnue") +
       '. Aucune donnée partielle n’est affichée.</p>' +
