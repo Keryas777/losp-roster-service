@@ -132,7 +132,7 @@ function make(source,now){
     startedAt:new Date(now).toISOString(),lastCheckedAt:null,
     lastChangedAt:null,completedAt:null,lastOutcome:null};
 }
-async function scan(b,s){
+async function scan(b,s,now){
   if(s.scanPhase==="roots"){
     const roots=GAME_ROOTS.map(r=>({path:r.path+
       (r.pageable?"?page=1&perPage=100":"")}));
@@ -163,7 +163,7 @@ async function scan(b,s){
       }else if(s.scanPhase==="pending"){
         if(v?.status==="pending"&&valid(v.path)&&
           Number.isSafeInteger(v.attempts)&&v.attempts<MAX_RECOVERY_RUNS&&
-          Date.parse(v.nextAt||"")<=Date.now()&&v.lastRun!==s.runId){
+          Date.parse(v.nextAt||"")<=now&&v.lastRun!==s.runId){
           candidates.push({path:v.path,
             ...(valid(v.recoveryOf)?{recoveryOf:v.recoveryOf}:{}),
             ...(typeof v.recoveryPart==="string"?{recoveryPart:v.recoveryPart}:{})});
@@ -499,7 +499,7 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
     if(s.pauseUntil&&Date.parse(s.pauseUntil)>now)
       return {status:"cooldown",nextAt:s.pauseUntil};
     if(s.status==="scanning"){
-      await scan(b,s);
+      await scan(b,s,now);
       return {status:s.status,queued:s.queued,scanPhase:s.scanPhase};
     }
     if(s.status!=="checking")return {status:"invalid-state"};
