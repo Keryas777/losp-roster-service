@@ -7,7 +7,8 @@ import {tokenForKey} from "./admin-data-api.js";
 import {handlePlayerExtraArchive,PLAYER_EXTRA_FAMILIES} from "./player-extras-archive.js";
 import {API_KEY} from "./player-card.js";
 import {readApproval} from "./roster-sync-preflight.js";
-import {CONNECTED_ALLIANCE_PREFIX} from "./connected-alliance-index.js";
+import {CONNECTED_ALLIANCE_PREFIX,saveConnectedAlliance} from "./connected-alliance-index.js";
+import {discoverAlliance} from "./alliance-coverage.js";
 
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const ROOT="https://api.marvelstrikeforce.com";
@@ -335,18 +336,25 @@ export async function runPlayerCampaignTick(env,fetchImpl=fetch,now=Date.now()){
     // only in connected-personal-rosters.js.
     let managed=false;
     try{
-      const [registry,entry]=await Promise.all([
-        readApproval(env),
-        bucket.get(CONNECTED_ALLIANCE_PREFIX+sid)
-      ]);
-      if(registry.status==="invalid-registry")return {status:"invalid-approval-registry"};
-      if(entry){
-        const raw=await entry.text();
-        if(raw.length<=1024){
-          const info=JSON.parse(raw);
-          managed=registry.alliances.some(a=>a.fingerprint===info.fingerprint);
-        }
+      const registry=await readApproval(env);
+      if(registry.status!=="configured")
+        return {status:"approval-registry-unavailable"};
+      let entry=await bucket.get(CONNECTED_ALLIANCE_PREFIX+sid);
+      if(!entry){
+        // Legacy LoSP sessions must not be lost from an already-running
+        // campaign simply because their R2 directory predates PR #87.
+        const active=await tokenForKey(env,CAPTAIN_PREFIX+sid);
+        if(!active?.accessToken)return {status:"alliance-classification-pending"};
+        const card=await discoverAlliance(active.accessToken,limitedFetch);
+        if(!card.ok)return {status:"alliance-classification-pending"};
+        await saveConnectedAlliance(env,CAPTAIN_PREFIX+sid,card);
+        entry=await bucket.get(CONNECTED_ALLIANCE_PREFIX+sid);
       }
+      if(!entry)return {status:"alliance-classification-pending"};
+      const raw=await entry.text();
+      if(raw.length>1024)return {status:"alliance-classification-pending"};
+      const info=JSON.parse(raw);
+      managed=registry.alliances.some(a=>a.fingerprint===info.fingerprint);
     }catch{return {status:"alliance-classification-unavailable"};}
     if(!managed){
       s.skipped++;s.familyIndex=FAMILIES.length;s.members=null;
