@@ -7,6 +7,9 @@ import {
   captainConfigReady, getCaptainRecord, putCaptainRecord
 } from "../src/captain-vault.js";
 import { CaptainRefreshCoordinator } from "../src/captain-refresh-coordinator.js";
+import {readConnectedPersonalRoster} from "../src/connected-personal-rosters.js";
+import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
+import {createHash} from "node:crypto";
 import {CONNECTED_ALLIANCE_PREFIX,listConnectedAlliances,handleConnectedAlliances} from "../src/connected-alliance-index.js";
 import {
   saveCaptainConsent, handleCaptainSession, handleCaptainLogout,
@@ -111,6 +114,58 @@ test("captain consent sets only HttpOnly cookie after successful encrypted stora
   const landing=await handleCaptainLanding(req("/captain",id),env);
   assert.match(await landing.text(),/Autorisation Scopely maintenue automatiquement/);
   assert.doesNotMatch(JSON.stringify([...landing.headers]),/PRIVATE_REFRESH/);
+});
+
+test("external captain login archives SELF roster only; never requests another member",async()=>{
+  const calls=[];
+  const {env,bucket}=setup();
+  const granted={...token("ACCESS_OUTSIDE","REFRESH_OUTSIDE"),
+    scope:scopes+" m3p.f.pr.ros"};
+  const result=await saveCaptainConsent(new Response("ok"),granted,env,
+    new Request(origin+"/oauth/callback"),async url=>{
+      const pathname=new URL(url).pathname;
+      calls.push(pathname);
+      if(pathname.endsWith("/alliance/card"))return Response.json({
+        data:{id:"outside:v1",name:"Alliance externe"}
+      });
+      if(pathname.endsWith("/alliance/members"))return Response.json({data:[
+        {id:"mine",isSelf:true,card:{name:"Mon compte",rosterShare:false}},
+        {id:"ally",isSelf:false,card:{name:"Autre joueur",rosterShare:true}}
+      ]});
+      if(pathname==="/player/v1/roster")return Response.json({data:[
+        {id:"char1",power:123,info:{name:"One"}}
+      ],meta:{perTotal:1,asOf:"now"}});
+      throw Error("No shared member or other family should be fetched");
+    });
+  const cookie=result.headers.getSetCookie().join(" ");
+  const id=cookie.match(/__Host-losp_captain_session=([^;]+)/)[1];
+  const key=await captainSessionKey(id);
+  const saved=await readConnectedPersonalRoster(env,key);
+  assert.equal(saved.allianceName,"Alliance externe");
+  assert.equal(saved.characters.length,1);
+  assert.ok(calls.includes("/player/v1/roster"));
+  assert.ok(!calls.some(p=>p.includes("/roster/member/")||p.includes("/inventory")||p.includes("/squads")));
+  assert.ok(!JSON.stringify([...result.headers]).includes("ACCESS_OUTSIDE"));
+});
+
+test("approved LoSP alliance keeps full scheduler, not duplicate personal OAuth capture",async()=>{
+  const {env,bucket}=setup();
+  const fp=createHash("sha256").update("zeus").digest("hex");
+  bucket.map.set(ROSTER_APPROVAL_KEY,JSON.stringify({
+    version:1,alliances:[{fingerprint:fp,name:"Zeus"}]
+  }));
+  const endpoints=[];
+  await saveCaptainConsent(new Response("ok"),{
+    ...token("ACCESS_Z","REFRESH_Z"),scope:scopes+" m3p.f.pr.ros"
+  },env,new Request(origin+"/oauth/callback"),async url=>{
+    endpoints.push(new URL(url).pathname);
+    return Response.json({data:{id:"zeus:v1",name:"Zeus"}});
+  });
+  assert.deepEqual(endpoints,[
+    "/player/v1/alliance/card","/player/v1/alliance/card"
+  ]);
+  assert.ok(![...bucket.map.keys()].some(k=>
+    k.startsWith("roster-batches/v1/connected-personal-rosters/")));
 });
 
 test("refresh token rotates once under concurrent browser and scheduled requests",async()=>{
