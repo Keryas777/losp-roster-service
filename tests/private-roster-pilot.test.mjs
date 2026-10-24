@@ -122,7 +122,7 @@ test("unknown, unapproved and partial session census never touch rosters",async(
   assert.equal((await handlePrivateRosterPilot(request("f".repeat(64)),f.env,f.api)).status,403);
   assert.equal(f.calls.length,0);
   const tooMany=fixture({truncated:true});
-  assert.equal((await handlePrivateRosterPilot(request(),tooMany.env,tooMany.api)).status,409);
+  assert.equal((await handlePrivateRosterPilot(request(),tooMany.env,tooMany.api)).status,503);
   assert.equal(tooMany.calls.length,0);
   const invisible=fixture({shared:false});
   const res=await handlePrivateRosterPilot(request(),invisible.env,invisible.api);

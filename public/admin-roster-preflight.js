@@ -112,7 +112,7 @@ async function runOneAutoRosterTest(){
     status.textContent="Alliance : "+alliance+". Résultat : "+code+
       ". Requêtes Scopely : "+(result.requestsThisTick??0)+
       ". Total aujourd’hui : "+(result.requestsToday??0)+
-      ". Maximum 1 test par créneau de 2 minutes. R2 privé uniquement.";
+      ". Maximum 1 test par créneau d’une minute. R2 privé uniquement.";
   }catch(error){
     status.textContent="Test non exécuté ou interrompu : "+
       (error instanceof Error?error.message:"unavailable")+
@@ -143,7 +143,7 @@ async function showRosterAutoStatus(){
     }
     target.textContent="Automatisation active : 2 campagnes quotidiennes, "+
       "un micro-lot par passage. Appels API aujourd’hui : "+
-      state.requestsToday+"/"+state.dailyBudget+
+      state.requestsToday+
       ". Dernier état : "+(state.lastOutcome||"aucun")+".";
   }catch{target.textContent="État de l’automatisation indisponible.";}
 }

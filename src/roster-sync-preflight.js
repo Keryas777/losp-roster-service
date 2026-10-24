@@ -6,14 +6,12 @@ import {captainConfigReady} from "./captain-vault.js";
 
 export const ROSTER_APPROVAL_KEY="roster-sync/v1/approved-alliances.json";
 const FP=/^[a-f0-9]{64}$/;
-const MAX_APPROVED=12;
 const headers={"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff",
   "X-Robots-Tag":"noindex","Referrer-Policy":"no-referrer"};
 const response=(body,status=200)=>Response.json(body,{status,headers});
 
 function validApprovals(value){
-  if(!value||value.version!==1||!Array.isArray(value.alliances)||
-     value.alliances.length>MAX_APPROVED)return null;
+  if(!value||value.version!==1||!Array.isArray(value.alliances))return null;
   const seen=new Set();
   for(const item of value.alliances){
     if(!item||!FP.test(item.fingerprint)||typeof item.name!=="string"||
@@ -27,7 +25,7 @@ export async function readApproval(env){
   const item=await env.CAPTAIN_BUCKET.get(ROSTER_APPROVAL_KEY);
   if(!item)return {status:"not-configured",alliances:[]};
   const raw=await item.text();
-  if(raw.length>20000)return {status:"invalid-registry",alliances:[]};
+  if(raw.length>200000)return {status:"invalid-registry",alliances:[]};
   try{
     const record=JSON.parse(raw);
     const alliances=validApprovals(record);
@@ -87,11 +85,11 @@ export async function saveRosterSyncApprovals(request,env,fetchImpl=fetch){
   let body;
   try{
     const raw=await request.text();
-    if(raw.length>2000)return response({error:"invalid-payload"},400);
+    if(raw.length>200000)return response({error:"invalid-payload"},400);
     body=JSON.parse(raw);
   }catch{return response({error:"invalid-payload"},400);}
   const selected=body?.fingerprints;
-  if(!Array.isArray(selected)||selected.length<1||selected.length>MAX_APPROVED||
+  if(!Array.isArray(selected)||selected.length<1||
      selected.some(x=>typeof x!=="string"||!FP.test(x))||
      new Set(selected).size!==selected.length||
      Object.keys(body).some(k=>k!=="fingerprints"))

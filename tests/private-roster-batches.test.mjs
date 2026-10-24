@@ -316,7 +316,7 @@ test("foreign Origin, unknown fingerprint, forged admin and public access fail c
 test("automatic campaign finalizes only after the captain personal roster and all co-members",async()=>{
  const f=fixture({noOptout:true}),now=Date.UTC(2026,9,18,18);
  const internal=i=>({campaign:"2026-10-18-pm",tick:"2026-10-18T"+(16+i)+":00Z"});
- for(const expected of [2,4,5]){
+ for(const expected of [5]){
    const response=await handleRosterMicrobatch(request(),f.env,f.api,now+expected*1000,internal(expected));
    assert.equal(response.status,200);
    assert.equal((await response.json()).completed,expected);

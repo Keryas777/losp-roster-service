@@ -3,13 +3,11 @@ import {captainConfigReady} from "./captain-vault.js";
 import {readApproval} from "./roster-sync-preflight.js";
 import {handleRosterMicrobatch} from "./private-roster-batches.js";
 
-export const ROSTER_CRON="*/2 2-5,14-17 * * *";
-// Internal circuit breaker, NOT a Scopely quota. For five 24-member alliances,
-// a twice-daily sweep needs at most 5 * (ceil(23/2) + 1 personal) * 2 = 130
-// microticks. At the 18-request tick cap, that is 2340 requests. Keep room
-// for admin test ticks and retries without cutting off the second campaign.
-export const DAILY_API_BUDGET=2500;
-export const TICK_API_BUDGET=18;
+export const ROSTER_CRON="* 2-5,14-17 * * *";
+// Per-invocation bound, not a Scopely quota: 2 x 24 GET stays below the
+// Cloudflare Workers Free limit of 50 external subrequests per invocation.
+export const TICK_API_BUDGET=24;
+export const ALLIANCES_PER_TICK=2;
 const ROOT="roster-auto/v1/";
 const GLOBAL_LOCK="f".repeat(64); // A separate Durable Object from the alliance locks.
 const BASE_URL="https://losp-roster-service.deliriousfan7.workers.dev";
@@ -42,11 +40,11 @@ async function lease(env,action,holder){
 }
 export function rosterWindow(cron,scheduledTime){
   if(cron!==ROSTER_CRON||!Number.isFinite(scheduledTime))return null;
-  // Cloudflare may dispatch a */2 cron several seconds after the nominal
-  // minute boundary. Round DOWN to the containing 2-minute slot so a delayed
+  // Cloudflare may dispatch a per-minute cron several seconds after the nominal
+  // minute boundary. Round DOWN to the containing 1-minute slot so a delayed
   // dispatch still runs, but duplicate dispatches use the SAME idempotency key.
   // ScheduledController.scheduledTime is epoch milliseconds (per Cloudflare).
-  const slotMs=Math.floor(scheduledTime/(2*MINUTE))*(2*MINUTE);
+  const slotMs=Math.floor(scheduledTime/MINUTE)*MINUTE;
   const d=new Date(slotMs);
   if(!Number.isFinite(d.getTime()))return null;
   const h=d.getUTCHours(),m=d.getUTCMinutes();
@@ -54,17 +52,17 @@ export function rosterWindow(cron,scheduledTime){
   if(h>=2&&h<=5){period="am";start=2;}
   else if(h>=14&&h<=17){period="pm";start=14;}
   else return null;
-  const date=dateOf(slotMs),tick=(h-start)*30+m/2;
+  const date=dateOf(slotMs),tick=(h-start)*60+m;
   return {date,campaign:date+"-"+period,tick,
     stamp:d.toISOString().slice(0,16)+"Z"};
 }
 // A deliberate, admin-authenticated diagnostic invocation may run outside
-// the normal cron windows. It shares the normal global lock, daily budget,
-// 2-minute idempotency key and R2 campaign checkpoints with the scheduler.
+// the normal cron windows. It shares the normal global lock, measured request counts,
+// 1-minute idempotency key and R2 campaign checkpoints with the scheduler.
 // The requester never controls the clock, campaign or alliance selection.
 export function manualRosterWindow(now){
   if(!Number.isFinite(now))return null;
-  const slotMs=Math.floor(now/(2*MINUTE))*(2*MINUTE);
+  const slotMs=Math.floor(now/MINUTE)*MINUTE;
   const d=new Date(slotMs);
   if(!Number.isFinite(d.getTime()))return null;
   const date=dateOf(slotMs),h=d.getUTCHours(),m=d.getUTCMinutes();
@@ -74,7 +72,7 @@ export function manualRosterWindow(now){
   // Between the two daily windows resume the AM campaign; after the PM
   // window, resume PM. No third campaign is ever created by the diagnostic.
   const period=h<14?"am":"pm";
-  const tick=Math.floor((h*60+m)/2);
+  const tick=h*60+m;
   return {date,campaign:date+"-"+period,tick,
     stamp:d.toISOString().slice(0,16)+"Z"};
 }
@@ -82,8 +80,8 @@ export async function rosterAutoStatus(env,time=Date.now()){
   const enabled=env?.ROSTER_AUTO_ENABLED==="true";
   const retention=env?.ROSTER_RETENTION_CONFIRMED==="true";
   const out={enabled,retentionConfirmed:retention,
-    dailyBudget:DAILY_API_BUDGET,perTickBudget:TICK_API_BUDGET,
-    utcWindows:["02:00–06:00","14:00–18:00"],frequencyMinutes:2};
+    dailyBudget:null,perTickBudget:TICK_API_BUDGET,
+    utcWindows:["02:00–06:00","14:00–18:00"],frequencyMinutes:1};
   if(!captainConfigReady(env))return {status:"storage-unavailable",...out};
   try{
     const data=await read(env.CAPTAIN_BUCKET,dayKey(dateOf(time)));
@@ -137,69 +135,75 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
     const raw=await read(bucket,dayKey(slot.date));
     // Invalid counter states are fail-closed, never replaced with zero.
     if(raw&&(raw.date!==slot.date||!Number.isSafeInteger(raw.used)||
-       raw.used<0||raw.used>DAILY_API_BUDGET||
+       raw.used<0||
        !Number.isSafeInteger(raw.ticks)||raw.ticks<0))
       return {status:"invalid-budget-state"};
     const d=raw||{date:slot.date,used:0,ticks:0,lastTick:null};
     if(d.lastTick===slot.stamp)return {status:"already-processed"};
-    if(d.used+TICK_API_BUDGET>DAILY_API_BUDGET)
-      return {status:"daily-budget-reached",requestsToday:d.used};
+    // Daily request counts are telemetry, not an undocumented Scopely quota.
     const approval=await readApproval(env);
     if(approval.status!=="configured"||!approval.alliances.length)
       return {status:"no-approved-alliances"};
     const alliances=approval.alliances.map(a=>a.fingerprint).sort();
     if(new Set(alliances).size!==alliances.length||
        alliances.includes(GLOBAL_LOCK))return {status:"invalid-approvals"};
-    const fp=alliances[slot.tick%alliances.length];
-    const pause=await read(bucket,pauseKey(fp));
-    let used=0,outcome="cooldown",statusCode=200;
-    if(!pause||!Number.isFinite(Date.parse(pause.until))||
-       Date.parse(pause.until)<=timestamp){
-      // Reserve the full tick budget BEFORE any Scopely call. A Worker crash
-      // then overcounts rather than losing calls and exceeding the daily cap.
-      await write(bucket,dayKey(slot.date),{
-        date:slot.date,used:d.used+TICK_API_BUDGET,ticks:d.ticks+1,
-        lastTick:slot.stamp,lastOutcome:"reserved"
-      });
-      const limitedFetch=async(url,options)=>{
-        // Count every attempted provider API request, including 344, 429 and 472.
-        if(new URL(url).hostname==="api.marvelstrikeforce.com"){
-          if(used>=TICK_API_BUDGET)throw Error("scopely-tick-budget");
-          used++;
-        }
-        return fetchImpl(url,options);
-      };
-      const req=new Request(BASE_URL+"/admin/api/roster-batch",{
-        method:"POST",headers:{Origin:BASE_URL,"Content-Type":"application/json"},
-        body:JSON.stringify({fingerprint:fp})
-      });
-      try{
-        const res=await handleRosterMicrobatch(req,env,limitedFetch,timestamp,{
-          campaign:slot.campaign,tick:slot.stamp
+    // Idempotency checkpoint. Per-day counts are telemetry, not a daily limit.
+    await write(bucket,dayKey(slot.date),{
+      date:slot.date,used:d.used,ticks:d.ticks+1,
+      lastTick:slot.stamp,lastOutcome:"reserved"
+    });
+    const selected=[];
+    for(let i=0;i<Math.min(manual?1:ALLIANCES_PER_TICK,alliances.length);i++)
+      selected.push(alliances[(slot.tick*(manual?1:ALLIANCES_PER_TICK)+i)%alliances.length]);
+    let used=0;
+    const outcomes=[];
+    for(const fp of selected){
+      const pause=await read(bucket,pauseKey(fp));
+      let count=0,outcome="cooldown",statusCode=200;
+      if(!pause||!Number.isFinite(Date.parse(pause.until))||
+         Date.parse(pause.until)<=timestamp){
+        const limitedFetch=async(url,fetchOptions)=>{
+          if(new URL(url).hostname==="api.marvelstrikeforce.com"){
+            if(count>=TICK_API_BUDGET)throw Error("scopely-invocation-limit");
+            count++;
+          }
+          return fetchImpl(url,fetchOptions);
+        };
+        const req=new Request(BASE_URL+"/admin/api/roster-batch",{
+          method:"POST",headers:{Origin:BASE_URL,"Content-Type":"application/json"},
+          body:JSON.stringify({fingerprint:fp})
         });
-        statusCode=res.status;
-        const result=await res.json();
-        outcome=typeof result.status==="string"?
-          result.status.slice(0,65):"unavailable";
-      }catch{outcome="unavailable";statusCode=503;}
-      if(statusCode!==200&&outcome!=="busy"&&outcome!=="already-processed-tick"){
-        // Back off significantly for rate-limits, and avoid hammering failures.
-        await write(bucket,pauseKey(fp),{
-          until:new Date(timestamp+(outcome==="rate-limited"?60:20)*MINUTE)
-            .toISOString(),reason:outcome==="rate-limited"?"429":"error"
-        });
-      }else{
-        await bucket.delete(pauseKey(fp));
+        try{
+          const res=await handleRosterMicrobatch(req,env,limitedFetch,timestamp,{
+            campaign:slot.campaign,tick:slot.stamp
+          });
+          statusCode=res.status;
+          const result=await res.json();
+          outcome=typeof result.status==="string"?
+            result.status.slice(0,65):"unavailable";
+        }catch{outcome="unavailable";statusCode=503;}
+        if(statusCode!==200&&outcome!=="busy"&&outcome!=="already-processed-tick"){
+          await write(bucket,pauseKey(fp),{
+            until:new Date(timestamp+(outcome==="rate-limited"?60:20)*MINUTE)
+              .toISOString(),reason:outcome==="rate-limited"?"429":"error"
+          });
+        }else await bucket.delete(pauseKey(fp));
       }
+      used+=count;
+      outcomes.push({fingerprint:fp,status:outcome,httpStatus:statusCode,requests:count});
     }
+    const outcome=outcomes.length===1?outcomes[0].status:"processed";
     await write(bucket,dayKey(slot.date),{
       date:slot.date,used:d.used+used,ticks:d.ticks+1,
       lastTick:slot.stamp,lastOutcome:outcome,
-      lastMode:manual?"admin-test":"cron"
+      lastMode:manual?"admin-test":"cron",
+      outcomes:outcomes.map(o=>({status:o.status,requests:o.requests}))
     });
     return {status:outcome,requestsThisTick:used,
-      requestsToday:d.used+used,httpStatus:statusCode,
-      ...(manual?{alliance:approval.alliances.find(a=>a.fingerprint===fp)?.name||"approved"}:{})};
+      requestsToday:d.used+used,
+      ...(outcomes.length===1?{httpStatus:outcomes[0].httpStatus}:{}),
+      alliancesProcessed:outcomes.length,
+      ...(manual?{alliance:approval.alliances.find(a=>a.fingerprint===selected[0])?.name||"approved"}:{})};
   }catch{return {status:"unavailable"};}
   finally{if(acquired)try{await lease(env,"release",holder);}catch{}}
 }

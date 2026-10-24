@@ -5,7 +5,7 @@ import {RosterBatchLock} from "../src/roster-batch-lock.js";
 import {CAPTAIN_PREFIX} from "../src/captain-vault.js";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 import {completeKey,BATCH_PREFIX} from "../src/private-roster-batches.js";
-import {ROSTER_CRON,DAILY_API_BUDGET,TICK_API_BUDGET,rosterWindow,manualRosterWindow,runRosterAutoTick,rosterAutoStatus,handleAdminRosterAutoTest} from "../src/automatic-roster-scheduler.js";
+import {ROSTER_CRON,TICK_API_BUDGET,rosterWindow,manualRosterWindow,runRosterAutoTick,rosterAutoStatus,handleAdminRosterAutoTest} from "../src/automatic-roster-scheduler.js";
 import worker from "../src/index.js";
 import {handleAdmin} from "../src/admin-routes.js";
 
@@ -80,15 +80,15 @@ function fixture(){
  };
  return {env,store,calls,flags,fetchImpl};
 }
-test("only valid scheduled 2-minute UTC windows start campaigns",()=>{
+test("only valid scheduled 1-minute UTC windows start campaigns",()=>{
  assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-18T02:00:00Z")).campaign,"2026-10-18-am");
- assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-18T05:58:00Z")).tick,119);
+ assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-18T05:58:00Z")).tick,238);
  assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-18T14:00:00Z")).campaign,"2026-10-18-pm");
  assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-18T06:00:00Z")),null);
  // The first minute after a scheduled boundary may still belong to the
- // same */2 cron slot, because real Cloudflare dispatches can be delayed.
+ // same one-minute cron slot, because real Cloudflare dispatches can be delayed.
  assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-18T14:01:00Z")).stamp,
-   "2026-10-18T14:00Z");
+   "2026-10-18T14:01Z");
  assert.equal(rosterWindow("15 3 * * *",d("2026-10-18T03:15:00Z")),null);
 });
 test("real Cloudflare cron event 07:50:31 French time maps to 05:50 UTC",()=>{
@@ -98,17 +98,17 @@ test("real Cloudflare cron event 07:50:31 French time maps to 05:50 UTC",()=>{
  const result=rosterWindow(ROSTER_CRON,observed);
  assert.deepEqual(result,{
    date:"2026-10-19",campaign:"2026-10-19-am",
-   tick:115,stamp:"2026-10-19T05:50Z"
+   tick:230,stamp:"2026-10-19T05:50Z"
  });
  assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-19T05:50:59.999Z")).stamp,
    result.stamp);
  assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-19T05:51:29Z")).stamp,
-   result.stamp);
+   "2026-10-19T05:51Z");
  assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-19T05:52:31.718Z")).stamp,
    "2026-10-19T05:52Z");
  assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-19T06:00:32Z")),null);
 });
-test("delayed cron runs once per logical 2-minute slot despite duplicate events",async()=>{
+test("delayed cron runs once per logical 1-minute slot despite duplicate events",async()=>{
  const f=fixture();
  const first=await runRosterAutoTick(f.env,controller("2026-10-19T05:50:31.718Z"),f.fetchImpl);
  assert.equal(first.status,"complete-co-members");
@@ -158,6 +158,26 @@ test("AM and PM campaigns read both co-members and personal account, publish onl
  assert.ok(status.requestsToday>0&&status.requestsToday<80);
  assert.equal((await worker.fetch(new Request("https://losp-roster-service.deliriousfan7.workers.dev/api/rosters"),f.env)).status,404);
 });
+test("one scheduled minute processes two approved alliances and isolates errors",async()=>{
+  const f=fixture();
+  const secondary="0".repeat(64);
+  f.store.set(ROSTER_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
+    {fingerprint:fp,name:"Zeus"},
+    {fingerprint:secondary,name:"Second alliance"}
+  ]}));
+  const at=controller("2026-10-18T02:00:00Z");
+  const result=await runRosterAutoTick(f.env,at,f.fetchImpl);
+  assert.equal(result.status,"processed");
+  assert.equal(result.alliancesProcessed,2);
+  assert.ok(result.requestsThisTick>0&&result.requestsThisTick<=48);
+  const saved=JSON.parse(f.store.get("roster-auto/v1/days/2026-10-18.json"));
+  assert.equal(saved.outcomes.length,2);
+  assert.ok(f.store.has(BATCH_PREFIX+fp+"/progress.json"),
+    "Healthy alliance continues even if another account is unavailable");
+  const calls=f.calls.length;
+  assert.equal((await runRosterAutoTick(f.env,at,f.fetchImpl)).status,"already-processed");
+  assert.equal(f.calls.length,calls);
+});
 test("duplicate cron invocation is idempotent: never re-downloads a roster",async()=>{
  const f=fixture(),time="2026-10-18T02:00:00Z";
  await runRosterAutoTick(f.env,controller(time),f.fetchImpl);
@@ -199,35 +219,20 @@ test("revoked member sharing still produces a truthful authorized-roster manifes
  assert.notEqual(current.runId,manifest.runId);
  assert.equal(current.notSharedCount,1);
 });
-test("daily budget fits five complete 24-member alliance campaigns twice a day",()=>{
- // Each alliance needs ceil(23 / 2)=12 shared-member ticks and one personal tick.
- const expectedTicksPerDay=5*(Math.ceil(23/2)+1)*2;
- assert.equal(expectedTicksPerDay,130);
- assert.equal(TICK_API_BUDGET,18);
- assert.ok(DAILY_API_BUDGET>=expectedTicksPerDay*TICK_API_BUDGET);
- assert.ok(DAILY_API_BUDGET>1320);
+test("per-invocation safety bound is independent of alliance count",()=>{
+  assert.equal(TICK_API_BUDGET,24);
 });
-test("daily quota permits additional collection beyond the old 950-GET limit",async()=>{
- const f=fixture(),date="2026-10-18";
- f.store.set("roster-auto/v1/days/"+date+".json",JSON.stringify({
-   date,used:950,ticks:65,lastTick:null
- }));
- const result=await runRosterAutoTick(f.env,controller("2026-10-18T14:00:00Z"),f.fetchImpl);
- assert.ok(result.requestsThisTick>0,JSON.stringify(result));
- assert.notEqual(result.status,"daily-budget-reached");
- assert.ok(result.requestsToday>950);
+test("daily telemetry above the old 2500-GET ceiling does not block collection",async()=>{
+  const f=fixture(),date="2026-10-18";
+  f.store.set("roster-auto/v1/days/"+date+".json",JSON.stringify({
+    date,used:2501,ticks:130,lastTick:null
+  }));
+  const result=await runRosterAutoTick(f.env,controller("2026-10-18T14:00:00Z"),f.fetchImpl);
+  assert.ok(result.requestsThisTick>0,JSON.stringify(result));
+  assert.notEqual(result.status,"daily-budget-reached");
+  assert.ok(result.requestsToday>2501);
 });
-test("daily API request budget still blocks excess requests without spending reserve",async()=>{
- const f=fixture(),date="2026-10-18";
- f.store.set("roster-auto/v1/days/"+date+".json",JSON.stringify({
-   date,used:DAILY_API_BUDGET-TICK_API_BUDGET+1,ticks:130,lastTick:null
- }));
- const result=await runRosterAutoTick(f.env,controller("2026-10-18T02:00:00Z"),f.fetchImpl);
- assert.equal(result.status,"daily-budget-reached");
- assert.equal(f.calls.length,0);
-});
-
-test("a crash after Scopely requests preserves the pessimistically reserved daily budget",async()=>{
+test("a crash after Scopely requests preserves the per-invocation idempotency checkpoint",async()=>{
  const f=fixture(),key="roster-auto/v1/days/2026-10-18.json";
  const original=f.env.CAPTAIN_BUCKET.put;
  f.env.CAPTAIN_BUCKET.put=async(k,v)=>{
@@ -239,7 +244,7 @@ test("a crash after Scopely requests preserves the pessimistically reserved dail
  assert.equal(first.status,"unavailable");
  assert.ok(f.calls.length>0);
  const stored=JSON.parse(f.store.get(key));
- assert.equal(stored.used,18);
+ assert.equal(stored.used,0);
  assert.equal(stored.lastOutcome,"reserved");
  const before=f.calls.length;
  const repeat=await runRosterAutoTick(f.env,controller("2026-10-18T02:00:00Z"),f.fetchImpl);
@@ -262,7 +267,7 @@ test("admin diagnostic runs a real, bounded AM microbatch at 12:46 French time",
  const out=await r.json();
  assert.equal(out.status,"complete-co-members");
  assert.equal(out.alliance,"Zeus");
- assert.ok(out.requestsThisTick>0&&out.requestsThisTick<=18);
+ assert.ok(out.requestsThisTick>0&&out.requestsThisTick<=TICK_API_BUDGET);
  assert.equal(f.calls.filter(x=>x.includes("/roster/member/")).length,2);
  const budget=JSON.parse(f.store.get("roster-auto/v1/days/2026-10-19.json"));
  assert.equal(budget.lastMode,"admin-test");
@@ -309,21 +314,22 @@ test("admin test rejects GET, foreign Origin, extra parameters or missing JSON",
  assert.equal(f.calls.length,0);
  assert.equal(f.store.has("roster-auto/v1/days/2026-10-19.json"),false);
 });
-test("admin diagnostic shares the same budget and disabled-mode guards as cron",async()=>{
- const f=fixture(),t=d("2026-10-19T10:46:30Z");
- f.store.set("roster-auto/v1/days/2026-10-19.json",
-   JSON.stringify({date:"2026-10-19",used:DAILY_API_BUDGET-TICK_API_BUDGET+1,ticks:4,lastTick:null}));
- const req=()=>new Request("https://losp-roster-service.deliriousfan7.workers.dev/admin/api/roster-auto-test",{
-   method:"POST",headers:{Origin:"https://losp-roster-service.deliriousfan7.workers.dev",
-     "Content-Type":"application/json"},body:"{}"
- });
- const quota=await (await handleAdminRosterAutoTest(req(),f.env,f.fetchImpl,t)).json();
- assert.equal(quota.status,"daily-budget-reached");
- assert.equal(f.calls.length,0);
- f.env.ROSTER_AUTO_ENABLED="false";
- const disabled=await (await handleAdminRosterAutoTest(req(),f.env,f.fetchImpl,t)).json();
- assert.equal(disabled.status,"disabled");
- assert.equal(f.calls.length,0);
+test("admin diagnostic ignores daily telemetry but respects disabled-mode guards",async()=>{
+  const f=fixture(),t=d("2026-10-19T10:46:30Z");
+  f.store.set("roster-auto/v1/days/2026-10-19.json",
+    JSON.stringify({date:"2026-10-19",used:9999,ticks:4,lastTick:null}));
+  const req=()=>new Request("https://losp-roster-service.deliriousfan7.workers.dev/admin/api/roster-auto-test",{
+    method:"POST",headers:{Origin:"https://losp-roster-service.deliriousfan7.workers.dev",
+      "Content-Type":"application/json"},body:"{}"
+  });
+  const allowed=await (await handleAdminRosterAutoTest(req(),f.env,f.fetchImpl,t)).json();
+  assert.equal(allowed.status,"complete-co-members");
+  assert.ok(f.calls.length>0);
+  const before=f.calls.length;
+  f.env.ROSTER_AUTO_ENABLED="false";
+  const disabled=await (await handleAdminRosterAutoTest(req(),f.env,f.fetchImpl,t)).json();
+  assert.equal(disabled.status,"disabled");
+  assert.equal(f.calls.length,before);
 });
 
 test("private one-shot endpoint cannot be invoked without a Cloudflare Access admin JWT",async()=>{

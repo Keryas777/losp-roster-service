@@ -2,7 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {
   stableAllianceId,discoverAlliance,readAllianceCoverage,scanPrivateCoverage,buildPrivateCoverage,
-  COVERAGE_KEY,MAX_COVERAGE_SESSIONS
+  COVERAGE_KEY,listCaptainSessionKeys
 } from "../src/alliance-coverage.js";
 import {CAPTAIN_PREFIX} from "../src/captain-vault.js";
 
@@ -22,7 +22,12 @@ function fixture(records,options={}){
     CAPTAIN_ENCRYPTION_KEY_HEX:"ac".repeat(32),
     CAPTAIN_BUCKET:{
       get:async()=>null,delete:async()=>{},put:async(k,v)=>{contents.set(k,v);},
-      list:async()=>({objects,truncated:!!options.truncated})
+      list:async({cursor}={})=>{
+        const start=cursor?Number(cursor):0;
+        const end=Math.min(objects.length,start+(options.pageSize||objects.length));
+        return {objects:objects.slice(start,end),truncated:end<objects.length,
+          ...(end<objects.length?{cursor:String(end)}:{})};
+      }
     },
     CAPTAIN_REFRESH_COORDINATOR:{
       idFromName:n=>n,
@@ -165,19 +170,20 @@ test("when first captain fails reading members, second captain can provide cover
   assert.equal(fx.requests.filter(x=>x.url.endsWith("/alliance/members")).length,2);
 });
 
-test("bounded daily discovery reports incomplete snapshots instead of falsely claiming all alliances",async()=>{
+test("R2 pagination discovers every session without a fixed count ceiling",async()=>{
   const many={};
-  for(let i=0;i<MAX_COVERAGE_SESSIONS+1;i++){
+  for(let i=0;i<27;i++){
     many[i]={card:card("aid"+i+":v1","Alliance "+i),
       members:[member("me",true,true)]};
   }
-  // 13th session is deliberately beyond the request budget.
-  const fx=fixture(many,{truncated:true});
+  const fx=fixture(many,{pageSize:5});
+  const keys=await listCaptainSessionKeys(fx.env.CAPTAIN_BUCKET);
+  assert.equal(keys.length,27);
   await buildPrivateCoverage(fx.env,fx.fetchImpl);
   const snap=JSON.parse(fx.contents.get(COVERAGE_KEY));
-  assert.equal(snap.complete,false);
-  assert.equal(snap.scannedSessions,MAX_COVERAGE_SESSIONS);
-  assert.equal(snap.alliances.length,MAX_COVERAGE_SESSIONS);
+  assert.equal(snap.complete,true);
+  assert.equal(snap.scannedSessions,27);
+  assert.equal(snap.alliances.length,27);
 });
 
 test("on-demand admin scan is read-only, independent of disabled daily cron and deduplicates alliances",async()=>{
