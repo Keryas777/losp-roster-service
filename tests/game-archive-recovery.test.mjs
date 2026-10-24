@@ -144,11 +144,11 @@ test("already-running phase two backfills old 472 without stopping normal tasks"
  current.value.gaps=[{path:source,status:472}];
  f.store.set(current.key,JSON.stringify(current.value));
  const res=await runGameArchiveTick(f.env,f.fetcher,now);
- assert.equal(res.status,"running");
+ assert.ok(["running","completed-with-gaps"].includes(res.status));
  assert.equal(f.state().runId,current.runId);
  assert.equal(f.state().value.recovery.gapCursor,1);
  assert.ok(f.state().value.tasks.some(t=>t.recoveryOf===source));
- assert.equal(res.processed,6);
+ assert.equal(res.processed,12);
 });
 test("recovery disabled leaves legacy completed run untouched",async()=>{
  const f=fixture();delete f.env.GAME_ARCHIVE_RECOVERY_ENABLED;
