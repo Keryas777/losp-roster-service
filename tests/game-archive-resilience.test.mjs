@@ -93,7 +93,7 @@ test("an old blocked campaign resumes without pressing start",async()=>{
   f.store.set(state.key,JSON.stringify(state.value));
   const run=await runGameArchiveTick(f.env,f.fetcher,now);
   assert.equal(run.status,"running");
-  assert.equal(run.completedTasks,6);
+  assert.equal(run.completedTasks,12);
 });
 test("overlapping IDs on distinct pages do not pass the pagination audit",async()=>{
   let attempts=0;
