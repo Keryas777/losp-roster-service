@@ -137,13 +137,12 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
     const raw=await read(bucket,dayKey(slot.date));
     // Invalid counter states are fail-closed, never replaced with zero.
     if(raw&&(raw.date!==slot.date||!Number.isSafeInteger(raw.used)||
-       raw.used<0||raw.used>DAILY_API_BUDGET||
+       raw.used<0||
        !Number.isSafeInteger(raw.ticks)||raw.ticks<0))
       return {status:"invalid-budget-state"};
     const d=raw||{date:slot.date,used:0,ticks:0,lastTick:null};
     if(d.lastTick===slot.stamp)return {status:"already-processed"};
-    if(d.used+TICK_API_BUDGET>DAILY_API_BUDGET)
-      return {status:"daily-budget-reached",requestsToday:d.used};
+    // Daily request counts are telemetry, not an undocumented Scopely quota.
     const approval=await readApproval(env);
     if(approval.status!=="configured"||!approval.alliances.length)
       return {status:"no-approved-alliances"};
