@@ -47,12 +47,12 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<button id="season-ranks-copy" type="button" disabled>Copier la capture JSON</button>'+
 '<p id="season-ranks-status" role="status"></p>'+
 '<div id="season-ranks-table" class="scroll"></div></section>'+
-'<section><h2>Préparation de la collecte automatique des rosters</h2>'+
-'<h3>Alliances détectées automatiquement</h3>'+ 
-'<p>Les alliances des comptes Scopely connectés apparaissent ici sans approbation automatique. Les connexions existantes sont retrouvées à la première consultation.</p>'+
+'<section id="connected-alliance-directory"><h2>Alliances connectées automatiquement</h2>'+
+'<p>Les alliances des joueurs connectés via Scopely apparaissent ici automatiquement. Leur approbation pour les rosters reste distincte.</p>'+
 '<button id="roster-connected-refresh" type="button">Actualiser les alliances connectées</button>'+
 '<p id="roster-connected-status" role="status">Recherche des alliances déjà connectées…</p>'+
-'<div id="roster-connected-list"></div>'+
+'<div id="roster-connected-list"></div></section>'+
+'<section><h2>Préparation de la collecte automatique des rosters</h2>'+
 '<p>Collecte privée des alliances approuvées, par lots avec reprise. Planification automatique conditionnée à la règle R2 de rétention et au paramètre d’activation. Aucune publication vers la WebApp.</p>'+
 '<p id="roster-auto-status" role="status">État de l’automatisation : à consulter sur demande (R2 uniquement).</p>'+
 '<button id="roster-auto-refresh" type="button">Actualiser l’état automatique (R2)</button>'+
