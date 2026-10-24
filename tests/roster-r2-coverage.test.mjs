@@ -83,7 +83,9 @@ test("R2 summary detects 5 approved alliances without any Scopely calls or write
   assert.equal(data.alliances[3].manifest.status,"missing");
   assert.equal(data.alliances[4].manifest.matchesCurrentProgress,false);
   assert.deepEqual(f.writes,[]);
-  assert.ok(f.read.every(k=>k===ROSTER_APPROVAL_KEY||k.startsWith(BATCH_PREFIX)));
+  assert.ok(f.read.every(k=>k===ROSTER_APPROVAL_KEY||k.startsWith(BATCH_PREFIX)||
+    k.startsWith("roster-auto/v1/last-attempt/")||
+    k.startsWith("roster-auto/v1/cooldown/")));
   assert.ok(f.heads.every(k=>k.startsWith(BATCH_PREFIX)));
   assert.doesNotMatch(JSON.stringify(data),/SECRET_PLAYER|SECRET_CAPTAIN|SECRET_CHARACTER|access_token|refresh_token/);
 });
