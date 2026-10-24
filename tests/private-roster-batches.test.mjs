@@ -155,7 +155,7 @@ test("validated microbatch archives every alliance-card and membership JSON fiel
 });
 test("manual resume skips previous members and reaches 'complete-co-members' after 3 batches",async()=>{
  const f=fixture(),now=Date.UTC(2026,9,18,18);
- for(const expected of [5]){
+ for(const expected of [2,4,5]){
    const res=await handleRosterMicrobatch(request(),f.env,f.api,now+expected*1000);
    assert.equal(res.status,200);
    const body=await res.json();
