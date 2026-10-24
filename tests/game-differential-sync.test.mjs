@@ -1,6 +1,7 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
+import {createHash} from "node:crypto";
 import {RosterBatchLock} from "../src/roster-batch-lock.js";
 import {runGameDifferentialTick,gameDifferentialStatus} from "../src/game-differential-sync.js";
 import {GAME_ARCHIVE_ROOT} from "../src/game-catalog-archive.js";
@@ -172,3 +173,232 @@ test("admin and default overview never allow unauthenticated differential status
   assert.ok(wrangler.triggers.crons.includes("* * * * *"));
   assert.equal(f.calls.length,0);
 });
+
+const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
+const DIFF=GAME_ARCHIVE_ROOT+"diff/";
+async function correctSeedHash(f,capturedAt="2026-10-20T00:00:00.000Z"){
+  // Source fixture must faithfully represent an SHA-addressed initial archive.
+  const bytes=JSON.stringify({data:[],meta:{asOf:"2026-10-20T00:00:00Z",perTotal:0}});
+  const h=sha(bytes);
+  const objectKey=RUN+"objects/"+h+".json";
+  const original=RUN+"objects/"+"a".repeat(64)+".json";
+  f.store.delete(original);f.store.set(objectKey,bytes);
+  f.store.set(RUN+"receipts/0000000001-00001-s0.json",JSON.stringify({
+    version:1,path:"/game/v1/languages?page=1&perPage=100",status:200,
+    objectKey,sha256:h,capturedAt
+  }));
+  return {objectKey,sha256:h};
+}
+function checks(f){return [...f.store.entries()].filter(([key])=>
+  key.startsWith(DIFF+"runs/")&&key.includes("/checks/"));}
+function latestFor(f,path){
+  const key=DIFF+"latest/"+sha(path)+".json";
+  return f.store.get(key)?JSON.parse(f.store.get(key)):null;
+}
+
+test("meta.asOf-only change keeps the SHA of STORED bytes and exposes observed SHA separately",async()=>{
+  const f=fixture();await f.seed();
+  const original=await correctSeedHash(f);
+  const completed=await finish(f);
+  assert.equal(completed.status.status,"completed");
+  const path="/game/v1/languages?page=1&perPage=100";
+  const latest=latestFor(f,path);
+  assert.ok(latest,"official route is indexed after the check");
+  assert.equal(latest.version,2);
+  assert.equal(latest.objectKey,original.objectKey,
+    "no unnecessary R2 object for a metadata-only change");
+  assert.equal(latest.sha256,original.sha256,
+    "SHA pointer describes stored content, never newly observed bytes");
+  assert.notEqual(latest.observedSha256,latest.sha256,
+    "the newly fetched asOf produced different raw response bytes");
+  assert.equal(sha(f.store.get(latest.objectKey)),latest.sha256);
+  assert.ok(latest.receiptKey&&f.store.has(latest.receiptKey));
+  const receipt=JSON.parse(f.store.get(latest.receiptKey));
+  assert.equal(receipt.status,"unchanged");
+  assert.equal(receipt.sha256,latest.sha256);
+  assert.equal(receipt.observedSha256,latest.observedSha256);
+  assert.equal(latest.storedAt,"2026-10-20T00:00:00.000Z");
+});
+
+test("old bytes are re-materialized before the 30-day limit even without semantic change",async()=>{
+  const f=fixture();await f.seed();
+  const source=await correctSeedHash(f,"2026-09-25T00:00:00.000Z");
+  const completed=await finish(f);
+  assert.equal(completed.status.status,"completed");
+  const path="/game/v1/languages?page=1&perPage=100";
+  const latest=latestFor(f,path);
+  assert.notEqual(latest.objectKey,source.objectKey);
+  assert.equal(latest.refreshed,true);
+  assert.equal(latest.sha256,latest.observedSha256);
+  assert.ok(Date.parse(latest.storedAt)>=NOW,
+    "renewed object must carry the capture time of fresh bytes");
+  assert.equal(sha(f.store.get(latest.objectKey)),latest.sha256);
+  const receipt=JSON.parse(f.store.get(latest.receiptKey));
+  assert.equal(receipt.status,"unchanged");
+  assert.equal(receipt.refreshed,true);
+  assert.ok(completed.status.refreshed>=1);
+});
+
+async function tickUntilSimulatedFailure(f){
+  // The Cron GET ceiling can evolve; do not tie the crash fixture to
+  // a magic number of scan/GET ticks.
+  for(let i=0;i<20;i++){
+    const result=await runGameDifferentialTick(f.env,f.provider,NOW+i*60000);
+    if(result.status==="unavailable")return i;
+    assert.notEqual(result.status,"invalid-state");
+  }
+  throw Error("simulated R2 write failure was never reached");
+}
+
+test("failed receipt write cannot publish latest or claim task completed",async()=>{
+  const f=fixture();await f.seed();
+  let injected=0;
+  const bucket=f.env.CAPTAIN_BUCKET,originalPut=bucket.put.bind(bucket);
+  bucket.put=async(key,value)=>{
+    if(key.includes("/checks/")&&injected++===0)
+      throw Error("simulated-receipt-write-failure");
+    return originalPut(key,value);
+  };
+  const interruptedTick=await tickUntilSimulatedFailure(f);
+  assert.equal(checks(f).length,0);
+  assert.equal([...f.store.keys()].filter(k=>k.startsWith(DIFF+"latest/")).length,0);
+  const resumed=await runGameDifferentialTick(f.env,f.provider,
+    NOW+(interruptedTick+1)*60000);
+  assert.notEqual(resumed.status,"unavailable");
+  assert.ok(checks(f).length>0);
+});
+
+test("pointer-write failure replays its durable receipt without repeating the upstream GET",async()=>{
+  const f=fixture();await f.seed();
+  let failed=false;
+  const bucket=f.env.CAPTAIN_BUCKET,originalPut=bucket.put.bind(bucket);
+  bucket.put=async(key,value)=>{
+    if(key.startsWith(DIFF+"latest/")&&!failed){
+      failed=true;throw Error("simulated-latest-write-failure");
+    }
+    return originalPut(key,value);
+  };
+  const interruptedTick=await tickUntilSimulatedFailure(f);
+  const journals=checks(f);
+  assert.equal(journals.length,1);
+  const receipt=JSON.parse(journals[0][1]);
+  assert.ok(f.store.has(receipt.objectKey),"stored object already exists");
+  assert.equal(latestFor(f,receipt.path),null,"no early published pointer");
+  const gameUrl="https://api.marvelstrikeforce.com"+receipt.path;
+  const counted=()=>f.calls.filter(x=>x.url===gameUrl).length;
+  const before=counted();
+  const resumed=await runGameDifferentialTick(f.env,f.provider,
+    NOW+(interruptedTick+1)*60000);
+  assert.notEqual(resumed.status,"unavailable");
+  assert.equal(counted(),before,"a committed task must never consume a repeat GET");
+  assert.deepEqual(checks(f).filter(([key])=>key===journals[0][0]),journals);
+  const latest=latestFor(f,receipt.path);
+  assert.equal(latest.receiptKey,journals[0][0]);
+  assert.equal(latest.sha256,receipt.sha256);
+  assert.equal(sha(f.store.get(latest.objectKey)),latest.sha256);
+});
+
+test("missing or mismatched legacy references do not become falsely fresh",async()=>{
+  const f=fixture();await f.seed();
+  const done=await finish(f);
+  assert.equal(done.status.status,"completed");
+  const path="/game/v1/languages?page=1&perPage=100";
+  const latest=latestFor(f,path);
+  assert.ok(latest);
+  assert.equal(latest.sha256,sha(f.store.get(latest.objectKey)));
+  const receipt=JSON.parse(f.store.get(latest.receiptKey));
+  assert.equal(receipt.status,"unchanged");
+  assert.equal(receipt.refreshed,true,"the bad baseline SHA must be replaced");
+});
+
+
+test("HTTP 472 on an unpageable root immediately schedules its documented finite details",async()=>{
+  const f=fixture({api:url=>url.endsWith("/game/v1/upgradeData")?
+    new Response("representation too large",{status:472}):
+    Response.json({data:[],meta:{perTotal:0}})});
+  await f.seed();
+  const result=await finish(f);
+  assert.equal(result.status.status,"partial","root 472 remains an explicit gap");
+  assert.ok(f.calls.some(x=>x.url.endsWith(
+    "/game/v1/upgradeData/playerLevelTotalXp")));
+  const pending=[...f.store.entries()].filter(([k])=>
+    k.includes("/diff/recovery/pending/")).map(([,v])=>JSON.parse(v));
+  const root=pending.find(x=>x.path==="/game/v1/upgradeData");
+  assert.equal(root?.reason,"http-472");
+  assert.equal(root?.status,"pending");
+  assert.equal(root?.attempts,1);
+  assert.ok(result.status.recoveryQueued>=12,"the existing finite-ID recovery was reused");
+  assert.notEqual(result.status.lastOutcome,"cooldown");
+});
+
+test("HTTP 472 on pageable list halves perPage and resets to page one without waiting",async()=>{
+  const f=fixture({api:url=>url.includes(
+    "/game/v1/characters?page=1&perPage=100")?
+    new Response("oversized",{status:472}):
+    Response.json({data:[],meta:{perTotal:0,page:1}})});
+  await f.seed();
+  const result=await finish(f);
+  assert.equal(result.status.status,"partial");
+  assert.ok(f.calls.some(x=>x.url.includes(
+    "/game/v1/characters?page=1&perPage=50")));
+  assert.equal(result.status.pauseUntil,null);
+});
+
+test("character 472 uses the already-approved split abilities, with bounded tasks",async()=>{
+  const f=fixture({api:url=>{
+    if(url.includes("/game/v1/characters?page=1"))
+      return Response.json({data:[{id:"ExampleMSF"}],meta:{page:1,perTotal:1}});
+    if(url.endsWith("/game/v1/characters/ExampleMSF")||
+       url.includes("/game/v1/characters/ExampleMSF?")&&
+         url.includes("abilityKits=full"))
+      return new Response("too large",{status:472});
+    return Response.json({data:{id:"ExampleMSF"},meta:{}});
+  }});
+  await f.seed();
+  const result=await finish(f);
+  assert.equal(result.status.status,"partial");
+  for(const ability of ["basic","special","ultimate","passive"])
+    assert.ok(f.calls.some(x=>x.url.includes(
+      "/game/v1/characters/ExampleMSF?")&&x.url.includes(
+      "abilityKits="+ability)),"split not collected: "+ability);
+  assert.ok(result.status.queued<100,"strictly finite documented recovery");
+});
+
+test("previously failed checks are backfilled in place without resetting the active run",async()=>{
+  const f=fixture();await f.seed();
+  const run="70aa2222-3333-4333-8333-aabbccddeeff";
+  const root=GAME_ARCHIVE_ROOT+"diff/";
+  f.store.set(root+"state.json",JSON.stringify({
+    version:1,runId:run,sourceRun:SOURCE,status:"checking",
+    scanPhase:"done",writeIndex:0,readIndex:0,readOffset:0,
+    queued:0,checked:1,changed:0,unchanged:0,failed:1,
+    retries:0,pauseUntil:null,startedAt:new Date(NOW-3600000).toISOString()
+  }));
+  f.store.set(root+"runs/"+run+"/checks/00000000.json",
+    JSON.stringify({version:1,path:"/game/v1/upgradeData",
+      reason:"http-472",status:"failed"}));
+  const status=await runGameDifferentialTick(f.env,f.provider,NOW);
+  assert.notEqual(status.status,"unavailable");
+  const state=JSON.parse(f.store.get(root+"state.json"));
+  assert.equal(state.runId,run,"existing runId retained");
+  assert.equal(state.recoveryBackfill.cursor,1);
+  assert.equal(state.recoveryBackfill.end,1);
+  assert.ok(state.queued>=12,"historical 472 generated finite-detail tasks");
+  assert.ok(f.store.has(root+"recovery/pending/"+
+    sha("/game/v1/upgradeData")+".json"));
+});
+
+test("recovery ledger feeds a later run and a successful check marks it resolved",async()=>{
+  const f=fixture();await f.seed();
+  const path="/game/v1/characters/LegacyFailed";
+  const k=GAME_ARCHIVE_ROOT+"diff/recovery/pending/"+sha(path)+".json";
+  f.store.set(k,JSON.stringify({version:1,path,status:"pending",
+    attempts:1,reason:"http-472",lastRun:"different",
+    nextAt:new Date(NOW-60000).toISOString(),
+    firstSeenAt:new Date(NOW-WEEK_MS).toISOString()}));
+  const result=await finish(f);
+  assert.equal(result.status.status,"completed");
+  assert.ok(f.calls.some(x=>x.url.endsWith(path)),"pending URL is retried");
+  assert.equal(JSON.parse(f.store.get(k)).status,"resolved");
+});
+const WEEK_MS=7*86400000;
