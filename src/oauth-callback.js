@@ -264,7 +264,7 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
       });
       if (saveToken) {
         try {
-          rendered = await saveCaptainConsent(rendered, result, env, request);
+          rendered = await saveCaptainConsent(rendered, result, env, request, fetchImpl);
         } catch {
           rendered = renderLiveRosterViewer({
             ...report, captainScopeAudit: scopeAudit,

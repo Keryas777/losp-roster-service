@@ -5,6 +5,7 @@ import {
 import { collectAllianceRosterSample } from "./roster-collector.js";
 import { renderLiveRosterViewer } from "./roster-viewer.js";
 import { discoverAlliance, readAllianceCoverage } from "./alliance-coverage.js";
+import {registerConnectedAlliance,saveConnectedAlliance,removeConnectedAlliance} from "./connected-alliance-index.js";
 
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const COOKIE="__Host-losp_captain_session";
@@ -40,7 +41,7 @@ async function coordinate(env,key,action,record){
   if(!result.ok)throw Error("Captain coordinator not available");
   return result.json();
 }
-export async function saveCaptainConsent(res,token,env,request){
+export async function saveCaptainConsent(res,token,env,request,fetchImpl=null){
   if(!captainConfigReady(env))throw Error("Captain storage not available");
   // Explicit new consent supersedes the old browser's grant. Revoke before
   // minting the replacement so old credentials cannot keep auto-renewing.
@@ -48,6 +49,7 @@ export async function saveCaptainConsent(res,token,env,request){
   if(previous){
     const result=await coordinate(env,await captainSessionKey(previous),"logout");
     if(result.status!=="disconnected")throw Error("Old consent could not be revoked");
+    await removeConnectedAlliance(env,await captainSessionKey(previous));
   }
   const id=newCaptainSessionId(),key=await captainSessionKey(id);
   const stored=await coordinate(env,key,"store",{
@@ -55,6 +57,9 @@ export async function saveCaptainConsent(res,token,env,request){
     expiresIn:token.expires_in,scope:token.scope
   });
   if(stored.status!=="stored")throw Error("Captain grant was not persisted");
+  // A provider error must not revoke a successfully stored consent.
+  // Older sessions are backfilled by the private admin index.
+  if(fetchImpl)await registerConnectedAlliance(env,key,token.access_token,fetchImpl);
   const headers=new Headers(res.headers);
   headers.append("Set-Cookie",COOKIE+"="+id+"; Max-Age="+CAPTAIN_COOKIE_AGE+attributes);
   return new Response(res.body,{status:res.status,headers});
@@ -81,6 +86,7 @@ export async function handleCaptainLogout(request,env){
     try{
       const s=await coordinate(env,await captainSessionKey(id),"logout");
       if(s.status!=="disconnected")return response({status:"temporarily-unavailable"},503);
+      await removeConnectedAlliance(env,await captainSessionKey(id));
     }catch{return response({status:"temporarily-unavailable"},503);}
   }
   const acceptsHtml=(request.headers.get("Accept")||"").includes("text/html");
@@ -175,6 +181,8 @@ export async function handleCaptainCoverage(request,env,fetchImpl=fetch){
       : {ok:false,status:"alliance-unavailable"};
     if(!card.ok || !coverage.ok)
       return response({status:"alliance-unavailable"},503);
+    // Refresh directory entry when a player has changed alliances.
+    try{await saveConnectedAlliance(env,await captainSessionKey(id),card);}catch{}
     const escapeHtml=value=>String(value).replace(/[&<>"']/g,ch=>
       ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
     const html='<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
