@@ -145,6 +145,11 @@ test("external captain login archives SELF roster only; never requests another m
   assert.equal(saved.characters.length,1);
   assert.ok(calls.includes("/player/v1/roster"));
   assert.ok(!calls.some(p=>p.includes("/roster/member/")||p.includes("/inventory")||p.includes("/squads")));
+  const externalSource=[...bucket.map.entries()]
+    .filter(([k])=>k.startsWith("roster-batches/v1/connected-personal-rosters/")&&
+      k.endsWith("/source.json")).map(([,value])=>value).join("");
+  assert.ok(externalSource.includes("char1"),"Only authorized own roster source archived");
+  assert.ok(!externalSource.includes('"ally"')&&!externalSource.includes('"membersBefore"'));
   assert.ok(!JSON.stringify([...result.headers]).includes("ACCESS_OUTSIDE"));
 });
 
