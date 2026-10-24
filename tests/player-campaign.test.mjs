@@ -1,7 +1,7 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {putCaptainRecord,CAPTAIN_PREFIX} from "../src/captain-vault.js";
-import {startPlayerCampaign,runPlayerCampaignTick,
+import {startPlayerCampaign,runPlayerCampaignTick,PLAYER_CAMPAIGN_CRON,
   getPlayerCampaignStatus,handlePlayerCampaignAdmin} from "../src/player-campaign.js";
 import {handleAdmin} from "../src/admin-routes.js";
 
@@ -239,12 +239,15 @@ test("daily global /player budget survives manually forced and automatic campaig
   const after=sumBudget();
   assert.equal(after,first+10,"Manual rerun does not reset UTC budget");
 });
-test("automatic player daily flag is deployed on the existing minute Cron",async()=>{
+test("player daily cron is isolated from game on the fifth Free-tier trigger",async()=>{
   const {readFile}=await import("node:fs/promises");
   const wrangler=JSON.parse(await readFile(
     new globalThis.URL("../wrangler.jsonc",import.meta.url),"utf8"));
   assert.equal(wrangler.vars.PLAYER_AUTO_ENABLED,"true");
+  assert.equal(PLAYER_CAMPAIGN_CRON,"*/2 * * * *");
   assert.ok(wrangler.triggers.crons.includes("* * * * *"));
+  assert.ok(wrangler.triggers.crons.includes(PLAYER_CAMPAIGN_CRON));
+  assert.equal(wrangler.triggers.crons.length,5);
   const frontend=await readFile(new globalThis.URL("../public/admin-player-campaign.js",import.meta.url),"utf8");
   assert.match(frontend,/autoEnabled/);
   assert.match(frontend,/Prochaine vérification prévue/);
