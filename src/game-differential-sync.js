@@ -11,7 +11,9 @@ const ROOT=GAME_ARCHIVE_ROOT+"diff/";
 const STATE=ROOT+"state.json",ACTIVE=GAME_ARCHIVE_ROOT+"active.json";
 const API="https://api.marvelstrikeforce.com";
 const LOCK="e".repeat(64); // Shared with the existing /game collector and daily budget.
-const HOUR=3600000,WEEK=7*24*HOUR,TICK=3,DAILY=1500;
+const HOUR=3600000,WEEK=7*24*HOUR,TICK=12;
+// Share the existing /game daily circuit breaker; no extra 1500/day throttle.
+const DAILY=GAME_ARCHIVE_DAILY_LIMIT;
 const PATH=/^\/game\/v1\/[A-Za-z0-9/_:?.=%&,+-]{1,800}$/;
 const SHA=/^[0-9a-f]{64}$/;
 const UID=/^[0-9a-f-]{36}$/;
@@ -296,7 +298,7 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
     if(s.readIndex>=s.writeIndex){done(s,now);await write(b,STATE,s);
       return {status:s.status,changed:s.changed,unchanged:s.unchanged,failed:s.failed};}
     // Share the existing game budget + game Durable Object lock. Up to
-    // three provider GET per Cron, max 1500 differential GET per UTC day.
+    // Up to twelve provider GET per cron, within the shared /game day guard.
     let budget=await read(b,budgetKey(now))||{date:date(now),used:0,diffUsed:0};
     if(budget.date!==date(now)||!Number.isSafeInteger(budget.used)||
        budget.used<0||budget.used>GAME_ARCHIVE_DAILY_LIMIT)
