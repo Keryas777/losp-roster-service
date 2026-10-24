@@ -10,7 +10,7 @@ export const GAME_ARCHIVE_ROOT="game-archive/v1/";
 // permits at most 8,640 automated GET/day; 9,000 leaves room for admin ticks.
 // It must not prevent one complete initial scan solely through mis-sizing.
 export const GAME_ARCHIVE_DAILY_LIMIT=9000;
-export const GAME_ARCHIVE_TICK_LIMIT=6;
+export const GAME_ARCHIVE_TICK_LIMIT=12;
 const API="https://api.marvelstrikeforce.com",TOKEN_URL=
   "https://hydra-public.prod.m3.scopelypv.com/oauth2/token";
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
