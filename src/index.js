@@ -12,7 +12,7 @@ import { ROSTER_CRON, runRosterAutoTick } from "./automatic-roster-scheduler.js"
 import {GAME_ARCHIVE_CRON,runGameArchiveTick} from "./game-catalog-archive.js";
 import {runGameArchiveSchemaAuditTick} from "./game-archive-schema-audit.js";
 import {runGameOrphanAuditTick} from "./game-archive-orphan-audit.js";
-import {runPlayerCampaignTick} from "./player-campaign.js";
+import {runPlayerCampaignTick,PLAYER_CAMPAIGN_CRON} from "./player-campaign.js";
 import {runGameDifferentialTick} from "./game-differential-sync.js";
 
 const SCOPELY_AUTH_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/auth";
@@ -153,11 +153,21 @@ async function startLogin(request, env, url) {
 
 export default {
   async scheduled(controller, env) {
+    if(controller?.cron===PLAYER_CAMPAIGN_CRON){
+      // Isolate /player from /game to respect Free's 50 external calls.
+      // Four serial actions, each capped at ten upstream GETs.
+      for(let action=0;action<4;action++){
+        const player=await runPlayerCampaignTick(env);
+        if(player.status!=="idle"&&player.status!=="disabled")console.info(
+          "player-campaign-cron",JSON.stringify({status:player.status}));
+        if(["idle","disabled","up-to-date","awaiting-oauth","cooldown",
+          "busy","storage-unavailable","invalid-state","tick-unavailable",
+          "daily-budget-reached","complete","partial"].includes(player.status))
+          break;
+      }
+      return;
+    }
     if(controller?.cron===GAME_ARCHIVE_CRON){
-      // Explicitly started player campaign only; zero /player GET when idle.
-      const player=await runPlayerCampaignTick(env);
-      if(player.status!=="idle"&&player.status!=="disabled")console.info(
-        "player-campaign-cron",JSON.stringify({status:player.status}));
       const result=await runGameArchiveTick(env);
       console.info("game-archive-cron",JSON.stringify({
         status:result.status,processed:result.processed||0,
