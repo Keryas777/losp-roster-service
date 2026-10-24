@@ -128,7 +128,9 @@ async function scan(b,s){
     return "checking";
   }
   const prefix=s.scanPhase==="base"?runSource(s.sourceRun):ROOT+"latest/";
-  const listed=await b.list({prefix,limit:12,...(s.cursor?{cursor:s.cursor}:{})});
+  // Scan R2 receipts in moderate pages; 32 internal reads/tick are not
+  // 32 external Scopely calls and stay far below the Free R2 subrequest cap.
+  const listed=await b.list({prefix,limit:32,...(s.cursor?{cursor:s.cursor}:{})});
   if(!Array.isArray(listed.objects)||
      listed.truncated===true&&(!listed.cursor||listed.cursor===s.cursor))
     throw Error("invalid-r2-list");
