@@ -15,7 +15,11 @@ function validApprovals(value){
   const seen=new Set();
   for(const item of value.alliances){
     if(!item||!FP.test(item.fingerprint)||typeof item.name!=="string"||
-       !item.name.trim()||item.name.length>140||seen.has(item.fingerprint))return null;
+       !item.name.trim()||item.name.length>140||seen.has(item.fingerprint)||
+       (item.mode!==undefined&&item.mode!=="full"&&item.mode!=="connected-only")||
+       (item.mode==="connected-only"&&(!Number.isInteger(item.maxConnected)||
+         item.maxConnected<1||item.maxConnected>24))||
+       (item.mode!=="connected-only"&&item.maxConnected!==undefined))return null;
     seen.add(item.fingerprint);
   }
   return value.alliances;
@@ -40,7 +44,9 @@ function currentView(scan,approval){
     captainConnections:a.captainConnections,status:a.status,
     memberCount:a.memberCount,sharedCount:a.sharedCount,
     notSharedCount:a.notSharedCount,
-    approved:approval.alliances.some(p=>p.fingerprint===a.allianceFingerprint)
+    approved:approval.alliances.some(p=>p.fingerprint===a.allianceFingerprint),
+    mode:approval.alliances.find(p=>p.fingerprint===a.allianceFingerprint)?.mode||"full",
+    maxConnected:approval.alliances.find(p=>p.fingerprint===a.allianceFingerprint)?.maxConnected||2
   }));
   const discovered=new Set(all.map(x=>x.fingerprint));
   const unobserved=approval.alliances.filter(a=>!discovered.has(a.fingerprint))
@@ -89,10 +95,18 @@ export async function saveRosterSyncApprovals(request,env,fetchImpl=fetch){
     body=JSON.parse(raw);
   }catch{return response({error:"invalid-payload"},400);}
   const selected=body?.fingerprints;
+  const policies=body?.policies||{};
+  if(!policies||typeof policies!=="object"||Array.isArray(policies)||
+     Object.keys(policies).some(fp=>!selected?.includes?.(fp)||
+       policies[fp]?.mode!=="connected-only"||
+       !Number.isInteger(policies[fp]?.maxConnected)||
+       policies[fp].maxConnected<1||policies[fp].maxConnected>24||
+       Object.keys(policies[fp]).some(k=>!["mode","maxConnected"].includes(k))))
+    return response({error:"invalid-selection"},400);
   if(!Array.isArray(selected)||selected.length<1||
      selected.some(x=>typeof x!=="string"||!FP.test(x))||
      new Set(selected).size!==selected.length||
-     Object.keys(body).some(k=>k!=="fingerprints"))
+     Object.keys(body).some(k=>!["fingerprints","policies"].includes(k)))
     return response({error:"invalid-selection"},400);
 
   try{
@@ -105,7 +119,9 @@ export async function saveRosterSyncApprovals(request,env,fetchImpl=fetch){
       const match=scan.alliances.find(a=>a.allianceFingerprint===fingerprint&&
         a.status==="available");
       if(!match)return response({error:"alliance-not-verified"},409);
-      approved.push({fingerprint,name:match.name});
+      approved.push({fingerprint,name:match.name,
+        ...(policies[fingerprint]?{mode:"connected-only",
+          maxConnected:policies[fingerprint].maxConnected}:{})});
     }
     // Registry contains only current stable-AID fingerprints and labels.
     // Never tokens, member IDs, player names or roster data.
