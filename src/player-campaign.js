@@ -19,7 +19,7 @@ const MAX_SESSIONS=100,MAX_MEMBERS=100;
 // Only the per-execution Free-tier fetch budget is a hard stop.
 // The daily counter is telemetry, not an undocumented Scopely quota.
 const PER_TICK_BUDGET=10;
-export const PLAYER_CAMPAIGN_CRON="*/2 * * * *";
+
 const AGE=7*86400000,COOLDOWN=10*60000;
 const AUTO_INTERVAL=24*3600000;
 const AUTO_STATE="roster-batches/v1/player-campaign/auto-state.json";
