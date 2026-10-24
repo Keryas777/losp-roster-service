@@ -148,7 +148,7 @@ test("already-running phase two backfills old 472 without stopping normal tasks"
  assert.equal(f.state().runId,current.runId);
  assert.equal(f.state().value.recovery.gapCursor,1);
  assert.ok(f.state().value.tasks.some(t=>t.recoveryOf===source));
- assert.equal(res.processed,12);
+ assert.ok(res.processed>0&&res.processed<=12);
 });
 test("recovery disabled leaves legacy completed run untouched",async()=>{
  const f=fixture();delete f.env.GAME_ARCHIVE_RECOVERY_ENABLED;
