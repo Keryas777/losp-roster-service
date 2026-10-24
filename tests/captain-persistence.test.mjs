@@ -304,7 +304,9 @@ test("captain OAuth callback persists only after validated offline token grant",
   assert.deepEqual(calls,[
     "https://hydra-public.prod.m3.scopelypv.com/oauth2/token",
     "https://api.marvelstrikeforce.com/player/v1/alliance/members",
-    "https://api.marvelstrikeforce.com/player/v1/alliance/card"
+    "https://api.marvelstrikeforce.com/player/v1/alliance/card",
+    "https://api.marvelstrikeforce.com/player/v1/alliance/card",
+    "https://api.marvelstrikeforce.com/player/v1/alliance/members"
   ]);
 });
 
