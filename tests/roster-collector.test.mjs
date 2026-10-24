@@ -95,6 +95,50 @@ test("three complete paginated shared rosters, no self or opt-out request", asyn
   assert.doesNotMatch(html, /PRIVATE_|x1-char|x2-char|x3-char|Bearer/);
 });
 
+test("automatic reads three consenting rosters concurrently without reordering snapshots",async()=>{
+  let active=0,maximum=0;
+  const requested=[];
+  const fetchImpl=async(url)=>{
+    const pathname=new URL(url).pathname;
+    if(pathname.endsWith("/alliance/members"))
+      return Response.json({data:members});
+    const id=pathname.split("/").at(-1);
+    requested.push(id);
+    active++;maximum=Math.max(active,maximum);
+    await Promise.resolve();
+    active--;
+    return Response.json({data:[{id:id+"-hero",power:10}],
+      meta:{perTotal:1,asOf:"2026-10-24"}});
+  };
+  const output=await collectAllianceRosterSample(TOKEN,fetchImpl,{
+    maxMembers:3,startIndex:0,preferSinglePage:true,
+    requireStableMembership:true,requireCurrentMembership:true,
+    parallelMembers:true
+  });
+  assert.equal(output.status,"complete");
+  assert.equal(maximum,3);
+  assert.equal(output.requests,5,"two membership reads plus three rosters");
+  assert.deepEqual(output.rosters.map(x=>x.memberId),["x1","x2","x3"]);
+  assert.deepEqual(requested,["x1","x2","x3"]);
+  assert.equal(output.characterCount,3);
+});
+test("parallel roster failure discards every partial snapshot",async()=>{
+  const fetchImpl=async(url)=>{
+    const pathname=new URL(url).pathname;
+    if(pathname.endsWith("/alliance/members"))
+      return Response.json({data:members});
+    if(pathname.endsWith("/x2"))return new Response(null,{status:429});
+    return Response.json({data:[{id:pathname.split("/").at(-1)+"-hero"}],
+      meta:{perTotal:1,asOf:"t"}});
+  };
+  const output=await collectAllianceRosterSample(TOKEN,fetchImpl,{
+    maxMembers:3,startIndex:0,preferSinglePage:true,
+    requireStableMembership:true,requireCurrentMembership:true,
+    parallelMembers:true
+  });
+  assert.equal(output.status,"rate-limited");
+  assert.equal(output.rosters,undefined);
+});
 test("unshared players are not read, empty candidate group performs one GET", async () => {
   const calls = [];
   const result = await collectAllianceRosterSample(TOKEN, server(calls, url =>
