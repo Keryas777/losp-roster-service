@@ -5,7 +5,9 @@ import {CAPTAIN_PREFIX,captainConfigReady,getCaptainRecord} from "./captain-vaul
 import {discoverAlliance,listCaptainSessionKeys} from "./alliance-coverage.js";
 import {readApproval} from "./roster-sync-preflight.js";
 
-export const CONNECTED_ALLIANCE_PREFIX="oauth-alliance-index/v1/sessions/";
+// Under the existing seven-day R2 lifecycle; expired entries are rebuilt
+// from still-valid OAuth grants when Admin is opened.
+export const CONNECTED_ALLIANCE_PREFIX="roster-batches/v1/connected-alliances/sessions/";
 const HEX=/^[a-f0-9]{64}$/;
 const CACHE_HEADERS={"Cache-Control":"private, no-store",
   "X-Content-Type-Options":"nosniff","X-Robots-Tag":"noindex"};
@@ -87,27 +89,29 @@ export async function listConnectedAlliances(env,fetchImpl=fetch,now=Date.now())
   const worker=async()=>{
     while(cursor<keys.length){
       const key=keys[cursor++];
-      const active=await getCaptainRecord(bucket,env.CAPTAIN_ENCRYPTION_KEY_HEX,key,now);
-      if(!active)continue; // revoked/expired: no directory entry
-      connected++;
-      let item=await readIndexed(bucket,key);
-      if(!item){
-        const token=await accessGrant(env,key).catch(()=>null);
-        if(token){
-          await registerConnectedAlliance(env,key,token,fetchImpl);
-          item=await readIndexed(bucket,key);
+      try{
+        const active=await getCaptainRecord(bucket,env.CAPTAIN_ENCRYPTION_KEY_HEX,key,now);
+        if(!active)continue; // revoked/expired: no directory entry
+        connected++;
+        let item=await readIndexed(bucket,key);
+        if(!item){
+          const token=await accessGrant(env,key).catch(()=>null);
+          if(token){
+            await registerConnectedAlliance(env,key,token,fetchImpl);
+            item=await readIndexed(bucket,key);
+          }
         }
-      }
-      if(!item){unresolved++;continue;}
-      const existing=groups.get(item.fingerprint);
-      if(existing){
-        existing.captainConnections++;
-        if(Date.parse(item.observedAt)>Date.parse(existing.observedAt)){
-          existing.observedAt=item.observedAt;
-          existing.name=item.name;
-        }
-      }else groups.set(item.fingerprint,{fingerprint:item.fingerprint,
-        name:item.name,observedAt:item.observedAt,captainConnections:1});
+        if(!item){unresolved++;continue;}
+        const existing=groups.get(item.fingerprint);
+        if(existing){
+          existing.captainConnections++;
+          if(Date.parse(item.observedAt)>Date.parse(existing.observedAt)){
+            existing.observedAt=item.observedAt;
+            existing.name=item.name;
+          }
+        }else groups.set(item.fingerprint,{fingerprint:item.fingerprint,
+          name:item.name,observedAt:item.observedAt,captainConnections:1});
+      }catch{unresolved++;}
     }
   };
   await Promise.all(Array.from({length:Math.min(3,keys.length)},worker));
