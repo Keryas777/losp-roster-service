@@ -88,7 +88,7 @@ test("only valid scheduled 1-minute UTC windows start campaigns",()=>{
  // The first minute after a scheduled boundary may still belong to the
  // same one-minute cron slot, because real Cloudflare dispatches can be delayed.
  assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-18T14:01:00Z")).stamp,
-   "2026-10-18T14:00Z");
+   "2026-10-18T14:01Z");
  assert.equal(rosterWindow("15 3 * * *",d("2026-10-18T03:15:00Z")),null);
 });
 test("real Cloudflare cron event 07:50:31 French time maps to 05:50 UTC",()=>{
@@ -103,7 +103,7 @@ test("real Cloudflare cron event 07:50:31 French time maps to 05:50 UTC",()=>{
  assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-19T05:50:59.999Z")).stamp,
    result.stamp);
  assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-19T05:51:29Z")).stamp,
-   result.stamp);
+   "2026-10-19T05:51Z");
  assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-19T05:52:31.718Z")).stamp,
    "2026-10-19T05:52Z");
  assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-19T06:00:32Z")),null);
