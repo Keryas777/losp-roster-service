@@ -170,8 +170,36 @@ async function loadConnectedAlliances(){
     for(const alliance of result.alliances){
       rosterLine(parent,alliance.name+" — "+
         alliance.captainConnections+" connexion(s) OAuth — "+
-        (alliance.approved?"collecte approuvée":
-          "détectée, en attente d’approbation"));
+        (alliance.approved?"collecte LoSP approuvée":
+          "roster personnel uniquement"));
+      if(!alliance.approved){
+        const enable=document.createElement("button");
+        enable.type="button";
+        enable.textContent="Inclure "+alliance.name+" dans les collectes LoSP";
+        const info=document.createElement("p");
+        info.setAttribute("role","status");
+        enable.addEventListener("click",async()=>{
+          enable.disabled=true;
+          info.textContent="Vérification Scopely et ajout sans remplacer les alliances actuelles…";
+          try{
+            const approval=await fetch("/admin/api/roster-approve-one",{
+              method:"POST",credentials:"same-origin",cache:"no-store",
+              headers:{"Content-Type":"application/json",Accept:"application/json"},
+              body:JSON.stringify({fingerprint:alliance.fingerprint})
+            });
+            const result=await approval.json();
+            if(!approval.ok||!["approved","already-approved"].includes(result.status))
+              throw Error(result.error||result.status||"approval-unavailable");
+            info.textContent="Alliance intégrée aux collectes LoSP. Les collectes des "+
+              "rosters partagés démarreront lors de la prochaine campagne.";
+            void loadConnectedAlliances();
+          }catch(error){
+            info.textContent="Ajout impossible : "+(error.message||"indisponible");
+            enable.disabled=false;
+          }
+        });
+        parent.append(enable,info);
+      }
     }
     status.textContent=result.alliances.length+" alliance(s) détectée(s) automatiquement sur "+
       result.connectedSessions+" connexion(s) active(s)."+
