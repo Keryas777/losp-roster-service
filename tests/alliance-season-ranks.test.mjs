@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {handleAllianceSeasonRanks} from "../src/alliance-season-ranks.js";
 import {handleAdmin} from "../src/admin-routes.js";
 import {CAPTAIN_PREFIX} from "../src/captain-vault.js";
+import {createHash} from "node:crypto";
+import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const URL=ORIGIN+"/admin/api/alliance-season-ranks";
@@ -10,6 +12,7 @@ const PREFIX="roster-batches/v1/season-ranks/";
 const key=n=>CAPTAIN_PREFIX+String(n).padStart(64,"0");
 function fixture(){
   const db=new Map(),actions=[],calls=[];
+  db.set(ROSTER_APPROVAL_KEY,JSON.stringify({version:1,alliances:["zeus","kronos"].map(name=>({fingerprint:createHash("sha256").update(name).digest("hex"),name}))}));
   const env={
     CAPTAIN_SESSIONS_ENABLED:"true",
     CAPTAIN_ENCRYPTION_KEY_HEX:"ac".repeat(32),
@@ -81,9 +84,9 @@ test("snapshot captures only permitted AllianceCards, de-duplicates and saves un
   assert.equal(snapshot.alliances.find(a=>a.name==="Zeus").warLeague.name,"DIAMOND II");
   assert.equal(snapshot.alliances.find(a=>a.name==="Kronos").warRank,157);
   assert.equal(f.calls.length,3);
-  assert.equal(f.db.size,2);
+  assert.equal(f.db.size,3);
   assert.ok(f.db.has(PREFIX+"latest.json"));
-  assert.ok([...f.db.keys()].every(k=>k.startsWith(PREFIX)));
+  assert.ok([...f.db.keys()].filter(k=>k!==ROSTER_APPROVAL_KEY).every(k=>k.startsWith(PREFIX)));
   const saved=[...f.db.values()].join("");
   assert.ok(!saved.includes("TOKEN"));
   assert.ok(!saved.includes("privateFlag"));
@@ -96,6 +99,17 @@ test("snapshot captures only permitted AllianceCards, de-duplicates and saves un
   assert.equal(response.headers.get("Cache-Control"),"private, no-store");
 });
 
+test("outside alliance rank is never stored while LoSP ranks remain",async()=>{
+  const f=fixture();
+  f.db.set(ROSTER_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
+    {fingerprint:createHash("sha256").update("zeus").digest("hex"),name:"Zeus"}
+  ]}));
+  const report=await(await f.post(Date.now())).json();
+  assert.equal(report.snapshot.connectedAlliances,1);
+  assert.deepEqual(report.snapshot.alliances.map(a=>a.name),["Zeus"]);
+  assert.ok(!JSON.stringify(report).includes("Kronos"));
+});
+
 test("repeated click within ten minutes does not repeat provider API calls or R2 writes",async()=>{
   const f=fixture(),base=Date.parse("2026-10-21T00:00:00Z");
   await f.post(base);
@@ -106,7 +120,7 @@ test("repeated click within ten minutes does not repeat provider API calls or R2
   const next=await (await f.post(base+11*60_000)).json();
   assert.equal(next.status,"captured");
   assert.equal(f.calls.length,6);
-  assert.equal(f.db.size,3);
+  assert.equal(f.db.size,4);
 });
 
 test("no authenticated captain means no misleading successful capture",async()=>{
@@ -115,14 +129,14 @@ test("no authenticated captain means no misleading successful capture",async()=>
   const res=await f.post(Date.now());
   assert.equal(res.status,409);
   assert.equal((await res.json()).error,"no-connected-alliances");
-  assert.equal(f.db.size,0);
+  assert.equal(f.db.size,1);
 });
 
 test("POST cannot be triggered cross-origin and admin authentication precedes bucket reads",async()=>{
   const f=fixture();
   const res=await f.post(Date.now(),{"Content-Type":"application/json"});
   assert.equal(res.status,403);
-  assert.equal(f.db.size,0);
+  assert.equal(f.db.size,1);
   const forbiddenEnv={...f.env,MSF_ADMIN_ENABLED:"true",
     CF_ACCESS_TEAM_DOMAIN:"example.cloudflareaccess.com",
     CF_ACCESS_AUD:"a".repeat(64),MSF_ADMIN_EMAILS:"admin@example.test"};
