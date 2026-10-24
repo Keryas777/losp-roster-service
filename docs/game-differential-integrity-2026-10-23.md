@@ -106,3 +106,55 @@ aucun catalogue dans la WebApp.
 - modification des règles R2 de production ;
 - création des catalogues personnages/équipements/ISO ;
 - déploiement ou merge de la PR.
+
+
+## HTTP 472 et file de récupération (25 octobre 2026)
+
+**Réutilisation stricte des alternatives déjà validées dans le collecteur initial :**
+
+- Racine officielle avec IDs de détail finis (`upgradeData`,
+  `iso8Abilities`, `analysis/teamOrder`) : appeler ces IDs exacts.
+- Détail `characters/{id}` refusé : réutiliser
+  `characterRecoveryTasks()` ; pour une variante `abilities` refusée,
+  réutiliser `splitFailedAbilities()` (basic, special, ultimate, passive).
+- Liste paginée refusée : réduire `perPage` de moitié et repartir de
+  la page 1, sans fabriquer de données partielles ni ignorer des pages.
+
+Les variantes sont ajoutées à **la file R2 existante** avec son ensemble de
+déduplication par URL. Les métadonnées `recoveryOf/recoveryPart` sont
+préservées. On ne recommence jamais la campagne ni ses checkpoints. Une
+réponse 472 n'est **plus** traitée comme une erreur réseau temporaire
+justifiant trois GET identiques séparés par 15 minutes.
+
+Chaque échec final reçoit une entrée privée distincte, durable, par SHA
+de l'URL dans `game-archive/v1/diff/recovery/pending/`.
+Elle contient uniquement la route publique de jeu, le motif, la campagne,
+les dates et le nombre de tentatives par campagne. Après trois campagnes
+ayant échoué, l'URL reste signalée mais n'est plus automatiquement
+réessayée : pas de boucle infinie. Le prochain passage hebdomadaire
+examine les URL encore éligibles dans cet index R2, indépendamment de
+la présence d'un pointeur `latest/`.
+
+**Reprise rétroactive :** la campagne différentielle en cours avant
+l'installation du correctif conserve intégralement ses compteurs, son
+`runId`, son `readIndex` et son `readOffset`. Les anciennes entrées
+`runs/<runId>/checks/<ordinal>.json` marquées `failed` sont examinées
+**huit par passage**, sans GET Scopely, puis inscrites dans l'index
+durable ; les 472 déclenchent les mêmes alternatives bornées.
+Le curseur `recoveryBackfill` est sauvegardé pour reprendre cette lecture.
+Les reçus historiques ne sont ni réécrits ni effacés.
+
+**Traçabilité prudente :** réussir une variante n'est pas considéré comme
+la réussite de la route initiale qui répondait 472. La vérification
+différentielle reste `partial` lorsque des URL ont échoué ; un compteur
+`recoveryQueued` distingue les tâches de récupération des contrôles
+réussis. Une URL redevient `resolved` dans son index uniquement si
+**sa propre requête** réussit. Les sauvegardes de ces métadonnées R2
+restent privées, dans le préfixe `game-archive/v1/` soumis à la politique
+de cycle de vie du bucket.
+
+**Compatibilité avec PR #86 :** le différentiel conserve douze GET par
+passage, la limite générale commune de 9 000 GET par jour et l'absence
+de l'ancienne barrière spécifique de 1 500 GET par jour. Les HTTP 429
+continuent de provoquer une pause d'une heure. Aucun appel Scopely
+réel n'a été nécessaire à la validation.
