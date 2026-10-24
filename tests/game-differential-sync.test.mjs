@@ -239,6 +239,17 @@ test("old bytes are re-materialized before the 30-day limit even without semanti
   assert.ok(completed.status.refreshed>=1);
 });
 
+async function tickUntilSimulatedFailure(f){
+  // The Cron GET ceiling can evolve; do not tie the crash fixture to
+  // a magic number of scan/GET ticks.
+  for(let i=0;i<20;i++){
+    const result=await runGameDifferentialTick(f.env,f.provider,NOW+i*60000);
+    if(result.status==="unavailable")return i;
+    assert.notEqual(result.status,"invalid-state");
+  }
+  throw Error("simulated R2 write failure was never reached");
+}
+
 test("failed receipt write cannot publish latest or claim task completed",async()=>{
   const f=fixture();await f.seed();
   let injected=0;
@@ -248,12 +259,11 @@ test("failed receipt write cannot publish latest or claim task completed",async(
       throw Error("simulated-receipt-write-failure");
     return originalPut(key,value);
   };
-  for(let i=0;i<3;i++)await runGameDifferentialTick(f.env,f.provider,NOW+i*60000);
-  const interrupted=await runGameDifferentialTick(f.env,f.provider,NOW+3*60000);
-  assert.equal(interrupted.status,"unavailable");
+  const interruptedTick=await tickUntilSimulatedFailure(f);
   assert.equal(checks(f).length,0);
   assert.equal([...f.store.keys()].filter(k=>k.startsWith(DIFF+"latest/")).length,0);
-  const resumed=await runGameDifferentialTick(f.env,f.provider,NOW+4*60000);
+  const resumed=await runGameDifferentialTick(f.env,f.provider,
+    NOW+(interruptedTick+1)*60000);
   assert.notEqual(resumed.status,"unavailable");
   assert.ok(checks(f).length>0);
 });
@@ -268,9 +278,7 @@ test("pointer-write failure replays its durable receipt without repeating the up
     }
     return originalPut(key,value);
   };
-  for(let i=0;i<3;i++)await runGameDifferentialTick(f.env,f.provider,NOW+i*60000);
-  const interrupted=await runGameDifferentialTick(f.env,f.provider,NOW+3*60000);
-  assert.equal(interrupted.status,"unavailable");
+  const interruptedTick=await tickUntilSimulatedFailure(f);
   const journals=checks(f);
   assert.equal(journals.length,1);
   const receipt=JSON.parse(journals[0][1]);
@@ -279,7 +287,8 @@ test("pointer-write failure replays its durable receipt without repeating the up
   const gameUrl="https://api.marvelstrikeforce.com"+receipt.path;
   const counted=()=>f.calls.filter(x=>x.url===gameUrl).length;
   const before=counted();
-  const resumed=await runGameDifferentialTick(f.env,f.provider,NOW+4*60000);
+  const resumed=await runGameDifferentialTick(f.env,f.provider,
+    NOW+(interruptedTick+1)*60000);
   assert.notEqual(resumed.status,"unavailable");
   assert.equal(counted(),before,"a committed task must never consume a repeat GET");
   assert.deepEqual(checks(f).filter(([key])=>key===journals[0][0]),journals);
