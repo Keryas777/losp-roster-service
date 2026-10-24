@@ -3,13 +3,10 @@ import {captainConfigReady} from "./captain-vault.js";
 import {readApproval} from "./roster-sync-preflight.js";
 import {handleRosterMicrobatch} from "./private-roster-batches.js";
 
-export const ROSTER_CRON="*/2 2-5,14-17 * * *";
-// Internal circuit breaker, NOT a Scopely quota. For five 24-member alliances,
-// a twice-daily sweep needs at most 5 * (ceil(23/2) + 1 personal) * 2 = 130
-// microticks. At the 18-request tick cap, that is 2340 requests. Keep room
-// for admin test ticks and retries without cutting off the second campaign.
-export const DAILY_API_BUDGET=2500;
-export const TICK_API_BUDGET=18;
+export const ROSTER_CRON="* 2-5,14-17 * * *";
+// Per-invocation safety ceiling (Cloudflare Free: 50 external subrequests).
+// These are not Scopely daily API quotas.
+export const TICK_API_BUDGET=35;
 const ROOT="roster-auto/v1/";
 const GLOBAL_LOCK="f".repeat(64); // A separate Durable Object from the alliance locks.
 const BASE_URL="https://losp-roster-service.deliriousfan7.workers.dev";
@@ -42,11 +39,11 @@ async function lease(env,action,holder){
 }
 export function rosterWindow(cron,scheduledTime){
   if(cron!==ROSTER_CRON||!Number.isFinite(scheduledTime))return null;
-  // Cloudflare may dispatch a */2 cron several seconds after the nominal
-  // minute boundary. Round DOWN to the containing 2-minute slot so a delayed
+  // Cloudflare may dispatch a per-minute cron several seconds after the nominal
+  // minute boundary. Round DOWN to the containing 1-minute slot so a delayed
   // dispatch still runs, but duplicate dispatches use the SAME idempotency key.
   // ScheduledController.scheduledTime is epoch milliseconds (per Cloudflare).
-  const slotMs=Math.floor(scheduledTime/(2*MINUTE))*(2*MINUTE);
+  const slotMs=Math.floor(scheduledTime/MINUTE)*MINUTE;
   const d=new Date(slotMs);
   if(!Number.isFinite(d.getTime()))return null;
   const h=d.getUTCHours(),m=d.getUTCMinutes();
@@ -54,17 +51,17 @@ export function rosterWindow(cron,scheduledTime){
   if(h>=2&&h<=5){period="am";start=2;}
   else if(h>=14&&h<=17){period="pm";start=14;}
   else return null;
-  const date=dateOf(slotMs),tick=(h-start)*30+m/2;
+  const date=dateOf(slotMs),tick=(h-start)*60+m;
   return {date,campaign:date+"-"+period,tick,
     stamp:d.toISOString().slice(0,16)+"Z"};
 }
 // A deliberate, admin-authenticated diagnostic invocation may run outside
 // the normal cron windows. It shares the normal global lock, daily budget,
-// 2-minute idempotency key and R2 campaign checkpoints with the scheduler.
+// 1-minute idempotency key and R2 campaign checkpoints with the scheduler.
 // The requester never controls the clock, campaign or alliance selection.
 export function manualRosterWindow(now){
   if(!Number.isFinite(now))return null;
-  const slotMs=Math.floor(now/(2*MINUTE))*(2*MINUTE);
+  const slotMs=Math.floor(now/MINUTE)*MINUTE;
   const d=new Date(slotMs);
   if(!Number.isFinite(d.getTime()))return null;
   const date=dateOf(slotMs),h=d.getUTCHours(),m=d.getUTCMinutes();
@@ -74,7 +71,7 @@ export function manualRosterWindow(now){
   // Between the two daily windows resume the AM campaign; after the PM
   // window, resume PM. No third campaign is ever created by the diagnostic.
   const period=h<14?"am":"pm";
-  const tick=Math.floor((h*60+m)/2);
+  const tick=h*60+m;
   return {date,campaign:date+"-"+period,tick,
     stamp:d.toISOString().slice(0,16)+"Z"};
 }
@@ -82,8 +79,8 @@ export async function rosterAutoStatus(env,time=Date.now()){
   const enabled=env?.ROSTER_AUTO_ENABLED==="true";
   const retention=env?.ROSTER_RETENTION_CONFIRMED==="true";
   const out={enabled,retentionConfirmed:retention,
-    dailyBudget:DAILY_API_BUDGET,perTickBudget:TICK_API_BUDGET,
-    utcWindows:["02:00–06:00","14:00–18:00"],frequencyMinutes:2};
+    dailyBudget:null,perTickBudget:TICK_API_BUDGET,
+    utcWindows:["02:00–06:00","14:00–18:00"],frequencyMinutes:1};
   if(!captainConfigReady(env))return {status:"storage-unavailable",...out};
   try{
     const data=await read(env.CAPTAIN_BUCKET,dayKey(dateOf(time)));
