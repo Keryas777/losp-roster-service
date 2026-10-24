@@ -224,17 +224,24 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
   if(request.headers.get("Origin")!==url.origin||
      !(request.headers.get("Content-Type")||"").toLowerCase().startsWith("application/json"))
     return answer({status:"forbidden"},403);
-  let fp,restart,refresh;
+  let fp,restart,refresh,burst,operationId;
   try{
     const raw=await request.text();
-    if(raw.length>300)throw Error("too-large");
+    if(raw.length>400)throw Error("too-large");
     const data=JSON.parse(raw);
     if(!data||typeof data!=="object"||Array.isArray(data)||
-       !FP.test(data.fingerprint)||Object.keys(data).some(k=>!["fingerprint","restart","refresh"].includes(k))||
+       !FP.test(data.fingerprint)||Object.keys(data).some(k=>
+         !["fingerprint","restart","refresh","burst","operationId"].includes(k))||
        (data.restart!==undefined&&data.restart!==true)||
        (data.refresh!==undefined&&data.refresh!==true)||
-       (data.restart===true&&data.refresh===true))throw Error("bad-payload");
+       (data.burst!==undefined&&data.burst!==true)||
+       (data.restart===true&&data.refresh===true)||
+       (data.burst===true&&(data.restart===true||data.refresh===true||
+         typeof data.operationId!=="string"||
+         !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(data.operationId)))||
+       (data.operationId!==undefined&&data.burst!==true))throw Error("bad-payload");
     fp=data.fingerprint;restart=data.restart===true;refresh=data.refresh===true;
+    burst=data.burst===true;operationId=burst?data.operationId:null;
   }catch{return answer({status:"invalid-selection"},400);}
   let holder=crypto.randomUUID(),acquired=false;
   try{
@@ -243,16 +250,25 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     const status=await lock(env,fp,"acquire",holder);
     if(status!=="acquired")return answer({status:status==="busy"?"busy":"lock-unavailable"},409);
     acquired=true;
-    const campaign=typeof internal?.campaign==="string"&&
+    const scheduleCampaign=typeof internal?.campaign==="string"&&
       /^\d{4}-\d{2}-\d{2}-(?:am|pm)$/.test(internal.campaign)?
       internal.campaign:null;
+    const instantDate=new Date(now);
+    const campaign=scheduleCampaign||(burst?
+      instantDate.toISOString().slice(0,10)+"-"+
+      (instantDate.getUTCHours()<14?"am":"pm"):null);
     let previous=restart?null:await readState(env,fp);
     if(campaign&&previous?.campaign!==campaign)previous=null;
+    // A new admin operation starts a new isolated run after an old one finished.
+    // Retrying the SAME operation after a lost response never starts another run.
+    if(burst&&previous?.selfCompleted===true&&
+       previous.operationId!==operationId)previous=null;
     if(previous&&Date.parse(previous.expiresAt)<=now)
       return answer({...publicState(previous,now),status:"expired-restart-required"},409);
     if(refresh&&(!previous||previous.completed!==previous.totalEligible))
       return answer({status:"refresh-requires-complete-run"},409);
-    if(campaign&&previous?.lastAutoTick===internal.tick)
+    if(campaign&&typeof internal?.tick==="string"&&
+       previous?.lastAutoTick===internal.tick)
       return answer({status:"already-processed-tick"},200);
     if(previous&&previous.completed===previous.totalEligible&&!refresh&&
        (!campaign||previous.selfCompleted===true))
@@ -354,6 +370,8 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
       completed:startIndex+result.selectedCount,
       observedMembers:result.memberCount,
       ...(campaign?{campaign,selfCompleted:false,lastAutoTick:internal.tick}:{}),
+      ...(burst?{operationId}:previous?.operationId?
+        {operationId:previous.operationId}:{}),
       ...(baseline?{baseline}:{})
     };
     await env.CAPTAIN_BUCKET.put(stateKey(fp),JSON.stringify(updated),{
