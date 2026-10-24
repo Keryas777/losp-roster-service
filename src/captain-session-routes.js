@@ -62,7 +62,9 @@ export async function saveCaptainConsent(res,token,env,request,fetchImpl=null){
   // Older sessions are backfilled by the private admin index.
   if(fetchImpl){
     const indexed=await registerConnectedAlliance(env,key,token.access_token,fetchImpl);
-    if(indexed)await captureConnectedPersonalRoster(env,key,token.access_token,fetchImpl);
+    if(indexed&&typeof token.scope==="string"&&
+       token.scope.split(/\s+/).includes("m3p.f.pr.ros"))
+      await captureConnectedPersonalRoster(env,key,token.access_token,fetchImpl);
   }
   const headers=new Headers(res.headers);
   headers.append("Set-Cookie",COOKIE+"="+id+"; Max-Age="+CAPTAIN_COOKIE_AGE+attributes);
