@@ -2,6 +2,8 @@
 import {captainConfigReady} from "./captain-vault.js";
 import {readApproval} from "./roster-sync-preflight.js";
 import {handleRosterMicrobatch} from "./private-roster-batches.js";
+import {rosterAttemptKey,rosterCooldownKey,rosterAttemptRecord}
+  from "./roster-auto-diagnostics.js";
 
 export const ROSTER_CRON="* 2-5,14-17 * * *";
 // Per-invocation bound, not a Scopely quota: 2 x 24 GET stays below the
@@ -13,7 +15,7 @@ const GLOBAL_LOCK="f".repeat(64); // A separate Durable Object from the alliance
 const BASE_URL="https://losp-roster-service.deliriousfan7.workers.dev";
 const MINUTE=60000;
 const dayKey=d=>ROOT+"days/"+d+".json";
-const pauseKey=fp=>ROOT+"cooldown/"+fp+".json";
+const pauseKey=rosterCooldownKey;
 const dateOf=ms=>new Date(ms).toISOString().slice(0,10);
 
 async function read(bucket,key){
@@ -159,7 +161,7 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
     const outcomes=[];
     for(const fp of selected){
       const pause=await read(bucket,pauseKey(fp));
-      let count=0,outcome="cooldown",statusCode=200;
+      let count=0,outcome="cooldown",statusCode=200,retryAt=null;
       if(!pause||!Number.isFinite(Date.parse(pause.until))||
          Date.parse(pause.until)<=timestamp){
         const limitedFetch=async(url,fetchOptions)=>{
@@ -183,11 +185,21 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
             result.status.slice(0,65):"unavailable";
         }catch{outcome="unavailable";statusCode=503;}
         if(statusCode!==200&&outcome!=="busy"&&outcome!=="already-processed-tick"){
+          retryAt=new Date(timestamp+(outcome==="rate-limited"?60:20)*MINUTE)
+            .toISOString();
           await write(bucket,pauseKey(fp),{
-            until:new Date(timestamp+(outcome==="rate-limited"?60:20)*MINUTE)
-              .toISOString(),reason:outcome==="rate-limited"?"429":"error"
+            until:retryAt,reason:outcome==="rate-limited"?"429":"error"
           });
         }else await bucket.delete(pauseKey(fp));
+      }
+      // Save the last REAL attempt, not an idle "complete" or a cooldown
+      // poll. An observability write failure must never stop collecting.
+      // Only bounded status codes are written: no response body or IDs.
+      if(count>0||statusCode!==200){
+        try{
+          await write(bucket,rosterAttemptKey(fp),
+            rosterAttemptRecord(slot,outcome,statusCode,count,retryAt));
+        }catch{/* Auxiliary telemetry must not block the roster collector. */}
       }
       used+=count;
       outcomes.push({fingerprint:fp,status:outcome,httpStatus:statusCode,requests:count});
