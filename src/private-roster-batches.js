@@ -287,6 +287,7 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     };
     const options={
       maxMembers:campaign?AUTOMATIC_BATCH_SIZE:BATCH_SIZE,startIndex,charInfo:true,
+      parallelMembers:Boolean(campaign),
       preferSinglePage:true,cachedForMember,
       requireCurrentMembership:true,requireStableMembership:true,
       includeMembershipDigest:true,includeSourcePayload:true,
