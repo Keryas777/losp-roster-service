@@ -9,7 +9,7 @@ Documentation officielle (mise à jour le 12 octobre 2026) : https://developers.
 - Workers Free : **50 sous-requêtes externes par invocation** ; **1000 sous-requêtes internes** vers R2, Durable Objects, etc.
 - **6 connexions HTTP sortantes simultanées**, par invocation.
 - **10 ms de CPU** par exécution : ce n'est **pas** le temps total de réseau ; le dépassement CPU réel doit être surveillé en production.
-- **5 déclencheurs Cron** par compte Free. Nous utilisons les cinq emplacements : `15 * * * *`, `15 3 * * *`, `* 2-5,14-17 * * *`, `* * * * *` et `*/2 * * * *`.
+- **5 déclencheurs Cron** par compte Free. Notre service en conserve **4** : `15 * * * *`, `15 3 * * *`, `* 2-5,14-17 * * *` et `* * * * *` ; le cinquième créneau reste disponible pour un autre Worker du même compte.
 - Les erreurs `429` Scopely continuent de déclencher les délais existants. Aucune limite journalière Scopely n'est déduite des quotas Cloudflare.
 
 ## Rosters
@@ -19,11 +19,11 @@ Documentation officielle (mise à jour le 12 octobre 2026) : https://developers.
 - Les deux alliances d'un même tick sont traitées l'une après l'autre : trois connexions parallèles maximum côté collecteur, pas six par alliance.
 
 ## /player/v1
-- Nouveau Cron distinct `*/2 * * * *`, quatre **actions sérielles** maximum par invocation, chacune bornée à dix GET Scopely : au pire **40 GET externes par invocation**, indépendamment de `/game`.
-- Le Cron `* * * * *` ne traite plus les données `/player` ; il reste réservé au jeu.
+- Réutilisation du Cron existant `* * * * *` : jusqu'à **trois actions sérielles `/player`** par minute, chacune plafonnée à dix GET Scopely.
+- Le même Cron traite aussi au maximum **12 GET `/game`** par minute. Enveloppe théorique : **30 GET `/player` + 12 GET `/game` = 42 GET**, sous le plafond de 50 sous-requêtes externes. Les appels OAuth éventuels conservent une marge ; les appels R2/DO sont des sous-requêtes internes distinctes.
 - Le plafond artificiel de 1000 GET `/player` quotidiens est supprimé comme barrière. Le compteur UTC persiste pour les métriques et conserve une réservation pessimiste de dix GET par action pour tolérer les interruptions.
 - Les contrôles sur les scopes et le partage des équipes d'alliance, ainsi que l'arrêt sur `429`, continuent de s'appliquer **à chaque action**.
-- Durée théorique pour 140 à 250 actions sans latence excessive ni rate-limit : **environ 70 à 125 minutes** (deux actions par minute), contre un cycle potentiel de plusieurs jours provoqué par la barrière de 100 actions par jour. Ce n'est pas une mesure de production.
+- Durée théorique pour 140 à 250 actions sans latence excessive ni rate-limit : **environ 47 à 84 minutes** (trois actions par minute), contre un cycle potentiel de plusieurs jours provoqué par la barrière de 100 actions par jour. Ce n'est pas une mesure de production.
 
 ## /game/v1
 - Collecteur initial : douze GET par minute au lieu de six, sans modifier la validation de pagination, la provenance, les reçus R2 et la reprise.
@@ -37,7 +37,7 @@ Documentation officielle (mise à jour le 12 octobre 2026) : https://developers.
 
 ## Critères de validation après déploiement
 1. Dans Cloudflare Observability, contrôler `Exceeded CPU Time Limits` / erreur **1102** : risque réel du Free à 10 ms CPU lorsqu'on augmente la taille des ticks.
-2. Vérifier que chaque Cron spécifique est déclenché et que les actions n'effectuent pas de GET Scopely superflus.
+2. Vérifier le Cron `* * * * *`, le partage de charge `/player` + `/game`, et l'absence de GET Scopely superflus.
 3. Observer `429` et `472` ; confirmer pauses et repli sur pagination sans publier de séries partielles.
 4. Mesurer séparément durée `/player`, `/game`, `rosters`, le nombre de GET et les opérations/volume R2 avant/après. Aucun gain chiffré n'est certifié sans ces mesures.
 5. Conserver les tests Node `node --test tests/*.test.mjs` et vérifier GitHub Actions avant fusion.
