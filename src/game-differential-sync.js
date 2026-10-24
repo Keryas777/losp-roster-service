@@ -6,12 +6,15 @@ import {API_KEY} from "./player-card.js";
 import {GAME_ROOTS,GAME_ARCHIVE_ROOT,GAME_ARCHIVE_DAILY_LIMIT,
   appToken,readGameBody} from "./game-catalog-archive.js";
 import {discoverGamePhase2,phase2RootTasks} from "./game-phase2-discovery.js";
+import {characterRecoveryTasks,splitFailedAbilities} from "./game-archive-recovery.js";
 
 const ROOT=GAME_ARCHIVE_ROOT+"diff/";
 const STATE=ROOT+"state.json",ACTIVE=GAME_ARCHIVE_ROOT+"active.json";
 const API="https://api.marvelstrikeforce.com";
 const LOCK="e".repeat(64); // Shared with the existing /game collector and daily budget.
-const HOUR=3600000,WEEK=7*24*HOUR,TICK=3,DAILY=1500;
+const HOUR=3600000,WEEK=7*24*HOUR,TICK=12;
+const DAILY=GAME_ARCHIVE_DAILY_LIMIT; // Match current main after PR #86.
+const BACKFILL_PER_TICK=8,MAX_RECOVERY_RUNS=3;
 // The Scopely terms require a maximum 30-day data TTL. Re-materialize
 // otherwise-identical source bytes before day 30, rather than indefinitely
 // extending a pointer to an old R2 object. Actual R2 deletion requires a
@@ -32,6 +35,8 @@ const failureKey=(run,i)=>ROOT+"runs/"+run+"/failures/"+
   String(i).padStart(8,"0")+"-"+crypto.randomUUID()+".json";
 const seenKey=(run,shard)=>ROOT+"runs/"+run+"/seen-shards/"+shard+".json";
 const latestKey=h=>ROOT+"latest/"+h+".json";
+const pendingPrefix=ROOT+"recovery/pending/";
+const pendingKey=h=>pendingPrefix+h+".json";
 const runSource=id=>GAME_ARCHIVE_ROOT+"runs/"+id+"/receipts/";
 const read=async(b,k)=>{
   const x=await b.get(k);
@@ -62,6 +67,9 @@ function visible(s,enabled=true){
     lastCheckedAt:s.lastCheckedAt||null,lastChangedAt:s.lastChangedAt||null,
     nextRunAt:s.completedAt?new Date(Date.parse(s.completedAt)+WEEK).toISOString():null,
     changed:s.changed||0,unchanged:s.unchanged||0,refreshed:s.refreshed||0,failed:s.failed||0,
+    recoveryBackfill:s.recoveryBackfill?{scanned:s.recoveryBackfill.cursor,
+      total:s.recoveryBackfill.end}:null,
+    recoveryQueued:s.recoveryQueued||0,recoveryRecorded:s.recoveryRecorded||0,
     checked:s.checked||0,queued:s.queued||0,scanPhase:s.scanPhase||null,
     sourceRun:s.sourceRun||null,pauseUntil:s.pauseUntil||null,
     lastOutcome:s.lastOutcome||null,runId:s.runId||null,
@@ -97,7 +105,10 @@ async function queue(b,s,candidates){
     fresh.push({path:candidate.path,
       sha256:SHA.test(candidate.sha256||"")?candidate.sha256:null,
       objectKey:typeof candidate.objectKey==="string"?candidate.objectKey:null,
-      storedAt:typeof candidate.storedAt==="string"?candidate.storedAt:null});
+      storedAt:typeof candidate.storedAt==="string"?candidate.storedAt:null,
+      ...(valid(candidate.recoveryOf)?{recoveryOf:candidate.recoveryOf}:{}),
+      ...(typeof candidate.recoveryPart==="string"?
+        {recoveryPart:candidate.recoveryPart}:{})});
   }
   // Write tasks and updated checkpoint BEFORE the seen markers. An
   // interrupted tick can repeat an endpoint, never silently omit one.
@@ -117,6 +128,7 @@ function make(source,now){
     status:"scanning",scanPhase:"base",cursor:null,
     writeIndex:0,readIndex:0,readOffset:0,queued:0,checked:0,
     changed:0,unchanged:0,refreshed:0,failed:0,retries:0,pauseUntil:null,
+    recoveryQueued:0,recoveryRecorded:0,
     startedAt:new Date(now).toISOString(),lastCheckedAt:null,
     lastChangedAt:null,completedAt:null,lastOutcome:null};
 }
@@ -133,8 +145,9 @@ async function scan(b,s){
     await write(b,STATE,s);
     return "checking";
   }
-  const prefix=s.scanPhase==="base"?runSource(s.sourceRun):ROOT+"latest/";
-  const listed=await b.list({prefix,limit:12,...(s.cursor?{cursor:s.cursor}:{})});
+  const prefix=s.scanPhase==="base"?runSource(s.sourceRun):
+    s.scanPhase==="pending"?pendingPrefix:ROOT+"latest/";
+  const listed=await b.list({prefix,limit:32,...(s.cursor?{cursor:s.cursor}:{})});
   if(!Array.isArray(listed.objects)||
      listed.truncated===true&&(!listed.cursor||listed.cursor===s.cursor))
     throw Error("invalid-r2-list");
@@ -147,6 +160,14 @@ async function scan(b,s){
         if(v?.status===200&&valid(v.path))
           candidates.push({path:v.path,sha256:v.sha256,objectKey:v.objectKey,
             storedAt:v.capturedAt||null});
+      }else if(s.scanPhase==="pending"){
+        if(v?.status==="pending"&&valid(v.path)&&
+          Number.isSafeInteger(v.attempts)&&v.attempts<MAX_RECOVERY_RUNS&&
+          Date.parse(v.nextAt||"")<=Date.now()&&v.lastRun!==s.runId){
+          candidates.push({path:v.path,
+            ...(valid(v.recoveryOf)?{recoveryOf:v.recoveryOf}:{}),
+            ...(typeof v.recoveryPart==="string"?{recoveryPart:v.recoveryPart}:{})});
+        }
       }else if(valid(v?.path)){
         candidates.push({path:v.path,sha256:v.sha256,objectKey:v.objectKey,
           storedAt:v.storedAt||null});
@@ -155,7 +176,8 @@ async function scan(b,s){
   }
   await queue(b,s,candidates);
   if(listed.truncated){s.cursor=listed.cursor;}
-  else{s.scanPhase=s.scanPhase==="base"?"latest":"roots";s.cursor=null;}
+  else{s.scanPhase=s.scanPhase==="base"?"latest":
+    s.scanPhase==="latest"?"pending":"roots";s.cursor=null;}
   await write(b,STATE,s);
   return "scanning";
 }
@@ -206,6 +228,98 @@ async function discover(bucket,s,path,payload){
   catch{s.failed++;s.lastOutcome="linked-discovery-failed";}
   await queue(bucket,s,candidates);
 }
+// Reuse the finite 472 escape hatches of the original collector. An HTTP 472
+// is a data-size/refusal signal, NOT a rate limit: do not pause 15 minutes
+// and retry the same oversized representation.
+function alternatives(task){
+  const path=task.path,base=path.split("?")[0];
+  const root=GAME_ROOTS.find(x=>x.path===base);
+  const result=[];
+  if(task.recoveryPart==="abilities")
+    result.push(...splitFailedAbilities(task));
+  else result.push(...characterRecoveryTasks(path));
+  if(root?.objectKeys&&root.detail)
+    result.push(...root.objectKeys.map(id=>({
+      path:root.detail.replace("{id}",encodeURIComponent(id)),
+      recoveryOf:path,recoveryPart:"finite-detail"
+    })));
+  // Match the original collector's reduction/reset on pageable endpoints.
+  const episodic=/^\/game\/v1\/episodics\/[^/?]+$/.test(base);
+  if((root?.pageable||episodic)&&path.includes("?")){
+    const url=new URL("https://api.invalid"+path);
+    const per=Number(url.searchParams.get("perPage"));
+    if(Number.isSafeInteger(per)&&per>1&&per<=100&&
+      /^\d+$/.test(url.searchParams.get("page")||"")){
+      url.searchParams.set("page","1");
+      url.searchParams.set("perPage",String(Math.max(1,Math.floor(per/2))));
+      result.push({path:url.pathname+url.search,
+        recoveryOf:path,recoveryPart:"smaller-page"});
+    }
+  }
+  return result.filter(x=>valid(x.path)).slice(0,16);
+}
+async function recordPending(b,s,task,reason,now){
+  if(!valid(task.path))return;
+  const h=await hash(task.path),key=pendingKey(h);
+  const previous=await read(b,key);
+  if(previous?.status==="resolved")return;
+  const anotherRun=previous?.lastRun!==s.runId;
+  const attempts=(previous?.attempts||0)+(anotherRun?1:0);
+  await write(b,key,{version:1,path:task.path,status:"pending",
+    reason,attempts,lastRun:s.runId,
+    firstSeenAt:previous?.firstSeenAt||new Date(now).toISOString(),
+    lastSeenAt:new Date(now).toISOString(),
+    nextAt:new Date(now+WEEK).toISOString(),
+    ...(valid(task.recoveryOf)?{recoveryOf:task.recoveryOf}:{}),
+    ...(typeof task.recoveryPart==="string"?
+      {recoveryPart:task.recoveryPart}:{})});
+  if(!previous)s.recoveryRecorded=(s.recoveryRecorded||0)+1;
+}
+async function resolvePending(b,s,task,now){
+  const h=await hash(task.path),k=pendingKey(h),pending=await read(b,k);
+  if(pending?.status==="pending")
+    await write(b,k,{...pending,status:"resolved",
+      resolvedAt:new Date(now).toISOString(),resolvedRun:s.runId});
+  // A successful *part* is not proof the original 472 URL succeeded.
+  if(valid(task.recoveryOf)){
+    const pk=pendingKey(await hash(task.recoveryOf)),parent=await read(b,pk);
+    if(parent?.status==="pending"){
+      const parts=new Set(parent.recoveredParts||[]);
+      parts.add(task.path);
+      await write(b,pk,{...parent,recoveredParts:[...parts].slice(0,16),
+        lastPartialAt:new Date(now).toISOString()});
+    }
+  }
+}
+async function scheduleAlternatives(b,s,task){
+  const proposed=alternatives(task);
+  if(!proposed.length)return;
+  const before=s.queued;
+  await queue(b,s,proposed);
+  s.recoveryQueued=(s.recoveryQueued||0)+(s.queued-before);
+}
+// A running legacy campaign already has failed checks under /checks/
+// before this feature exists. Inspect their immutable receipts incrementally,
+// with no additional Scopely requests, and schedule only documented fallbacks.
+async function backfillFailures(b,s,now){
+  if(!s.recoveryBackfill){
+    s.recoveryBackfill={cursor:0,end:s.checked};
+    await write(b,STATE,s);
+  }
+  const p=s.recoveryBackfill;
+  let n=0;
+  while(p.cursor<p.end&&n<BACKFILL_PER_TICK){
+    const entry=await read(b,receiptKey(s.runId,p.cursor));
+    if(entry?.status==="failed"&&valid(entry.path)){
+      const task={path:entry.path},reason=entry.reason||"historical-failure";
+      await recordPending(b,s,task,reason,now);
+      if(reason==="http-472")await scheduleAlternatives(b,s,task);
+    }
+    p.cursor++;n++;
+  }
+  if(n)await write(b,STATE,s);
+}
+
 // A SHA-addressed pointer must describe the ACTUAL bytes kept in R2.
 // A previous V1 pointer could contain the newest observed SHA despite still
 // targeting older bytes (meta.asOf-only changes). Such pointers are refreshed.
@@ -277,6 +391,7 @@ async function finishCommitted(b,s,task,receipt,now){
     s.changed++;s.lastChangedAt=receipt.lastChangedAt||receipt.checkedAt;
   }else s.unchanged++;
   if(receipt.refreshed===true)s.refreshed=(s.refreshed||0)+1;
+  await resolvePending(b,s,task,now);
   s.checked++;s.lastCheckedAt=receipt.checkedAt;
   return {status:receipt.status,replayed:true};
 }
@@ -293,6 +408,7 @@ async function checkOne(b,s,task,token,fetchImpl,now,committed=null){
       }});
   }catch{return {error:"network-error"};}
   if(response.status===429)return {error:"rate-limited",retry:true};
+  if(response.status===472)return {error:"http-472",retry:false};
   if(!response.ok)return {error:"http-"+response.status,
     retry:![403,404,422,464,474].includes(response.status)};
   let parsed;
@@ -387,10 +503,15 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
       return {status:s.status,queued:s.queued,scanPhase:s.scanPhase};
     }
     if(s.status!=="checking")return {status:"invalid-state"};
-    if(s.readIndex>=s.writeIndex){done(s,now);await write(b,STATE,s);
-      return {status:s.status,changed:s.changed,unchanged:s.unchanged,failed:s.failed};}
-    // Share the existing game budget + game Durable Object lock. Up to
-    // three provider GET per Cron, max 1500 differential GET per UTC day.
+    // Backfill even if the old campaign's normal queue was already drained.
+    // Never restart/re-scan the collection or reset its read checkpoint.
+    await backfillFailures(b,s,now);
+    if(s.readIndex>=s.writeIndex&&
+       s.recoveryBackfill.cursor>=s.recoveryBackfill.end){
+      done(s,now);await write(b,STATE,s);
+      return {status:s.status,changed:s.changed,unchanged:s.unchanged,failed:s.failed};
+    }
+    // Shared global /game cap and Durable Object lock, no separate 1500/day throttle.
     let budget=await read(b,budgetKey(now))||{date:date(now),used:0,diffUsed:0};
     if(budget.date!==date(now)||!Number.isSafeInteger(budget.used)||
        budget.used<0||budget.used>GAME_ARCHIVE_DAILY_LIMIT)
@@ -436,6 +557,8 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
           return {status:"cooldown",lastOutcome:result.error,calls};
         }
         s.failed++;
+        await recordPending(b,s,task,result.error,now);
+        if(result.error==="http-472")await scheduleAlternatives(b,s,task);
         // Failed checks are recorded separately. Never replace a successfully
         // committed journal merely because its finalization later failed.
         await write(b,failureKey(s.runId,s.checked),{
@@ -451,7 +574,9 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
        (await read(b,key(s.runId,s.readIndex)))?.length){
       s.readIndex++;s.readOffset=0;await write(b,STATE,s);
     }
-    if(s.readIndex>=s.writeIndex){done(s,now);await write(b,STATE,s);}
+    if(s.readIndex>=s.writeIndex&&
+       s.recoveryBackfill.cursor>=s.recoveryBackfill.end){
+      done(s,now);await write(b,STATE,s);}
     return {status:s.status,checked:s.checked,changed:s.changed,
       unchanged:s.unchanged,failed:s.failed,calls};
   }catch{return {status:"unavailable"};}
