@@ -16,7 +16,10 @@ const LOCK="f".repeat(64); // Reserved private lock namespace (not an alliance f
 const FAMILIES=Object.freeze(["personal-squads","personal-inventory",
   "personal-wishlist","personal-events"]);
 const MAX_SESSIONS=100,MAX_MEMBERS=100;
-const DAILY_BUDGET=1000,PER_TICK_BUDGET=10;
+// Only the per-execution Free-tier fetch budget is a hard stop.
+// The daily counter is telemetry, not an undocumented Scopely quota.
+const PER_TICK_BUDGET=10;
+export const PLAYER_CAMPAIGN_CRON="*/2 * * * *";
 const AGE=7*86400000,COOLDOWN=10*60000;
 const AUTO_INTERVAL=24*3600000;
 const AUTO_STATE="roster-batches/v1/player-campaign/auto-state.json";
@@ -92,11 +95,9 @@ async function reserveDayBudget(bucket,now){
   const k=budgetKey(now),saved=await bucket.get(k);
   const v=saved?JSON.parse(await saved.text()):{version:1,date:date(now),used:0};
   if(v.version!==1||v.date!==date(now)||
-     !Number.isSafeInteger(v.used)||v.used<0||v.used>DAILY_BUDGET)
+     !Number.isSafeInteger(v.used)||v.used<0)
     throw Error("invalid-day-budget");
-  if(v.used+PER_TICK_BUDGET>DAILY_BUDGET)return false;
-  // Count the whole upper bound BEFORE upstream GET. Shared by manual
-  // and automatic campaigns; a new run never resets the UTC daily ceiling.
+  // Pessimistic telemetry reservation before provider calls. No daily hard cap.
   await bucket.put(k,JSON.stringify({
     version:1,date:date(now),used:v.used+PER_TICK_BUDGET
   }),meta);
@@ -304,12 +305,7 @@ export async function runPlayerCampaignTick(env,fetchImpl=fetch,now=Date.now()){
     if(s.requestsDate!==date(now)){
       s.requestsDate=date(now);s.requestsToday=0;
     }
-    if(s.requestsToday+PER_TICK_BUDGET>DAILY_BUDGET||
-       !(await reserveDayBudget(bucket,now))){
-      s.nextAttemptAt=new Date(now+60*60000).toISOString();
-      await save(bucket,s,now);
-      return {status:"daily-budget-reached"};
-    }
+    await reserveDayBudget(bucket,now);
     // Reserve the entire bounded request budget *before* any provider GET.
     // If execution crashes, the provider count is overestimated (safe).
     s.requestsToday+=PER_TICK_BUDGET;
