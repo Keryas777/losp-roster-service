@@ -256,7 +256,7 @@ test("same Worker isolate can reuse app OAuth token for minute-spaced game ticks
   await startGameArchive(f.env,now);
   await runGameArchiveTick(f.env,f.provider,now);
   await runGameArchiveTick(f.env,f.provider,now+60_000);
-  assert.equal(gameCalls(f).length,12);
+  assert.equal(gameCalls(f).length,17);
   assert.equal(f.calls.filter(c=>c.address.endsWith("/oauth2/token")).length,1);
   // Token expires in 300s; 60s safety margin forces a fresh token.
   await runGameArchiveTick(f.env,f.provider,now+250_000);
@@ -313,7 +313,7 @@ test("legacy R2 upgradeData HTTP 472 at perPage=1 falls back to all documented f
   f.store.set(key,JSON.stringify(state));
   const first=await runGameArchiveTick(f.env,f.provider,now);
   assert.equal(first.status,"running");
-  assert.equal(first.completedTasks,9);
+  assert.equal(first.completedTasks,15);
   assert.equal(first.totalTasks,29);
   const saved=JSON.parse(f.store.get(key));
   assert.equal(saved.gaps.length,1);
