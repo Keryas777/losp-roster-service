@@ -158,6 +158,26 @@ test("AM and PM campaigns read both co-members and personal account, publish onl
  assert.ok(status.requestsToday>0&&status.requestsToday<80);
  assert.equal((await worker.fetch(new Request("https://losp-roster-service.deliriousfan7.workers.dev/api/rosters"),f.env)).status,404);
 });
+test("one scheduled minute processes two approved alliances and isolates errors",async()=>{
+  const f=fixture();
+  const secondary="0".repeat(64);
+  f.store.set(ROSTER_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
+    {fingerprint:fp,name:"Zeus"},
+    {fingerprint:secondary,name:"Second alliance"}
+  ]}));
+  const at=controller("2026-10-18T02:00:00Z");
+  const result=await runRosterAutoTick(f.env,at,f.fetchImpl);
+  assert.equal(result.status,"processed");
+  assert.equal(result.alliancesProcessed,2);
+  assert.ok(result.requestsThisTick>0&&result.requestsThisTick<=48);
+  const saved=JSON.parse(f.store.get("roster-auto/v1/days/2026-10-18.json"));
+  assert.equal(saved.outcomes.length,2);
+  assert.ok(f.store.has(BATCH_PREFIX+fp+"/progress.json"),
+    "Healthy alliance continues even if another account is unavailable");
+  const calls=f.calls.length;
+  assert.equal((await runRosterAutoTick(f.env,at,f.fetchImpl)).status,"already-processed");
+  assert.equal(f.calls.length,calls);
+});
 test("duplicate cron invocation is idempotent: never re-downloads a roster",async()=>{
  const f=fixture(),time="2026-10-18T02:00:00Z";
  await runRosterAutoTick(f.env,controller(time),f.fetchImpl);
