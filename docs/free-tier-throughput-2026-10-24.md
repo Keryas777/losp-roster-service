@@ -27,12 +27,12 @@ Documentation officielle (mise à jour le 12 octobre 2026) : https://developers.
 
 ## /game/v1
 - Collecteur initial : douze GET par minute au lieu de six, sans modifier la validation de pagination, la provenance, les reçus R2 et la reprise.
-- Différentiel hebdomadaire : douze GET par minute au lieu de trois.
+- Différentiel hebdomadaire : douze GET par minute au lieu de trois ; la phase de recensement R2 passe de douze à **32 reçus examinés par minute**, sans appel Scopely supplémentaire.
 - Suppression du **plafond spécifique de 1500 GET différentiels/jour**, qui interrompait les contrôles malgré la disponibilité de l'API. Le différentiel reste sous le garde-fou **global historique de 9000 GET `/game`/jour**, partagé avec la collecte initiale.
 - La conservation des octets bruts et des versions modifiées demeure inchangée. Il reste indispensable de vérifier la conformité de la rétention aux conditions Scopely.
 
 ## Exemples de projection
-- `/game` sur 7428 URLs : 7428 / 12 = **619 minutes (~10 h 19)** dans le meilleur cas purement planifié, au lieu de 2476 minutes à trois GET/minute **et** plusieurs jours imposés par les 1500 GET/jour précédents. La phase R2-only et les vérifications supplémentaires peuvent allonger cette durée.
+- `/game` sur 7428 URLs : 7428 / 12 = **619 minutes (~10 h 19)** pour les seules vérifications API, contre 2476 minutes à trois GET/minute **et** plusieurs jours imposés par les 1500 GET/jour précédents. Il faut **ajouter la phase d'indexation R2** : jusqu'à 7428 / 32 ≈ **233 minutes** si tous les reçus sont présents et doivent être parcourus, plus les découvertes et les cas complexes. Ce n'est pas une mesure de production.
 - Les deux campagnes /roster planifiées restent celles de l'application ; on ne crée pas de troisième campagne ni de second stockage.
 
 ## Critères de validation après déploiement
