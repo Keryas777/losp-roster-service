@@ -3,6 +3,7 @@ import {rosterSyncPreflight,saveRosterSyncApprovals} from "./roster-sync-preflig
 import {handlePrivateRosterPilot} from "./private-roster-pilot.js";
 import {handleRosterMicrobatch,getRosterBatchStatus} from "./private-roster-batches.js";
 import {rosterAutoStatus,handleAdminRosterAutoTest} from "./automatic-roster-scheduler.js";
+import {handleConnectedAlliances} from "./connected-alliance-index.js";
 import {handleRosterR2Coverage} from "./roster-r2-coverage.js";
 import {PUBLIC_SOURCE_ROUTES,handlePublicSourceProbe} from "./public-msf-source-probe.js";
 import {handleGameArchiveAdmin} from "./game-catalog-archive.js";
@@ -47,6 +48,11 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<p id="season-ranks-status" role="status"></p>'+
 '<div id="season-ranks-table" class="scroll"></div></section>'+
 '<section><h2>Préparation de la collecte automatique des rosters</h2>'+
+'<h3>Alliances détectées automatiquement</h3>'+ 
+'<p>Les alliances des comptes Scopely connectés apparaissent ici sans approbation automatique. Les connexions existantes sont retrouvées à la première consultation.</p>'+
+'<button id="roster-connected-refresh" type="button">Actualiser les alliances connectées</button>'+
+'<p id="roster-connected-status" role="status">Recherche des alliances déjà connectées…</p>'+
+'<div id="roster-connected-list"></div>'+
 '<p>Collecte privée des alliances approuvées, par lots avec reprise. Planification automatique conditionnée à la règle R2 de rétention et au paramètre d’activation. Aucune publication vers la WebApp.</p>'+
 '<p id="roster-auto-status" role="status">État de l’automatisation : à consulter sur demande (R2 uniquement).</p>'+
 '<button id="roster-auto-refresh" type="button">Actualiser l’état automatique (R2)</button>'+
@@ -217,6 +223,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   if(pathname==="/admin/api/refresh-cron")return adminRefreshCron(env);
   if(pathname==="/admin/api/data")return adminResource(request,env,fetchImpl);
   if(pathname==="/admin/api/pid-member-card")return adminMemberCard(request,env,fetchImpl);
+  if(pathname==="/admin/api/connected-alliances")return handleConnectedAlliances(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-preflight")return rosterSyncPreflight(env,fetchImpl);
   if(pathname==="/admin/api/roster-approvals")return saveRosterSyncApprovals(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-pilot")return handlePrivateRosterPilot(request,env,fetchImpl);
