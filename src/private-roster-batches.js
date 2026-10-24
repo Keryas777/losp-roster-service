@@ -12,7 +12,7 @@ const FP=/^[0-9a-f]{64}$/;
 const RUN=/^[0-9a-f-]{36}$/;
 const MAX_SNAPSHOT_BYTES=3_000_000;
 const BATCH_SIZE=2;
-const AUTOMATIC_BATCH_SIZE=6;
+const AUTOMATIC_BATCH_SIZE=8;
 const answer=(v,status=200)=>Response.json(v,{status,headers:{
   "Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff",
   "X-Robots-Tag":"noindex","Referrer-Policy":"no-referrer"
