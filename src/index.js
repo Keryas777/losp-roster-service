@@ -14,6 +14,7 @@ import {runGameArchiveSchemaAuditTick} from "./game-archive-schema-audit.js";
 import {runGameOrphanAuditTick} from "./game-archive-orphan-audit.js";
 import {runPlayerCampaignTick} from "./player-campaign.js";
 import {runGameDifferentialTick} from "./game-differential-sync.js";
+import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
 
 const SCOPELY_AUTH_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/auth";
 const APP_ORIGIN = "https://losp-roster-service.deliriousfan7.workers.dev";
@@ -222,6 +223,27 @@ export default {
       }
     } catch {
       console.warn("captain-refresh-cron",JSON.stringify({status:"unavailable"}));
+    }
+    // Twice daily (03:15 and 15:15 UTC), refresh the private war/raid
+    // rankings for APPROVED LoSP alliances only. Uses the existing hourly
+    // cron; no fifth Free-tier trigger and no roster/member GET.
+    const at=new Date(controller?.scheduledTime||Date.now());
+    if(controller?.cron==="15 * * * *"&&[3,15].includes(at.getUTCHours())){
+      try{
+        const rankRequest=new Request(APP_ORIGIN+"/admin/api/alliance-season-ranks",{
+          method:"POST",headers:{Origin:APP_ORIGIN,
+            "Content-Type":"application/json"},body:JSON.stringify({action:"capture"})
+        });
+        const outcome=await handleAllianceSeasonRanks(rankRequest,env,fetch,
+          at.getTime());
+        const state=await outcome.json();
+        console.info("losp-season-ranks-cron",JSON.stringify({
+          status:state.status||state.error||"unavailable",
+          alliances:state.snapshot?.connectedAlliances||0
+        }));
+      }catch{
+        console.warn("losp-season-ranks-cron",JSON.stringify({status:"unavailable"}));
+      }
     }
     // Daily private pilot retention cleanup. No Scopely roster reads.
     if(controller?.cron==="15 3 * * *"){
