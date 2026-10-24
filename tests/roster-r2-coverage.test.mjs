@@ -6,6 +6,8 @@ import {handleRosterR2Coverage} from "../src/roster-r2-coverage.js";
 import {handleAdmin} from "../src/admin-routes.js";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 import {BATCH_PREFIX,BATCH_MAX_AGE_MS} from "../src/private-roster-batches.js";
+import {rosterAttemptKey,rosterCooldownKey,rosterAttemptRecord}
+  from "../src/roster-auto-diagnostics.js";
 
 const origin="https://losp-roster-service.deliriousfan7.workers.dev";
 const now=Date.parse("2026-10-21T12:30:00Z");
@@ -84,6 +86,49 @@ test("R2 summary detects 5 approved alliances without any Scopely calls or write
   assert.ok(f.read.every(k=>k===ROSTER_APPROVAL_KEY||k.startsWith(BATCH_PREFIX)));
   assert.ok(f.heads.every(k=>k.startsWith(BATCH_PREFIX)));
   assert.doesNotMatch(JSON.stringify(data),/SECRET_PLAYER|SECRET_CAPTAIN|SECRET_CHARACTER|access_token|refresh_token/);
+});
+
+test("per-alliance errors and active cooldown are displayed from private R2 metadata only",async()=>{
+ const f=fixture();
+ const stamp="2026-10-21T12:00Z";
+ const slot={campaign:"2026-10-21-am",stamp};
+ const privateRecord=rosterAttemptRecord(slot,"rate-limited",409,7,
+   "2026-10-21T13:00:00.000Z");
+ f.store.set(rosterAttemptKey(fp(3)),JSON.stringify(privateRecord));
+ f.store.set(rosterCooldownKey(fp(3)),JSON.stringify({
+   until:"2026-10-21T13:00:00.000Z",reason:"429"
+ }));
+ const result=await(await handleRosterR2Coverage(request(),f.env,now)).json();
+ const alliance=result.alliances[2];
+ assert.deepEqual(alliance.automation,{
+   status:"valid",campaign:slot.campaign,at:stamp,
+   outcome:"rate-limited",requests:7,httpStatus:409,
+   failureReason:"rate-limited",cooldownUntil:"2026-10-21T13:00:00.000Z"
+ });
+ assert.equal(result.alliances[0].automation.status,"missing");
+ assert.ok(f.read.includes(rosterAttemptKey(fp(3))));
+ assert.ok(f.read.includes(rosterCooldownKey(fp(3))));
+ assert.deepEqual(f.writes,[]);
+ assert.doesNotMatch(JSON.stringify(result),/SECRET_PLAYER|SECRET_CAPTAIN|SECRET_CHARACTER/);
+});
+
+test("unavailable or forged per-alliance telemetry never invalidates roster manifests",async()=>{
+ const f=fixture();
+ const fake=rosterAttemptRecord({
+   campaign:"2026-10-21-am",stamp:"2026-10-21T12:00Z"
+ },"network-error",503,3);
+ fake.privateToken="DO-NOT-RETURN";
+ fake.outcome="<script>alert(1)</script>";
+ f.store.set(rosterAttemptKey(fp(1)),JSON.stringify(fake));
+ let data=await(await handleRosterR2Coverage(request(),f.env,now)).json();
+ assert.equal(data.alliances[0].automation.status,"invalid");
+ assert.equal(data.alliances[0].manifest.status,"valid");
+ assert.doesNotMatch(JSON.stringify(data),/DO-NOT-RETURN|script/);
+ fake.outcome="network-error";fake.at="2026-10-22T12:00Z";
+ f.store.set(rosterAttemptKey(fp(1)),JSON.stringify(fake));
+ data=await(await handleRosterR2Coverage(request(),f.env,now)).json();
+ assert.equal(data.alliances[0].automation.status,"invalid",
+   "A future attempt must not masquerade as past collection");
 });
 
 test("authorized-only manifest validates the consenting roster subset and rejects inflated coverage",async()=>{
@@ -220,4 +265,7 @@ test("admin UI is vanilla, safely renders private aggregates and has no storage 
   assert.doesNotMatch(js,/innerHTML|localStorage|sessionStorage|eval\(/);
   assert.match(admin,/roster-r2-coverage/);
   assert.match(admin,/admin-roster-r2-coverage\.js/);
+  assert.match(js,/Dernier micro-lot réellement tenté/);
+  assert.match(js,/Dernier échec/);
+  assert.match(js,/Collecte temporairement suspendue/);
 });
