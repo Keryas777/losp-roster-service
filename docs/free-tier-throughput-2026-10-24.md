@@ -13,7 +13,7 @@ Documentation officielle (mise à jour le 12 octobre 2026) : https://developers.
 - Les erreurs `429` Scopely continuent de déclencher les délais existants. Aucune limite journalière Scopely n'est déduite des quotas Cloudflare.
 
 ## Rosters
-- Les collectes automatiques existantes (PR #85 : jusqu'à deux alliances par minute, six coéquipiers partagés par lot, plus un passage pour le titulaire OAuth) sont conservées.
+- Les collectes automatiques existantes (PR #85 : jusqu'à deux alliances par minute, désormais huit coéquipiers partagés par lot (six auparavant), plus un passage pour le titulaire OAuth) sont conservées.
 - Chaque lot peut maintenant lire **trois rosters en parallèle** (`parallelMembers:true`) en utilisant le même compteur de GET, sans modifier le contrat des rosters, le contrôle d'effectif, `since`/`344` ou le format R2.
 - Le résultat est **remis dans l'ordre stable d'origine** avant tout archivage ; si une seule lecture échoue, aucun roster partiel n'est retourné. Les lots manuels et pilotes restent séquentiels.
 - Les deux alliances d'un même tick sont traitées l'une après l'autre : trois connexions parallèles maximum côté collecteur, pas six par alliance.
