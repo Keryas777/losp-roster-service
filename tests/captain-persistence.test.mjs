@@ -7,6 +7,7 @@ import {
   captainConfigReady, getCaptainRecord, putCaptainRecord
 } from "../src/captain-vault.js";
 import { CaptainRefreshCoordinator } from "../src/captain-refresh-coordinator.js";
+import {CONNECTED_ALLIANCE_PREFIX,listConnectedAlliances,handleConnectedAlliances} from "../src/connected-alliance-index.js";
 import {
   saveCaptainConsent, handleCaptainSession, handleCaptainLogout,
   handleCaptainLanding, handleCaptainRosters, handleCaptainCoverage, renewCaptainGrants
@@ -233,10 +234,13 @@ test("captain OAuth callback persists only after validated offline token grant",
     calls.push(url);
     if(url.endsWith("/oauth2/token"))return fakeResponse({...token("PRIVATE_ACCESS","PRIVATE_REFRESH"),scope:scopesFull});
     if(url.endsWith("/alliance/members"))return fakeResponse({data:[]});
+    if(url.endsWith("/alliance/card"))return fakeResponse({
+      data:{id:"had-es:v1",name:"Hadès"}
+    });
     throw Error("Unexpected URL");
   });
   assert.equal(success.status,200);
-  assert.equal(bucket.map.size,1);
+  assert.equal(bucket.map.size,2);
   const headers=success.headers.getSetCookie();
   assert.ok(headers.some(row=>row.startsWith("__Host-losp_captain_session=")));
   const html=await success.text();
@@ -244,10 +248,72 @@ test("captain OAuth callback persists only after validated offline token grant",
   assert.doesNotMatch(html+JSON.stringify([...success.headers]),/PRIVATE_(ACCESS|REFRESH)/);
   assert.deepEqual(calls,[
     "https://hydra-public.prod.m3.scopelypv.com/oauth2/token",
-    "https://api.marvelstrikeforce.com/player/v1/alliance/members"
+    "https://api.marvelstrikeforce.com/player/v1/alliance/members",
+    "https://api.marvelstrikeforce.com/player/v1/alliance/card"
   ]);
 });
 
+test("new OAuth connections automatically register distinct alliances in private Admin R2",async()=>{
+  const {env,bucket}=setup();
+  const source=async name=>async url=>{
+    assert.ok(url.endsWith("/player/v1/alliance/card"));
+    return Response.json({data:{id:name+":v2",name}});
+  };
+  await saveCaptainConsent(new Response("ok"),token("ACCESS_Z","REFRESH_Z"),
+    env,new Request(origin+"/oauth/callback"),await source("Zeus"));
+  await saveCaptainConsent(new Response("ok"),token("ACCESS_H","REFRESH_H"),
+    env,new Request(origin+"/oauth/callback"),await source("Hadès"));
+  assert.equal([...bucket.map.keys()].filter(k=>k.startsWith(CONNECTED_ALLIANCE_PREFIX)).length,2);
+  const listed=await listConnectedAlliances(env,async()=>{
+    throw Error("Indexed alliances must not call Scopely again");
+  });
+  assert.equal(listed.status,"ok");
+  assert.equal(listed.connectedSessions,2);
+  assert.deepEqual(listed.alliances.map(a=>a.name),["Hadès","Zeus"]);
+  assert.ok(listed.alliances.every(a=>a.approved===false));
+  assert.doesNotMatch(JSON.stringify(listed),/ACCESS_|REFRESH_|oauth-captains/);
+});
+test("older connected Hadès account appears without new OAuth via one-time index backfill",async()=>{
+  const {env,bucket}=setup();
+  const id=newCaptainSessionId();
+  await store(env,id,token("HADES_ACCESS","HADES_REFRESH"));
+  let cardReads=0;
+  const api=async url=>{
+    cardReads++;
+    assert.ok(url.endsWith("/player/v1/alliance/card"));
+    return Response.json({data:{id:"alliance-hades:version-17",name:"Hadès"}});
+  };
+  const first=await handleConnectedAlliances(new Request(origin+
+    "/admin/api/connected-alliances"),env,api);
+  assert.equal(first.status,200);
+  const data=await first.json();
+  assert.deepEqual(data.alliances.map(a=>a.name),["Hadès"]);
+  assert.equal(data.connectedSessions,1);
+  assert.equal(cardReads,1);
+  assert.equal([...bucket.map.keys()].filter(k=>k.startsWith(CONNECTED_ALLIANCE_PREFIX)).length,1);
+  const second=await listConnectedAlliances(env,async()=>{
+    throw Error("A registered session must not re-fetch its alliance");
+  });
+  assert.equal(second.alliances.length,1);
+  assert.equal(cardReads,1);
+});
+test("logout removes visible alliance session without modifying other approved alliances",async()=>{
+  const {env}=setup();
+  const login=await saveCaptainConsent(new Response("ok"),token("A","R"),env,
+    new Request(origin+"/oauth/callback"),
+    async()=>Response.json({data:{id:"hades:v1",name:"Hadès"}}));
+  const id=login.headers.getSetCookie()[0].match(/__Host-losp_captain_session=([^;]+)/)[1];
+  const before=await listConnectedAlliances(env);
+  assert.equal(before.alliances[0].name,"Hadès");
+  const logout=await handleCaptainLogout(new Request(origin+"/logout",{
+    method:"POST",headers:{Cookie:"__Host-losp_captain_session="+id,
+      Origin:origin}
+  }),env);
+  assert.equal(logout.status,200);
+  const after=await listConnectedAlliances(env);
+  assert.equal(after.alliances.length,0);
+  assert.equal(after.connectedSessions,0);
+});
 test("no granted offline scope means no durable cookie or R2 grant",async()=>{
   const {env,bucket}=setup();
   const state="c".repeat(43),verifier="d".repeat(43);
