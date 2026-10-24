@@ -1,7 +1,7 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {putCaptainRecord,CAPTAIN_PREFIX} from "../src/captain-vault.js";
-import {startPlayerCampaign,runPlayerCampaignTick,PLAYER_CAMPAIGN_CRON,
+import {startPlayerCampaign,runPlayerCampaignTick,
   getPlayerCampaignStatus,handlePlayerCampaignAdmin} from "../src/player-campaign.js";
 import {handleAdmin} from "../src/admin-routes.js";
 
@@ -251,15 +251,16 @@ test("old 1000-call daily ceiling no longer blocks authorized player collection"
   assert.equal(JSON.parse(f.db.get(key)).used,1020);
   assert.ok(f.calls.length>0);
 });
-test("player daily cron is isolated from game on the fifth Free-tier trigger",async()=>{
+test("player daily campaign reuses the existing minute Cron without adding a fifth trigger",async()=>{
   const {readFile}=await import("node:fs/promises");
   const wrangler=JSON.parse(await readFile(
     new globalThis.URL("../wrangler.jsonc",import.meta.url),"utf8"));
   assert.equal(wrangler.vars.PLAYER_AUTO_ENABLED,"true");
-  assert.equal(PLAYER_CAMPAIGN_CRON,"*/2 * * * *");
   assert.ok(wrangler.triggers.crons.includes("* * * * *"));
-  assert.ok(wrangler.triggers.crons.includes(PLAYER_CAMPAIGN_CRON));
-  assert.equal(wrangler.triggers.crons.length,5);
+  assert.equal(wrangler.triggers.crons.length,4);
+  const index=await readFile(new globalThis.URL("../src/index.js",import.meta.url),"utf8");
+  assert.match(index,/action<3/);
+  assert.match(index,/runPlayerCampaignTick/);
   const frontend=await readFile(new globalThis.URL("../public/admin-player-campaign.js",import.meta.url),"utf8");
   assert.match(frontend,/autoEnabled/);
   assert.match(frontend,/Prochaine vérification prévue/);
