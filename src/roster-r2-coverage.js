@@ -2,6 +2,8 @@
 // No Scopely GET, OAuth refresh, Durable Object lock or storage mutation.
 import {readApproval} from "./roster-sync-preflight.js";
 import {BATCH_PREFIX,BATCH_MAX_AGE_MS,completeKey} from "./private-roster-batches.js";
+import {rosterAttemptKey,rosterCooldownKey,verifiedRosterAttempt}
+  from "./roster-auto-diagnostics.js";
 
 const FP=/^[a-f0-9]{64}$/;
 const RUN=/^[a-f0-9-]{36}$/;
@@ -63,6 +65,29 @@ async function checkFiles(bucket,fp,run,coMembers,includeSelf){
   return {checked:keys.length,missing,allPresent:missing===0,
     verification:"r2-head-only"};
 }
+async function automationState(bucket,fp,now){
+  // Read only R2 metadata from an already approved alliance. Missing or
+  // corrupt optional diagnostic data never invalidates roster coverage.
+  try{
+    const [record,pause]=await Promise.all([
+      r2JSON(bucket,rosterAttemptKey(fp)),
+      r2JSON(bucket,rosterCooldownKey(fp))
+    ]);
+    const verified=record.state==="present"?
+      verifiedRosterAttempt(record.value,now):null;
+    const until=pause.state==="present"?pause.value?.until:null;
+    const cooldownUntil=validDate(until)&&Date.parse(until)>now?until:null;
+    if(!verified)
+      return {status:record.state==="present"?"invalid":record.state,
+        cooldownUntil};
+    return {status:"valid",campaign:verified.campaign,
+      at:verified.at,outcome:verified.outcome,
+      requests:verified.requests,httpStatus:verified.httpStatus,
+      failureReason:verified.httpStatus>=400&&
+        !["busy","already-processed-tick"].includes(verified.outcome)?
+        verified.outcome:null,cooldownUntil};
+  }catch{return {status:"unavailable"};}
+}
 async function allianceState(bucket,entry,now,full){
   const fp=entry.fingerprint;
   const [progressObject,manifestObject]=await Promise.all([
@@ -104,7 +129,8 @@ async function allianceState(bucket,entry,now,full){
     // A null value means that not all backing member files were checked.
     if(!full)manifest.verified=null;
   }
-  return {name:entry.name,fingerprint:fp,approved:true,progress,manifest};
+  const automation=await automationState(bucket,fp,now);
+  return {name:entry.name,fingerprint:fp,approved:true,progress,manifest,automation};
 }
 export async function handleRosterR2Coverage(request,env,now=Date.now()){
   if(request.method!=="GET")return respond({error:"method-not-allowed"},405);
