@@ -5,7 +5,26 @@ import { CAPTAIN_PREFIX, validCaptainKey, captainConfigReady } from "./captain-v
 
 const ROOT="https://api.marvelstrikeforce.com";
 export const COVERAGE_KEY="oauth-coverage/v1/latest.json";
-export const MAX_COVERAGE_SESSIONS=12;
+// Enumerate all consenting OAuth sessions using R2 pagination (no alliance cap).
+export async function listCaptainSessionKeys(bucket){
+  const keys=new Set(),cursors=new Set();
+  let cursor;
+  do{
+    const page=await bucket.list({
+      prefix:CAPTAIN_PREFIX,limit:1000,...(cursor?{cursor}:{})
+    });
+    if(!page||!Array.isArray(page.objects))throw Error("invalid-session-list");
+    for(const object of page.objects){
+      if(validCaptainKey(object.key))keys.add(object.key);
+    }
+    if(!page.truncated)break;
+    if(typeof page.cursor!=="string"||!page.cursor||cursors.has(page.cursor))
+      throw Error("invalid-session-cursor");
+    cursors.add(page.cursor);
+    cursor=page.cursor;
+  }while(true);
+  return [...keys].sort();
+}
 const MAX_JSON_BYTES=160000;
 const fail=(status)=>({ok:false,status});
 const safeInteger=(v)=>Number.isSafeInteger(v)&&v>=0?v:null;
@@ -98,12 +117,7 @@ async function grant(env,key){
 // It does not persist any results or depend on the daily cron flag.
 export async function scanPrivateCoverage(env,fetchImpl=fetch){
   if(!captainConfigReady(env))return null;
-  const listed=await env.CAPTAIN_BUCKET.list({
-    prefix:CAPTAIN_PREFIX,limit:MAX_COVERAGE_SESSIONS+1
-  });
-  // Limit the daily diagnostic to a safe bounded provider request budget.
-  const keys=(listed.objects||[]).filter(v=>validCaptainKey(v.key))
-    .map(v=>v.key).sort().slice(0,MAX_COVERAGE_SESSIONS);
+  const keys=await listCaptainSessionKeys(env.CAPTAIN_BUCKET);
   const groups=new Map();
   let unavailable=0;
   for(const key of keys){
@@ -144,8 +158,7 @@ export async function scanPrivateCoverage(env,fetchImpl=fetch){
     scannedSessions:keys.length,
     unavailableSessions:unavailable,
     // Never confuse an incomplete scan with an exhaustive alliance census.
-    complete:!listed.truncated&&(listed.objects||[]).length<=MAX_COVERAGE_SESSIONS
-      && unavailable===0&&alliances.every(a=>a.status==="available"),
+    complete:unavailable===0&&alliances.every(a=>a.status==="available"),
     alliances
   };
   return snapshot;
@@ -166,13 +179,9 @@ export async function buildPrivateCoverage(env,fetchImpl=fetch){
 // Minimal, deliberately separate scan for urgent alliance season standings.
 // Uses one AllianceCard GET per available captain session; it does not request
 // rosters, members, historical events or non-consenting alliances.
-export async function scanPrivateAllianceRanks(env,fetchImpl=fetch,now=Date.now()){
+export async function scanPrivateAllianceRanks(env,fetchImpl=fetch,now=Date.now(),approved=null){
   if(!captainConfigReady(env)||!env.CAPTAIN_BUCKET?.list)return null;
-  const listed=await env.CAPTAIN_BUCKET.list({
-    prefix:CAPTAIN_PREFIX,limit:MAX_COVERAGE_SESSIONS+1
-  });
-  const keys=(listed.objects||[]).filter(x=>validCaptainKey(x.key))
-    .map(x=>x.key).sort().slice(0,MAX_COVERAGE_SESSIONS);
+  const keys=await listCaptainSessionKeys(env.CAPTAIN_BUCKET);
   const byAid=new Map();
   let unavailableSessions=0,validSessions=0;
   for(const key of keys){
@@ -182,6 +191,8 @@ export async function scanPrivateAllianceRanks(env,fetchImpl=fetch,now=Date.now(
     if(!authorization.ok){unavailableSessions++;continue;}
     const card=await discoverAlliance(authorization.token,fetchImpl);
     if(!card.ok){unavailableSessions++;continue;}
+    // Only enrolled LoSP alliances are eligible for recurring rank archives.
+    if(approved&&!approved.has(await sha(card.aid)))continue;
     validSessions++;
     if(!byAid.has(card.aid))byAid.set(card.aid,{
       allianceFingerprint:await sha(card.aid),
@@ -197,12 +208,9 @@ export async function scanPrivateAllianceRanks(env,fetchImpl=fetch,now=Date.now(
     capturedAt:new Date(now).toISOString(),
     seasonId:null,seasonVerified:false,
     scannedSessions:keys.length,validSessions,unavailableSessions,
-    truncated:listed.truncated===true||
-      (listed.objects||[]).length>MAX_COVERAGE_SESSIONS,
+    truncated:false,
     connectedAlliances:alliances.length,
-    completeSessionScan:!listed.truncated&&
-      (listed.objects||[]).length<=MAX_COVERAGE_SESSIONS&&
-      unavailableSessions===0,
+    completeSessionScan:unavailableSessions===0,
     alliances,
     note:"Rangs les plus récents retournés par Scopely ; saison précise non identifiée par la réponse. warTrophies ne représente pas le score de saison de guerre. Absence de raid season points."
   };

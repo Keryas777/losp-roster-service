@@ -4,12 +4,14 @@ import {putCaptainRecord,CAPTAIN_PREFIX} from "../src/captain-vault.js";
 import {startPlayerCampaign,runPlayerCampaignTick,
   getPlayerCampaignStatus,handlePlayerCampaignAdmin} from "../src/player-campaign.js";
 import {handleAdmin} from "../src/admin-routes.js";
+import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
+import {CONNECTED_ALLIANCE_PREFIX} from "../src/connected-alliance-index.js";
 
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const URL=ORIGIN+"/admin/api/player-campaign";
 const prefix="roster-batches/v1/";
 const scope="offline m3p.f.pr.pro m3p.f.pr.ros m3p.f.pr.inv m3p.f.pr.act m3p.f.ar.pro m3p.f.ar.ros";
-async function fixture({scopes=scope,memberShare=true,providerStatus=200}={}){
+async function fixture({scopes=scope,memberShare=true,providerStatus=200,outside=false}={}){
   const db=new Map(),calls=[],leases=new Set();
   const id="d".repeat(64),now=Date.now();
   const bucket={
@@ -51,6 +53,14 @@ async function fixture({scopes=scope,memberShare=true,providerStatus=200}={}){
     accessExpiresAt:now+3600000,accessToken:"TOKEN",refreshToken:"REFRESH",
     scope:scopes
   });
+  const fp=outside?"b".repeat(64):"a".repeat(64);
+  db.set(CONNECTED_ALLIANCE_PREFIX+id,JSON.stringify({
+    version:1,fingerprint:fp,name:outside?"Externe":"Zeus",
+    observedAt:new Date(now).toISOString()
+  }));
+  db.set(ROSTER_APPROVAL_KEY,JSON.stringify({
+    version:1,alliances:[{fingerprint:"a".repeat(64),name:"Zeus"}]
+  }));
   const provider=async(url,options)=>{
     calls.push(url);
     assert.equal(options.method,"GET");
@@ -81,6 +91,16 @@ async function loop(f,num=15){
   }
   return {statuses,state:await (await getPlayerCampaignStatus(f.env)).json()};
 }
+test("an outside OAuth account never enters LoSP /player extras or member squads",async()=>{
+  const f=await fixture({outside:true});
+  const res=await startPlayerCampaign(f.env,f.now);
+  assert.equal(res.status,200);
+  const outcome=await runPlayerCampaignTick(f.env,f.provider,f.now);
+  assert.equal(outcome.status,"external-personal-roster-only");
+  assert.equal(f.calls.length,0);
+  assert.ok(![...f.db.keys()].some(x=>x.includes("/personal-inventory/self/latest.json")));
+});
+
 test("one click starts for all connected grants without calling Scopely",async()=>{
   const f=await fixture();
   const r=await startPlayerCampaign(f.env,f.now);
@@ -239,12 +259,28 @@ test("daily global /player budget survives manually forced and automatic campaig
   const after=sumBudget();
   assert.equal(after,first+10,"Manual rerun does not reset UTC budget");
 });
-test("automatic player daily flag is deployed on the existing minute Cron",async()=>{
+test("old 1000-call daily ceiling no longer blocks authorized player collection",async()=>{
+  const f=await fixture();
+  const date=new Date(f.now).toISOString().slice(0,10);
+  const key=prefix+"player-campaign/budget/"+date+".json";
+  f.db.set(key,JSON.stringify({version:1,date,used:1010}));
+  const started=await (await startPlayerCampaign(f.env,f.now)).json();
+  assert.equal(started.status,"running");
+  const result=await runPlayerCampaignTick(f.env,f.provider,f.now);
+  assert.equal(result.status,"archived");
+  assert.equal(JSON.parse(f.db.get(key)).used,1020);
+  assert.ok(f.calls.length>0);
+});
+test("player daily campaign reuses the existing minute Cron without adding a fifth trigger",async()=>{
   const {readFile}=await import("node:fs/promises");
   const wrangler=JSON.parse(await readFile(
     new globalThis.URL("../wrangler.jsonc",import.meta.url),"utf8"));
   assert.equal(wrangler.vars.PLAYER_AUTO_ENABLED,"true");
   assert.ok(wrangler.triggers.crons.includes("* * * * *"));
+  assert.equal(wrangler.triggers.crons.length,4);
+  const index=await readFile(new globalThis.URL("../src/index.js",import.meta.url),"utf8");
+  assert.match(index,/action<3/);
+  assert.match(index,/runPlayerCampaignTick/);
   const frontend=await readFile(new globalThis.URL("../public/admin-player-campaign.js",import.meta.url),"utf8");
   assert.match(frontend,/autoEnabled/);
   assert.match(frontend,/Prochaine vérification prévue/);

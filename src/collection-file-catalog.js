@@ -77,6 +77,7 @@ function activityMonitors(env,state){
   const differential=state.gameDifferential||{};
   const player=state.player||{};
   const roster=state.rosterScheduler||{};
+  const rosterTiming=state.rosterTiming||{};
   const alliances=Array.isArray(state.rosters?.alliances)?state.rosters.alliances:[];
   const diffEnabled=env?.GAME_DIFF_ENABLED==="true";
   const playerEnabled=env?.PLAYER_AUTO_ENABLED==="true";
@@ -108,11 +109,18 @@ function activityMonitors(env,state){
   const rosterStatus=!rosterEnabled?"disabled":
     alliances.some(a=>a.progress==="in-progress")?"running":
     roster.status==="ready"?"ready":roster.status||"unavailable";
+  const latestVerified=timestamp(rosterTiming.lastConfirmedCaptureAt);
   const rosters={
     id:"rosters",title:"/player — rosters des alliances",status:rosterStatus,
-    progress:null,lastAt:timestamp(roster.lastTick),startedAt:null,nextAt:null,
-    detail:"Dernier passage Cron enregistré, non une preuve de succès. "+
-      "Progression des membres disponible séparément pour chaque alliance approuvée."
+    progress:null,lastAt:latestVerified||timestamp(roster.lastTick),
+    lastAtLabel:latestVerified?"Dernière collecte attestée":
+      "Dernier passage comptabilisé",startedAt:null,nextAt:null,
+    detail:"Collecte attestée par le dernier manifeste R2 valide, "+
+      "distincte du passage inscrit dans le compteur Cron."+
+      (rosterTiming.cronCheckpointBehindCapture?
+        " Le compteur Cron est en retard sur la dernière collecte : "+
+        "cela nécessite un diagnostic du registre, pas une nouvelle collecte.":"")+
+      " Progression des membres disponible séparément pour chaque alliance approuvée."
   };
   return {game,player:personal,rosters};
 }
@@ -242,7 +250,8 @@ export async function buildCollectionFileCatalog(env,state){
         };
       }else activity={
         status:monitors.rosters.status,lastAt:monitors.rosters.lastAt,
-        scope:"global",note:"État Cron global, pas de preuve de cette route"
+        scope:"global",note:"Dernière collecte attestée ou checkpoint global, "+
+          "pas une preuve propre à cette route"
       };
     }else if(item.group==="Services MSF +"){
       activity={status:item.evidence==="Objet R2 présent"?"archived":

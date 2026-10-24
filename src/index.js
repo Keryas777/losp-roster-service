@@ -14,6 +14,7 @@ import {runGameArchiveSchemaAuditTick} from "./game-archive-schema-audit.js";
 import {runGameOrphanAuditTick} from "./game-archive-orphan-audit.js";
 import {runPlayerCampaignTick} from "./player-campaign.js";
 import {runGameDifferentialTick} from "./game-differential-sync.js";
+import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
 
 const SCOPELY_AUTH_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/auth";
 const APP_ORIGIN = "https://losp-roster-service.deliriousfan7.workers.dev";
@@ -154,10 +155,6 @@ async function startLogin(request, env, url) {
 export default {
   async scheduled(controller, env) {
     if(controller?.cron===GAME_ARCHIVE_CRON){
-      // Explicitly started player campaign only; zero /player GET when idle.
-      const player=await runPlayerCampaignTick(env);
-      if(player.status!=="idle"&&player.status!=="disabled")console.info(
-        "player-campaign-cron",JSON.stringify({status:player.status}));
       const result=await runGameArchiveTick(env);
       console.info("game-archive-cron",JSON.stringify({
         status:result.status,processed:result.processed||0,
@@ -173,6 +170,19 @@ export default {
           status:differential.status,changed:differential.changed||0,
           unchanged:differential.unchanged||0,failed:differential.failed||0
         }));
+      // Three /player actions (<= 30 provider GETs) + <= 12 /game GETs
+      // fit the SAME Free Worker invocation (< 50 external subrequests).
+      // Preserve the existing four cron triggers for the whole account.
+      // Each action has its own lock and provider-429 pause.
+      for(let action=0;action<3;action++){
+        const player=await runPlayerCampaignTick(env);
+        if(player.status!=="idle"&&player.status!=="disabled")console.info(
+          "player-campaign-cron",JSON.stringify({status:player.status}));
+        if(["idle","disabled","up-to-date","awaiting-oauth","cooldown",
+          "busy","storage-unavailable","invalid-state","tick-unavailable",
+          "complete","partial"].includes(player.status))
+          break;
+      }
       // Independent R2-only analysis, after the provider collector has run.
       // No Scopely GET, no roster access and no writes to archive receipts.
       const audit=await runGameArchiveSchemaAuditTick(env);
@@ -213,6 +223,27 @@ export default {
       }
     } catch {
       console.warn("captain-refresh-cron",JSON.stringify({status:"unavailable"}));
+    }
+    // Twice daily (03:15 and 15:15 UTC), refresh the private war/raid
+    // rankings for APPROVED LoSP alliances only. Uses the existing hourly
+    // cron; no fifth Free-tier trigger and no roster/member GET.
+    const at=new Date(controller?.scheduledTime||Date.now());
+    if(controller?.cron==="15 * * * *"&&[3,15].includes(at.getUTCHours())){
+      try{
+        const rankRequest=new Request(APP_ORIGIN+"/admin/api/alliance-season-ranks",{
+          method:"POST",headers:{Origin:APP_ORIGIN,
+            "Content-Type":"application/json"},body:JSON.stringify({action:"capture"})
+        });
+        const outcome=await handleAllianceSeasonRanks(rankRequest,env,fetch,
+          at.getTime());
+        const state=await outcome.json();
+        console.info("losp-season-ranks-cron",JSON.stringify({
+          status:state.status||state.error||"unavailable",
+          alliances:state.snapshot?.connectedAlliances||0
+        }));
+      }catch{
+        console.warn("losp-season-ranks-cron",JSON.stringify({status:"unavailable"}));
+      }
     }
     // Daily private pilot retention cleanup. No Scopely roster reads.
     if(controller?.cron==="15 3 * * *"){

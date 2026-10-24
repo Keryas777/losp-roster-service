@@ -88,7 +88,8 @@
       renderProgress(card,monitor.progress,
         monitor.id==="game"?"URLs vérifiées":
         monitor.id==="player"?"Comptes OAuth traités":"Membres traités");
-      node("p","Dernière activité : "+time(monitor.lastAt),card);
+      node("p",(monitor.lastAtLabel||"Dernière activité")+
+        " : "+time(monitor.lastAt),card);
       if(monitor.nextAt)node("p","Prochaine passe : "+time(monitor.nextAt),card);
       node("p",monitor.detail,card,"collection-caveat");
     }
@@ -155,7 +156,8 @@
   }
   function render(data){
     output.replaceChildren();
-    const r=data.rosters||{},sched=data.rosterScheduler||{};
+    const r=data.rosters||{},sched=data.rosterScheduler||{},
+      timing=data.rosterTiming||{};
     const alliances=Array.isArray(r.alliances)?r.alliances:[];
     const validManifests=alliances.filter(x=>x.snapshot==="valid").length;
     const fullManifests=alliances.filter(x=>
@@ -178,8 +180,15 @@
         " · "+progress+" alliance(s) en progression"+
         " · "+validManifests+" manifeste(s) valide(s) ("+
         fullManifests+" couvrant tous les membres) sur "+
-        count(r.approvedCount)+" · dernier Cron : "+time(sched.lastTick)+
-        ". Un membre sans partage n'empêche pas la réussite des rosters autorisés.",
+        count(r.approvedCount)+
+        " · dernière collecte attestée par manifeste R2 : "+
+        time(timing.lastConfirmedCaptureAt)+
+        " · dernier passage enregistré au compteur Cron : "+
+        time(timing.lastRecordedCronAt||sched.lastTick)+
+        (timing.cronCheckpointBehindCapture?
+          " (attention : ce compteur est plus ancien que la dernière collecte attestée).":
+          ".")+
+        " Un membre sans partage n'empêche pas la réussite des rosters autorisés.",
       authorizedDone&&authorizedDone===r.approvedCount?"ok":"warn");
     const archives=f.reduce((n,x)=>n+(x.archived||0),0);
     const eligible=f.reduce((n,x)=>n+(x.eligible||0),0);

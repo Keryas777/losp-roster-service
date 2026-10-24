@@ -1,8 +1,9 @@
 import {diagnoseAdminAuth,adminReady} from "./admin-auth.js";
-import {rosterSyncPreflight,saveRosterSyncApprovals} from "./roster-sync-preflight.js";
+import {rosterSyncPreflight,saveRosterSyncApprovals,approveOneRosterAlliance} from "./roster-sync-preflight.js";
 import {handlePrivateRosterPilot} from "./private-roster-pilot.js";
 import {handleRosterMicrobatch,getRosterBatchStatus} from "./private-roster-batches.js";
 import {rosterAutoStatus,handleAdminRosterAutoTest} from "./automatic-roster-scheduler.js";
+import {handleConnectedAlliances} from "./connected-alliance-index.js";
 import {handleRosterR2Coverage} from "./roster-r2-coverage.js";
 import {PUBLIC_SOURCE_ROUTES,handlePublicSourceProbe} from "./public-msf-source-probe.js";
 import {handleGameArchiveAdmin} from "./game-catalog-archive.js";
@@ -46,6 +47,11 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<button id="season-ranks-copy" type="button" disabled>Copier la capture JSON</button>'+
 '<p id="season-ranks-status" role="status"></p>'+
 '<div id="season-ranks-table" class="scroll"></div></section>'+
+'<section id="connected-alliance-directory"><h2>Alliances connectées automatiquement</h2>'+
+'<p>Les alliances des joueurs connectés via Scopely apparaissent ici automatiquement. Leur approbation pour les rosters reste distincte.</p>'+
+'<button id="roster-connected-refresh" type="button">Actualiser les alliances connectées</button>'+
+'<p id="roster-connected-status" role="status">Recherche des alliances déjà connectées…</p>'+
+'<div id="roster-connected-list"></div></section>'+
 '<section><h2>Préparation de la collecte automatique des rosters</h2>'+
 '<p>Collecte privée des alliances approuvées, par lots avec reprise. Planification automatique conditionnée à la règle R2 de rétention et au paramètre d’activation. Aucune publication vers la WebApp.</p>'+
 '<p id="roster-auto-status" role="status">État de l’automatisation : à consulter sur demande (R2 uniquement).</p>'+
@@ -178,7 +184,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 export async function handleAdmin(request,env,fetchImpl=fetch){
   const endpoint=new URL(request.url).pathname;
   if(request.method!=="GET"&&!(request.method==="POST"&&
-       ["/admin/api/roster-approvals","/admin/api/roster-pilot",
+       ["/admin/api/roster-approvals","/admin/api/roster-approve-one","/admin/api/roster-pilot",
         "/admin/api/roster-batch","/admin/api/roster-auto-test",
         "/admin/api/msf-secondary-probe","/admin/api/game-archive",
         "/admin/api/game-archive-schema-audit",
@@ -217,8 +223,10 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   if(pathname==="/admin/api/refresh-cron")return adminRefreshCron(env);
   if(pathname==="/admin/api/data")return adminResource(request,env,fetchImpl);
   if(pathname==="/admin/api/pid-member-card")return adminMemberCard(request,env,fetchImpl);
+  if(pathname==="/admin/api/connected-alliances")return handleConnectedAlliances(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-preflight")return rosterSyncPreflight(env,fetchImpl);
   if(pathname==="/admin/api/roster-approvals")return saveRosterSyncApprovals(request,env,fetchImpl);
+  if(pathname==="/admin/api/roster-approve-one")return approveOneRosterAlliance(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-pilot")return handlePrivateRosterPilot(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-batch")return handleRosterMicrobatch(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-batch-status")return getRosterBatchStatus(request,env);

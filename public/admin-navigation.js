@@ -7,7 +7,7 @@
     {id:"overview",label:"Vue d’ensemble",targets:[
       "collection-dashboard-refresh","refresh","check-refresh","season-ranks-refresh"]},
     {id:"rosters",label:"Rosters",targets:[
-      "check-coverage","roster-preflight","roster-r2-refresh"]},
+      "connected-alliance-directory","check-coverage","roster-preflight","roster-r2-refresh"]},
     {id:"archives",label:"Archives R2",targets:[
       "player-campaign-start","game-archive-status","game-r2-inventory-start","game-orphan-start",
       "game-inspect-start","game-schema-start"]},
@@ -36,8 +36,8 @@
     section.dataset.adminGroup=group.id;
     // Explorer rebuilds #output with replaceChildren() after each provider read.
     // Keep it as a normal section: wrapping it would be erased on first result.
-    if(section.id==="collection-dashboard"){
-      section.classList.add("admin-dashboard");
+    if(section.id==="collection-dashboard"||section.id==="connected-alliance-directory"){
+      section.classList.add(section.id==="collection-dashboard"?"admin-dashboard":"admin-alliance-directory");
       continue;
     }
     if(section.id==="output"){

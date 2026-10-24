@@ -7,6 +7,10 @@ import {
   captainConfigReady, getCaptainRecord, putCaptainRecord
 } from "../src/captain-vault.js";
 import { CaptainRefreshCoordinator } from "../src/captain-refresh-coordinator.js";
+import {readConnectedPersonalRoster} from "../src/connected-personal-rosters.js";
+import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
+import {createHash} from "node:crypto";
+import {CONNECTED_ALLIANCE_PREFIX,listConnectedAlliances,handleConnectedAlliances} from "../src/connected-alliance-index.js";
 import {
   saveCaptainConsent, handleCaptainSession, handleCaptainLogout,
   handleCaptainLanding, handleCaptainRosters, handleCaptainCoverage, renewCaptainGrants
@@ -110,6 +114,63 @@ test("captain consent sets only HttpOnly cookie after successful encrypted stora
   const landing=await handleCaptainLanding(req("/captain",id),env);
   assert.match(await landing.text(),/Autorisation Scopely maintenue automatiquement/);
   assert.doesNotMatch(JSON.stringify([...landing.headers]),/PRIVATE_REFRESH/);
+});
+
+test("external captain login archives SELF roster only; never requests another member",async()=>{
+  const calls=[];
+  const {env,bucket}=setup();
+  const granted={...token("ACCESS_OUTSIDE","REFRESH_OUTSIDE"),
+    scope:scopes+" m3p.f.pr.ros"};
+  const result=await saveCaptainConsent(new Response("ok"),granted,env,
+    new Request(origin+"/oauth/callback"),async url=>{
+      const pathname=new URL(url).pathname;
+      calls.push(pathname);
+      if(pathname.endsWith("/alliance/card"))return Response.json({
+        data:{id:"outside:v1",name:"Alliance externe"}
+      });
+      if(pathname.endsWith("/alliance/members"))return Response.json({data:[
+        {id:"mine",isSelf:true,card:{name:"Mon compte",rosterShare:false}},
+        {id:"ally",isSelf:false,card:{name:"Autre joueur",rosterShare:true}}
+      ]});
+      if(pathname==="/player/v1/roster")return Response.json({data:[
+        {id:"char1",power:123,info:{name:"One"}}
+      ],meta:{perTotal:1,asOf:"now"}});
+      throw Error("No shared member or other family should be fetched");
+    });
+  const cookie=result.headers.getSetCookie().join(" ");
+  const id=cookie.match(/__Host-losp_captain_session=([^;]+)/)[1];
+  const key=await captainSessionKey(id);
+  const saved=await readConnectedPersonalRoster(env,key);
+  assert.equal(saved.allianceName,"Alliance externe");
+  assert.equal(saved.characters.length,1);
+  assert.ok(calls.includes("/player/v1/roster"));
+  assert.ok(!calls.some(p=>p.includes("/roster/member/")||p.includes("/inventory")||p.includes("/squads")));
+  const externalSource=[...bucket.map.entries()]
+    .filter(([k])=>k.startsWith("roster-batches/v1/connected-personal-rosters/")&&
+      k.endsWith("/source.json")).map(([,value])=>value).join("");
+  assert.ok(externalSource.includes("char1"),"Only authorized own roster source archived");
+  assert.ok(!externalSource.includes('"ally"')&&!externalSource.includes('"membersBefore"'));
+  assert.ok(!JSON.stringify([...result.headers]).includes("ACCESS_OUTSIDE"));
+});
+
+test("approved LoSP alliance keeps full scheduler, not duplicate personal OAuth capture",async()=>{
+  const {env,bucket}=setup();
+  const fp=createHash("sha256").update("zeus").digest("hex");
+  bucket.map.set(ROSTER_APPROVAL_KEY,JSON.stringify({
+    version:1,alliances:[{fingerprint:fp,name:"Zeus"}]
+  }));
+  const endpoints=[];
+  await saveCaptainConsent(new Response("ok"),{
+    ...token("ACCESS_Z","REFRESH_Z"),scope:scopes+" m3p.f.pr.ros"
+  },env,new Request(origin+"/oauth/callback"),async url=>{
+    endpoints.push(new URL(url).pathname);
+    return Response.json({data:{id:"zeus:v1",name:"Zeus"}});
+  });
+  assert.deepEqual(endpoints,[
+    "/player/v1/alliance/card","/player/v1/alliance/card"
+  ]);
+  assert.ok(![...bucket.map.keys()].some(k=>
+    k.startsWith("roster-batches/v1/connected-personal-rosters/")));
 });
 
 test("refresh token rotates once under concurrent browser and scheduled requests",async()=>{
@@ -233,21 +294,90 @@ test("captain OAuth callback persists only after validated offline token grant",
     calls.push(url);
     if(url.endsWith("/oauth2/token"))return fakeResponse({...token("PRIVATE_ACCESS","PRIVATE_REFRESH"),scope:scopesFull});
     if(url.endsWith("/alliance/members"))return fakeResponse({data:[]});
+    if(url.endsWith("/alliance/card"))return fakeResponse({
+      data:{id:"had-es:v1",name:"Hadès"}
+    });
     throw Error("Unexpected URL");
   });
   assert.equal(success.status,200);
-  assert.equal(bucket.map.size,1);
+  assert.equal(bucket.map.size,2);
   const headers=success.headers.getSetCookie();
   assert.ok(headers.some(row=>row.startsWith("__Host-losp_captain_session=")));
   const html=await success.text();
   assert.match(html,/connexion du capitaine est conservée/);
+  assert.match(html,/Votre roster personnel est le seul roster archivé/);
   assert.doesNotMatch(html+JSON.stringify([...success.headers]),/PRIVATE_(ACCESS|REFRESH)/);
   assert.deepEqual(calls,[
     "https://hydra-public.prod.m3.scopelypv.com/oauth2/token",
+    "https://api.marvelstrikeforce.com/player/v1/alliance/card",
+    "https://api.marvelstrikeforce.com/player/v1/alliance/card",
+    "https://api.marvelstrikeforce.com/player/v1/alliance/card",
     "https://api.marvelstrikeforce.com/player/v1/alliance/members"
   ]);
+  assert.ok(!calls.some(u=>u.includes("/roster/member/")));
 });
 
+test("new OAuth connections automatically register distinct alliances in private Admin R2",async()=>{
+  const {env,bucket}=setup();
+  const source=async name=>async url=>{
+    assert.ok(url.endsWith("/player/v1/alliance/card"));
+    return Response.json({data:{id:name+":v2",name}});
+  };
+  await saveCaptainConsent(new Response("ok"),token("ACCESS_Z","REFRESH_Z"),
+    env,new Request(origin+"/oauth/callback"),await source("Zeus"));
+  await saveCaptainConsent(new Response("ok"),token("ACCESS_H","REFRESH_H"),
+    env,new Request(origin+"/oauth/callback"),await source("Hadès"));
+  assert.equal([...bucket.map.keys()].filter(k=>k.startsWith(CONNECTED_ALLIANCE_PREFIX)).length,2);
+  const listed=await listConnectedAlliances(env,async()=>{
+    throw Error("Indexed alliances must not call Scopely again");
+  });
+  assert.equal(listed.status,"ok");
+  assert.equal(listed.connectedSessions,2);
+  assert.deepEqual(listed.alliances.map(a=>a.name),["Hadès","Zeus"]);
+  assert.ok(listed.alliances.every(a=>a.approved===false));
+  assert.doesNotMatch(JSON.stringify(listed),/ACCESS_|REFRESH_|oauth-captains/);
+});
+test("older connected Hadès account appears without new OAuth via one-time index backfill",async()=>{
+  const {env,bucket}=setup();
+  const id=newCaptainSessionId();
+  await store(env,id,token("HADES_ACCESS","HADES_REFRESH"));
+  let cardReads=0;
+  const api=async url=>{
+    cardReads++;
+    assert.ok(url.endsWith("/player/v1/alliance/card"));
+    return Response.json({data:{id:"alliance-hades:version-17",name:"Hadès"}});
+  };
+  const first=await handleConnectedAlliances(new Request(origin+
+    "/admin/api/connected-alliances"),env,api);
+  assert.equal(first.status,200);
+  const data=await first.json();
+  assert.deepEqual(data.alliances.map(a=>a.name),["Hadès"]);
+  assert.equal(data.connectedSessions,1);
+  assert.equal(cardReads,1);
+  assert.equal([...bucket.map.keys()].filter(k=>k.startsWith(CONNECTED_ALLIANCE_PREFIX)).length,1);
+  const second=await listConnectedAlliances(env,async()=>{
+    throw Error("A registered session must not re-fetch its alliance");
+  });
+  assert.equal(second.alliances.length,1);
+  assert.equal(cardReads,1);
+});
+test("logout removes visible alliance session without modifying other approved alliances",async()=>{
+  const {env}=setup();
+  const login=await saveCaptainConsent(new Response("ok"),token("A","R"),env,
+    new Request(origin+"/oauth/callback"),
+    async()=>Response.json({data:{id:"hades:v1",name:"Hadès"}}));
+  const id=login.headers.getSetCookie()[0].match(/__Host-losp_captain_session=([^;]+)/)[1];
+  const before=await listConnectedAlliances(env);
+  assert.equal(before.alliances[0].name,"Hadès");
+  const logout=await handleCaptainLogout(new Request(origin+"/logout",{
+    method:"POST",headers:{Cookie:"__Host-losp_captain_session="+id,
+      Origin:origin}
+  }),env);
+  assert.equal(logout.status,200);
+  const after=await listConnectedAlliances(env);
+  assert.equal(after.alliances.length,0);
+  assert.equal(after.connectedSessions,0);
+});
 test("no granted offline scope means no durable cookie or R2 grant",async()=>{
   const {env,bucket}=setup();
   const state="c".repeat(43),verifier="d".repeat(43);

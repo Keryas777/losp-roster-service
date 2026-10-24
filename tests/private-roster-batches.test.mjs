@@ -23,7 +23,7 @@ const request=(fp=fingerprint,extra={})=>
     headers:{Origin:origin,"Content-Type":"application/json"},
     body:JSON.stringify({fingerprint:fp,...extra})});
 const statusRequest=fp=>new Request(origin+"/admin/api/roster-batch-status?fingerprint="+fp);
-function fixture({noOptout=false}={}){
+function fixture({noOptout=false,members=users}={}){
  const store=new Map(),logs=[],storage=new Map(),counters={calls:0,revision:0,reorder:false,changedRosters:false,conditionalHits:0};
  store.set(ROSTER_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
    {name:"Zeus",fingerprint},
@@ -63,7 +63,7 @@ function fixture({noOptout=false}={}){
        futureField:{unknownKey:"preserved",nested:{enabled:true}}},
        meta:{serverSchema:"opaque",version:77}});
    if(url.endsWith("/alliance/members"))return Response.json({data:[
-     mkMember("self",true),...(counters.reorder?[...users].reverse():users).map((x,i)=>mkMember(
+     mkMember("self",true),...(counters.reorder?[...members].reverse():members).map((x,i)=>mkMember(
        counters.revision&&i===2?x+"-changed":x)),...(noOptout?[]:[mkMember("private",false,false)])
    ],meta:{arbitraryProviderField:{deep:"kept"}}});
    if(new URL(url).pathname==="/player/v1/roster"){
@@ -99,6 +99,22 @@ function fixture({noOptout=false}={}){
  };
  return {store,logs,counters,storage,env,api,lock};
 }
+test("an automatic alliance batch reads eight shared rosters and saves stable indices",async()=>{
+  const members=Array.from({length:11},(_,i)=>"Member"+String(i).padStart(2,"0"));
+  const f=fixture({members,noOptout:true}),now=Date.UTC(2026,9,24,17);
+  const res=await handleRosterMicrobatch(request(),f.env,f.api,now,{
+    campaign:"2026-10-24-pm",tick:"2026-10-24T17:00Z"
+  });
+  assert.equal(res.status,200);
+  const data=await res.json();
+  assert.equal(data.savedThisBatch,8);
+  assert.equal(data.completed,8);
+  assert.equal(data.remaining,3);
+  assert.equal(data.status,"in-progress");
+  assert.ok(data.requestsThisBatch<=24);
+  const saved=[...f.store.keys()].filter(k=>/\/member-[0-9]+\.json$/.test(k));
+  assert.equal(saved.length,8);
+});
 test("a two-player batch persists only complete separate R2 objects and advances after writes",async()=>{
  const f=fixture(),now=Date.UTC(2026,9,18,18);
  const begin=await getRosterBatchStatus(statusRequest(fingerprint),f.env,now);
@@ -316,7 +332,7 @@ test("foreign Origin, unknown fingerprint, forged admin and public access fail c
 test("automatic campaign finalizes only after the captain personal roster and all co-members",async()=>{
  const f=fixture({noOptout:true}),now=Date.UTC(2026,9,18,18);
  const internal=i=>({campaign:"2026-10-18-pm",tick:"2026-10-18T"+(16+i)+":00Z"});
- for(const expected of [2,4,5]){
+ for(const expected of [5]){
    const response=await handleRosterMicrobatch(request(),f.env,f.api,now+expected*1000,internal(expected));
    assert.equal(response.status,200);
    assert.equal((await response.json()).completed,expected);

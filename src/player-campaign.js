@@ -6,6 +6,9 @@ import {CAPTAIN_PREFIX,captainConfigReady,getCaptainRecord} from "./captain-vaul
 import {tokenForKey} from "./admin-data-api.js";
 import {handlePlayerExtraArchive,PLAYER_EXTRA_FAMILIES} from "./player-extras-archive.js";
 import {API_KEY} from "./player-card.js";
+import {readApproval} from "./roster-sync-preflight.js";
+import {CONNECTED_ALLIANCE_PREFIX,saveConnectedAlliance} from "./connected-alliance-index.js";
+import {discoverAlliance} from "./alliance-coverage.js";
 
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const ROOT="https://api.marvelstrikeforce.com";
@@ -16,7 +19,10 @@ const LOCK="f".repeat(64); // Reserved private lock namespace (not an alliance f
 const FAMILIES=Object.freeze(["personal-squads","personal-inventory",
   "personal-wishlist","personal-events"]);
 const MAX_SESSIONS=100,MAX_MEMBERS=100;
-const DAILY_BUDGET=1000,PER_TICK_BUDGET=10;
+// Only the per-execution Free-tier fetch budget is a hard stop.
+// The daily counter is telemetry, not an undocumented Scopely quota.
+const PER_TICK_BUDGET=10;
+
 const AGE=7*86400000,COOLDOWN=10*60000;
 const AUTO_INTERVAL=24*3600000;
 const AUTO_STATE="roster-batches/v1/player-campaign/auto-state.json";
@@ -92,11 +98,9 @@ async function reserveDayBudget(bucket,now){
   const k=budgetKey(now),saved=await bucket.get(k);
   const v=saved?JSON.parse(await saved.text()):{version:1,date:date(now),used:0};
   if(v.version!==1||v.date!==date(now)||
-     !Number.isSafeInteger(v.used)||v.used<0||v.used>DAILY_BUDGET)
+     !Number.isSafeInteger(v.used)||v.used<0)
     throw Error("invalid-day-budget");
-  if(v.used+PER_TICK_BUDGET>DAILY_BUDGET)return false;
-  // Count the whole upper bound BEFORE upstream GET. Shared by manual
-  // and automatic campaigns; a new run never resets the UTC daily ceiling.
+  // Pessimistic telemetry reservation before provider calls. No daily hard cap.
   await bucket.put(k,JSON.stringify({
     version:1,date:date(now),used:v.used+PER_TICK_BUDGET
   }),meta);
@@ -304,12 +308,7 @@ export async function runPlayerCampaignTick(env,fetchImpl=fetch,now=Date.now()){
     if(s.requestsDate!==date(now)){
       s.requestsDate=date(now);s.requestsToday=0;
     }
-    if(s.requestsToday+PER_TICK_BUDGET>DAILY_BUDGET||
-       !(await reserveDayBudget(bucket,now))){
-      s.nextAttemptAt=new Date(now+60*60000).toISOString();
-      await save(bucket,s,now);
-      return {status:"daily-budget-reached"};
-    }
+    await reserveDayBudget(bucket,now);
     // Reserve the entire bounded request budget *before* any provider GET.
     // If execution crashes, the provider count is overestimated (safe).
     s.requestsToday+=PER_TICK_BUDGET;
@@ -331,6 +330,36 @@ export async function runPlayerCampaignTick(env,fetchImpl=fetch,now=Date.now()){
     if(!record){
       s.skipped++;s.familyIndex=FAMILIES.length;s.members=null;
       move(s);await save(bucket,s,now);return {status:"no-longer-authorized"};
+    }
+    // LoSP's richer /player campaign must never sweep external captains
+    // or their shared teammates. Outside OAuth consent captures SELF roster
+    // only in connected-personal-rosters.js.
+    let managed=false;
+    try{
+      const registry=await readApproval(env);
+      if(registry.status!=="configured")
+        return {status:"approval-registry-unavailable"};
+      let entry=await bucket.get(CONNECTED_ALLIANCE_PREFIX+sid);
+      if(!entry){
+        // Legacy LoSP sessions must not be lost from an already-running
+        // campaign simply because their R2 directory predates PR #87.
+        const active=await tokenForKey(env,CAPTAIN_PREFIX+sid);
+        if(!active?.accessToken)return {status:"alliance-classification-pending"};
+        const card=await discoverAlliance(active.accessToken,limitedFetch);
+        if(!card.ok)return {status:"alliance-classification-pending"};
+        await saveConnectedAlliance(env,CAPTAIN_PREFIX+sid,card);
+        entry=await bucket.get(CONNECTED_ALLIANCE_PREFIX+sid);
+      }
+      if(!entry)return {status:"alliance-classification-pending"};
+      const raw=await entry.text();
+      if(raw.length>1024)return {status:"alliance-classification-pending"};
+      const info=JSON.parse(raw);
+      managed=registry.alliances.some(a=>a.fingerprint===info.fingerprint);
+    }catch{return {status:"alliance-classification-unavailable"};}
+    if(!managed){
+      s.skipped++;s.familyIndex=FAMILIES.length;s.members=null;
+      move(s);await save(bucket,s,now);
+      return {status:"external-personal-roster-only"};
     }
     const scope=new Set(record.scope.split(/\s+/));
     if(s.members===null&&s.familyIndex<FAMILIES.length){
