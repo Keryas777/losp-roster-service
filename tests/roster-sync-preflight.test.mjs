@@ -2,7 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import {Script} from "node:vm";
-import {rosterSyncPreflight,saveRosterSyncApprovals,ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
+import {rosterSyncPreflight,saveRosterSyncApprovals,readApproval,ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 import {CAPTAIN_PREFIX} from "../src/captain-vault.js";
 import {handleAdmin} from "../src/admin-routes.js";
 
@@ -101,17 +101,29 @@ test("unsafe, duplicate, arbitrary and unverified approvals are all rejected",as
   assert.equal(unauthorized.status,403);
   assert.equal(f.store.size,0);
 });
-test("truncated census and denied Scopely members fail closed",async()=>{
+test("R2 cursor errors and denied Scopely members fail closed",async()=>{
   for(const type of ["partial","forbidden"]){
     const f=fixture({[type]:true});
-    const read=await(await rosterSyncPreflight(f.env,f.provider)).json();
-    assert.equal(read.complete,false);
+    const readResponse=await rosterSyncPreflight(f.env,f.provider);
     const attempted=await saveRosterSyncApprovals(req("/admin/api/roster-approvals",{
-      body:{fingerprints:[read.alliances[0].fingerprint]}
+      body:{fingerprints:["a".repeat(64)]}
     }),f.env,f.provider);
-    assert.equal(attempted.status,409);
+    assert.equal(readResponse.status,type==="partial"?503:200);
+    if(type==="forbidden")
+      assert.equal((await readResponse.json()).complete,false);
+    assert.equal(attempted.status,type==="partial"?503:409);
     assert.equal(f.store.size,0);
   }
+});
+test("approval registry accepts more than twelve alliance fingerprints",async()=>{
+  const f=fixture();
+  const alliances=Array.from({length:25},(_,i)=>({
+    fingerprint:i.toString(16).padStart(64,"0"),name:"Alliance "+i
+  }));
+  f.store.set(ROSTER_APPROVAL_KEY,JSON.stringify({version:1,alliances}));
+  const registry=await readApproval(f.env);
+  assert.equal(registry.status,"configured");
+  assert.equal(registry.alliances.length,25);
 });
 test("admin gate rejects forged approval request before R2 reads and provider calls",async()=>{
   const f=fixture();
