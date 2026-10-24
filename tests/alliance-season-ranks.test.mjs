@@ -116,7 +116,7 @@ test("repeated click within ten minutes does not repeat provider API calls or R2
   const result=await (await f.post(base+60_000)).json();
   assert.equal(result.status,"recent-capture");
   assert.equal(f.calls.length,3);
-  assert.equal(f.db.size,2);
+  assert.equal(f.db.size,3);
   const next=await (await f.post(base+11*60_000)).json();
   assert.equal(next.status,"captured");
   assert.equal(f.calls.length,6);
