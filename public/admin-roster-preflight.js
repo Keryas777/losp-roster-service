@@ -147,6 +147,41 @@ async function showRosterAutoStatus(){
       ". Dernier état : "+(state.lastOutcome||"aucun")+".";
   }catch{target.textContent="État de l’automatisation indisponible.";}
 }
+// Read-only directory; first visit backfills older consenting accounts.
+// The list never approves a new alliance or starts a roster collection.
+async function loadConnectedAlliances(){
+  const status=rosterEl("roster-connected-status");
+  const parent=rosterEl("roster-connected-list");
+  const button=rosterEl("roster-connected-refresh");
+  if(!status||!parent)return;
+  status.textContent="Lecture des alliances connectées…";
+  parent.replaceChildren();
+  if(button)button.disabled=true;
+  try{
+    const res=await fetch("/admin/api/connected-alliances",{
+      credentials:"same-origin",cache:"no-store",
+      headers:{Accept:"application/json"}
+    });
+    const result=await res.json();
+    if(!res.ok||result.status!=="ok"||!Array.isArray(result.alliances))
+      throw Error("unavailable");
+    if(!result.alliances.length)rosterLine(parent,
+      "Aucune alliance identifiable parmi les sessions OAuth actives.");
+    for(const alliance of result.alliances){
+      rosterLine(parent,alliance.name+" — "+
+        alliance.captainConnections+" connexion(s) OAuth — "+
+        (alliance.approved?"collecte approuvée":
+          "détectée, en attente d’approbation"));
+    }
+    status.textContent=result.alliances.length+" alliance(s) détectée(s) automatiquement sur "+
+      result.connectedSessions+" connexion(s) active(s)."+
+      (result.unresolvedSessions?" "+result.unresolvedSessions+
+        " connexion(s) non identifiée(s) : réessayer ultérieurement.":"");
+  }catch{
+    status.textContent="Annuaire temporairement indisponible. Les autorisations restent conservées.";
+  }finally{if(button)button.disabled=false;}
+}
+
 async function loadRosterPreflight(){
   const btn=rosterEl("roster-preflight"),status=rosterEl("roster-preflight-status"),
     parent=rosterEl("roster-preflight-list");
@@ -243,12 +278,16 @@ async function submitRosterApprovals(){
     status.textContent=body.count+" alliance(s) approuvée(s) dans R2 privé. "+
       "Aucun roster téléchargé, aucun cron de collecte activé.";
     rosterClear(); // Require a fresh Scopely census before any new mutation.
+    void loadConnectedAlliances();
   }catch{
     status.textContent="Enregistrement refusé ou indisponible. "+
       "Aucune activation de collecte n'a eu lieu.";
     button.disabled=false;
   }
 }
+const connectedRefresh=rosterEl("roster-connected-refresh");
+if(connectedRefresh)connectedRefresh.addEventListener("click",loadConnectedAlliances);
+void loadConnectedAlliances();
 rosterEl("roster-preflight").addEventListener("click",loadRosterPreflight);
 rosterEl("roster-approve").addEventListener("click",submitRosterApprovals);
 
