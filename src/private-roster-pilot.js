@@ -1,7 +1,7 @@
 // Explicit, admin-only ONE shared roster pilot.
 // No cron collection, no WebApp push, no public download, no Google Sheets writes.
 import {CAPTAIN_PREFIX,validCaptainKey,captainConfigReady} from "./captain-vault.js";
-import {discoverAlliance,MAX_COVERAGE_SESSIONS} from "./alliance-coverage.js";
+import {discoverAlliance,listCaptainSessionKeys} from "./alliance-coverage.js";
 import {readApproval} from "./roster-sync-preflight.js";
 import {collectAllianceRosterSample} from "./roster-collector.js";
 
@@ -54,13 +54,7 @@ export async function chooseAccount(env,requested,fetchImpl){
     }
     try{await env.CAPTAIN_BUCKET.delete(hintKey);}catch{}
   }
-  const listed=await env.CAPTAIN_BUCKET.list({
-    prefix:CAPTAIN_PREFIX,limit:MAX_COVERAGE_SESSIONS+1
-  });
-  if(listed.truncated||(listed.objects||[]).length>MAX_COVERAGE_SESSIONS)
-    return {status:"session-census-incomplete"};
-  const keys=(listed.objects||[]).filter(o=>validCaptainKey(o.key))
-    .map(o=>o.key).sort();
+  const keys=await listCaptainSessionKeys(env.CAPTAIN_BUCKET);
   for(const key of keys){
     if(key===hint)continue;
     const token=await accessToken(env,key).catch(()=>null);
