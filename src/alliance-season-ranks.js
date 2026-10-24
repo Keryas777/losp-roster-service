@@ -2,6 +2,7 @@
 // Stored under the EXISTING roster-batches/v1/ lifecycle (7 days): no new
 // R2 retention rule needed and no indefinite historical API-data archive.
 import {scanPrivateAllianceRanks} from "./alliance-coverage.js";
+import {readApproval} from "./roster-sync-preflight.js";
 
 const PREFIX="roster-batches/v1/season-ranks/";
 const LATEST=PREFIX+"latest.json";
@@ -12,7 +13,7 @@ const HEADERS={"Cache-Control":"private, no-store","X-Robots-Tag":"noindex",
 const respond=(body,status=200)=>Response.json(body,{status,headers:HEADERS});
 const validSnapshot=s=>s&&s.version===1&&
   typeof s.capturedAt==="string"&&
-  Array.isArray(s.alliances)&&s.alliances.length<=12&&
+  Array.isArray(s.alliances)&&s.alliances.length<=500&&
   s.alliances.every(a=>typeof a.name==="string");
 async function latest(bucket){
   const object=await bucket.get(LATEST);
@@ -47,7 +48,11 @@ export async function handleAllianceSeasonRanks(request,env,fetchImpl=fetch,now=
       now-Date.parse(previous.capturedAt)>=0&&
       now-Date.parse(previous.capturedAt)<COOLDOWN)
       return respond({status:"recent-capture",snapshot:previous});
-    const snapshot=await scanPrivateAllianceRanks(env,fetchImpl,now);
+    const approval=await readApproval(env);
+    if(approval.status!=="configured"||!approval.alliances.length)
+      return respond({error:"no-approved-alliances"},409);
+    const authorized=new Set(approval.alliances.map(a=>a.fingerprint));
+    const snapshot=await scanPrivateAllianceRanks(env,fetchImpl,now,authorized);
     if(!snapshot)return respond({error:"oauth-unavailable"},503);
     if(!snapshot.connectedAlliances)
       return respond({error:"no-connected-alliances",scannedSessions:snapshot.scannedSessions,
