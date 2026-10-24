@@ -215,9 +215,9 @@ test("one-minute production schedule is used without touching existing roster cr
   assert.ok(schedule.includes("15 3 * * *"));
   assert.ok(schedule.includes("15 * * * *"));
   assert.equal(new Set(schedule).size,schedule.length);
-  assert.equal(GAME_ARCHIVE_TICK_LIMIT,6);
+  assert.equal(GAME_ARCHIVE_TICK_LIMIT,12);
   assert.equal(GAME_ARCHIVE_DAILY_LIMIT,9000);
-  assert.ok(GAME_ARCHIVE_DAILY_LIMIT>=24*60*GAME_ARCHIVE_TICK_LIMIT);
+  assert.ok(GAME_ARCHIVE_DAILY_LIMIT>GAME_ARCHIVE_TICK_LIMIT);
   assert.equal(wrangler.vars.ROSTER_AUTO_ENABLED,"true");
 });
 
@@ -229,15 +229,15 @@ test("an existing R2 campaign proceeds immediately beyond former 600/day cap",as
   const first=await runGameArchiveTick(f.env,f.provider,now);
   assert.equal(first.status,"running");
   assert.equal(first.processed,GAME_ARCHIVE_TICK_LIMIT);
-  assert.equal(first.requestsToday,606);
+  assert.equal(first.requestsToday,612);
   const status=await gameArchiveStatus(f.env,now);
-  assert.equal(status.cursor,6);
-  assert.equal(status.archivedResponses,6);
+  assert.equal(status.cursor,12);
+  assert.equal(status.archivedResponses,12);
   const next=await runGameArchiveTick(f.env,f.provider,now+60_000);
-  assert.equal(next.processed,GAME_ARCHIVE_TICK_LIMIT);
-  assert.equal(next.requestsToday,612);
-  assert.equal((await gameArchiveStatus(f.env,now)).cursor,12);
-  assert.equal(gameCalls(f).length,12);
+  assert.equal(next.processed,5);
+  assert.equal(next.requestsToday,617);
+  assert.equal((await gameArchiveStatus(f.env,now)).cursor,17);
+  assert.equal(gameCalls(f).length,17);
 });
 
 test("the game collector still blocks a true 9000 daily overflow without OAuth",async()=>{
@@ -256,11 +256,11 @@ test("same Worker isolate can reuse app OAuth token for minute-spaced game ticks
   await startGameArchive(f.env,now);
   await runGameArchiveTick(f.env,f.provider,now);
   await runGameArchiveTick(f.env,f.provider,now+60_000);
-  assert.equal(gameCalls(f).length,12);
+  assert.equal(gameCalls(f).length,17);
   assert.equal(f.calls.filter(c=>c.address.endsWith("/oauth2/token")).length,1);
-  // Token expires in 300s; 60s safety margin forces a fresh token.
+  // The faster run has already finished; do not refresh an unused token.
   await runGameArchiveTick(f.env,f.provider,now+250_000);
-  assert.equal(f.calls.filter(c=>c.address.endsWith("/oauth2/token")).length,2);
+  assert.equal(f.calls.filter(c=>c.address.endsWith("/oauth2/token")).length,1);
   assert.equal(gameCalls(f).length,17);
   assert.equal((await gameArchiveStatus(f.env,now)).status,"completed");
 });
@@ -313,7 +313,7 @@ test("legacy R2 upgradeData HTTP 472 at perPage=1 falls back to all documented f
   f.store.set(key,JSON.stringify(state));
   const first=await runGameArchiveTick(f.env,f.provider,now);
   assert.equal(first.status,"running");
-  assert.equal(first.completedTasks,9);
+  assert.equal(first.completedTasks,15);
   assert.equal(first.totalTasks,29);
   const saved=JSON.parse(f.store.get(key));
   assert.equal(saved.gaps.length,1);

@@ -154,10 +154,6 @@ async function startLogin(request, env, url) {
 export default {
   async scheduled(controller, env) {
     if(controller?.cron===GAME_ARCHIVE_CRON){
-      // Explicitly started player campaign only; zero /player GET when idle.
-      const player=await runPlayerCampaignTick(env);
-      if(player.status!=="idle"&&player.status!=="disabled")console.info(
-        "player-campaign-cron",JSON.stringify({status:player.status}));
       const result=await runGameArchiveTick(env);
       console.info("game-archive-cron",JSON.stringify({
         status:result.status,processed:result.processed||0,
@@ -173,6 +169,19 @@ export default {
           status:differential.status,changed:differential.changed||0,
           unchanged:differential.unchanged||0,failed:differential.failed||0
         }));
+      // Three /player actions (<= 30 provider GETs) + <= 12 /game GETs
+      // fit the SAME Free Worker invocation (< 50 external subrequests).
+      // Preserve the existing four cron triggers for the whole account.
+      // Each action has its own lock and provider-429 pause.
+      for(let action=0;action<3;action++){
+        const player=await runPlayerCampaignTick(env);
+        if(player.status!=="idle"&&player.status!=="disabled")console.info(
+          "player-campaign-cron",JSON.stringify({status:player.status}));
+        if(["idle","disabled","up-to-date","awaiting-oauth","cooldown",
+          "busy","storage-unavailable","invalid-state","tick-unavailable",
+          "complete","partial"].includes(player.status))
+          break;
+      }
       // Independent R2-only analysis, after the provider collector has run.
       // No Scopely GET, no roster access and no writes to archive receipts.
       const audit=await runGameArchiveSchemaAuditTick(env);

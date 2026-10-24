@@ -272,27 +272,42 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
     pages: 0,
     unchangedCount: 0
   };
-  for (const candidate of selected) {
-    // Only internally validated, member-bound snapshots may be supplied here.
-    const cached=typeof options.cachedForMember==="function"?
-      await options.cachedForMember(candidate,startIndex+rosters.length):null;
-    const result = await collectMember(candidate.id, token, budget, fetchImpl, withInfo,{
-      preferSinglePage:options.preferSinglePage===true,cached,
-      includeSourcePayload:options.includeSourcePayload===true
-    });
-    if (result.status !== "ok") {
-      // Fail closed: discard all partial rosters and never return their contents.
-      return { status: result.status, ...summary, requests: budget.used };
+  // Three simultaneous reads fit the Cloudflare Free six-connection limit.
+  // All results are ordered by the *original* stable member index, not
+  // network completion order; each fetch still consumes the shared GET budget.
+  // Only automatic campaigns opt in. A single failure aborts publication.
+  const results=new Array(selected.length);
+  let nextMember=0,failed=false;
+  const runner=async()=>{
+    while(!failed){
+      const i=nextMember++;
+      if(i>=selected.length)return;
+      const candidate=selected[i];
+      const cached=typeof options.cachedForMember==="function"?
+        await options.cachedForMember(candidate,startIndex+i):null;
+      const result=await collectMember(candidate.id,token,budget,fetchImpl,withInfo,{
+        preferSinglePage:options.preferSinglePage===true,cached,
+        includeSourcePayload:options.includeSourcePayload===true
+      });
+      results[i]={candidate,result};
+      if(result.status!=="ok")failed=true;
     }
-    // Kept exclusively in this invocation's memory for future privately approved storage.
-    rosters.push({ memberId: candidate.id, name: candidate.card.name,
-      chars: result.roster,asOf:result.asOf,unchanged:result.unchanged===true,
+  };
+  const concurrency=options.parallelMembers===true?3:1;
+  await Promise.all(Array.from({length:Math.min(concurrency,selected.length)},runner));
+  const failure=results.find(item=>item&&item.result.status!=="ok");
+  if(failure||results.some(item=>!item))
+    return {status:failure?.result.status||"incomplete",
+      ...summary,requests:budget.used};
+  for(const {candidate,result} of results){
+    rosters.push({memberId:candidate.id,name:candidate.card.name,
+      chars:result.roster,asOf:result.asOf,unchanged:result.unchanged===true,
       ...(options.includeSourcePayload===true?{
         sourceResponses:result.sourceResponses
-      }:{}) });
+      }:{})});
     summary.completedCount++;
-    summary.characterCount += result.roster.length;
-    summary.pages += result.pages;
+    summary.characterCount+=result.roster.length;
+    summary.pages+=result.pages;
     if(result.unchanged===true)summary.unchangedCount++;
   }
   let sourceMembershipAfter=null;

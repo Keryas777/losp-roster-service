@@ -239,12 +239,28 @@ test("daily global /player budget survives manually forced and automatic campaig
   const after=sumBudget();
   assert.equal(after,first+10,"Manual rerun does not reset UTC budget");
 });
-test("automatic player daily flag is deployed on the existing minute Cron",async()=>{
+test("old 1000-call daily ceiling no longer blocks authorized player collection",async()=>{
+  const f=await fixture();
+  const date=new Date(f.now).toISOString().slice(0,10);
+  const key=prefix+"player-campaign/budget/"+date+".json";
+  f.db.set(key,JSON.stringify({version:1,date,used:1010}));
+  const started=await (await startPlayerCampaign(f.env,f.now)).json();
+  assert.equal(started.status,"running");
+  const result=await runPlayerCampaignTick(f.env,f.provider,f.now);
+  assert.equal(result.status,"archived");
+  assert.equal(JSON.parse(f.db.get(key)).used,1020);
+  assert.ok(f.calls.length>0);
+});
+test("player daily campaign reuses the existing minute Cron without adding a fifth trigger",async()=>{
   const {readFile}=await import("node:fs/promises");
   const wrangler=JSON.parse(await readFile(
     new globalThis.URL("../wrangler.jsonc",import.meta.url),"utf8"));
   assert.equal(wrangler.vars.PLAYER_AUTO_ENABLED,"true");
   assert.ok(wrangler.triggers.crons.includes("* * * * *"));
+  assert.equal(wrangler.triggers.crons.length,4);
+  const index=await readFile(new globalThis.URL("../src/index.js",import.meta.url),"utf8");
+  assert.match(index,/action<3/);
+  assert.match(index,/runPlayerCampaignTick/);
   const frontend=await readFile(new globalThis.URL("../public/admin-player-campaign.js",import.meta.url),"utf8");
   assert.match(frontend,/autoEnabled/);
   assert.match(frontend,/Prochaine vérification prévue/);
