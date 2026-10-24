@@ -239,6 +239,18 @@ test("daily global /player budget survives manually forced and automatic campaig
   const after=sumBudget();
   assert.equal(after,first+10,"Manual rerun does not reset UTC budget");
 });
+test("old 1000-call daily ceiling no longer blocks authorized player collection",async()=>{
+  const f=await fixture();
+  const date=new Date(f.now).toISOString().slice(0,10);
+  const key=prefix+"player-campaign/budget/"+date+".json";
+  f.db.set(key,JSON.stringify({version:1,date,used:1010}));
+  const started=await (await startPlayerCampaign(f.env,f.now)).json();
+  assert.equal(started.status,"running");
+  const result=await runPlayerCampaignTick(f.env,f.provider,f.now);
+  assert.equal(result.status,"archived");
+  assert.equal(JSON.parse(f.db.get(key)).used,1020);
+  assert.ok(f.calls.length>0);
+});
 test("player daily cron is isolated from game on the fifth Free-tier trigger",async()=>{
   const {readFile}=await import("node:fs/promises");
   const wrangler=JSON.parse(await readFile(
