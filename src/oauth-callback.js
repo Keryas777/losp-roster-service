@@ -10,6 +10,8 @@ import { renderLiveRosterViewer } from "./roster-viewer.js";
 import { auditCaptainScopes } from "./captain-scopes.js";
 import { saveCaptainConsent } from "./captain-session-routes.js";
 import { captainConfigReady } from "./captain-vault.js";
+import { discoverAlliance } from "./alliance-coverage.js";
+import { readApproval } from "./roster-sync-preflight.js";
 import { ALLIANCE_SCOPE_PROBES, auditAllianceScopeProbe, renderAllianceScopeProbe } from "./alliance-scope-probes.js";
 import { getPlayerCard, showEphemeralPlayerCard } from "./player-card.js";
 
@@ -253,11 +255,29 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
           persistence = "missing-refresh-token";
         } else saveToken = true;
       }
-      const report = rosterAllowed
-        ? await collectAllianceRosterSample(result.access_token, fetchImpl, {
-            maxMembers: 3, charInfo: true
-          })
-        : { status: "scope-not-granted" };
+      // A captain from an OUTSIDE alliance must never trigger even an
+      // ephemeral co-member roster preview on the OAuth callback.
+      // Only explicitly approved LoSP alliance fingerprints retain that view.
+      let previewAllowed=!saveToken;
+      if(rosterAllowed&&saveToken){
+        try{
+          const alliance=await discoverAlliance(result.access_token,fetchImpl);
+          if(alliance.ok){
+            const digest=await crypto.subtle.digest("SHA-256",
+              new TextEncoder().encode(alliance.aid));
+            const fp=[...new Uint8Array(digest)]
+              .map(b=>b.toString(16).padStart(2,"0")).join("");
+            const approval=await readApproval(env);
+            previewAllowed=approval.alliances.some(a=>a.fingerprint===fp);
+          }
+        }catch{previewAllowed=false;}
+      }
+      const report = !rosterAllowed?{status:"scope-not-granted"}:
+        previewAllowed
+          ? await collectAllianceRosterSample(result.access_token, fetchImpl, {
+              maxMembers: 3, charInfo: true
+            })
+          : {status:"personal-only"};
       let rendered = renderLiveRosterViewer({
         ...report, captainScopeAudit: scopeAudit,
         captainPersistence: saveToken ? "active" : persistence

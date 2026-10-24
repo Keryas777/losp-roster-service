@@ -305,14 +305,16 @@ test("captain OAuth callback persists only after validated offline token grant",
   assert.ok(headers.some(row=>row.startsWith("__Host-losp_captain_session=")));
   const html=await success.text();
   assert.match(html,/connexion du capitaine est conservée/);
+  assert.match(html,/Votre roster personnel est le seul roster archivé/);
   assert.doesNotMatch(html+JSON.stringify([...success.headers]),/PRIVATE_(ACCESS|REFRESH)/);
   assert.deepEqual(calls,[
     "https://hydra-public.prod.m3.scopelypv.com/oauth2/token",
-    "https://api.marvelstrikeforce.com/player/v1/alliance/members",
+    "https://api.marvelstrikeforce.com/player/v1/alliance/card",
     "https://api.marvelstrikeforce.com/player/v1/alliance/card",
     "https://api.marvelstrikeforce.com/player/v1/alliance/card",
     "https://api.marvelstrikeforce.com/player/v1/alliance/members"
   ]);
+  assert.ok(!calls.some(u=>u.includes("/roster/member/")));
 });
 
 test("new OAuth connections automatically register distinct alliances in private Admin R2",async()=>{
