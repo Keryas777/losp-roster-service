@@ -2,7 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import {Script} from "node:vm";
-import {rosterSyncPreflight,saveRosterSyncApprovals,readApproval,ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
+import {rosterSyncPreflight,saveRosterSyncApprovals,approveOneRosterAlliance,readApproval,ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 import {CAPTAIN_PREFIX} from "../src/captain-vault.js";
 import {handleAdmin} from "../src/admin-routes.js";
 
@@ -15,7 +15,7 @@ const fixtures={
   2:{card:{id:"aid-a:v1",name:"Athéna"},members:[
     member("self",true,true),member("ally",false,true)]}
 };
-function fixture({partial=false,forbidden=false}={}){
+function fixture({partial=false,forbidden=false,forHades=false}={}){
   const store=new Map(),calls=[];
   const env={
     CAPTAIN_SESSIONS_ENABLED:"true",CAPTAIN_ENCRYPTION_KEY_HEX:"cc".repeat(32),
@@ -34,7 +34,7 @@ function fixture({partial=false,forbidden=false}={}){
     calls.push(url);
     assert.equal(options.method,"GET");
     assert.equal(options.headers.Authorization,"Bearer TEST_TOKEN");
-    if(url.endsWith("/alliance/card"))return Response.json({data:fixtures[1].card});
+    if(url.endsWith("/alliance/card"))return Response.json({data:forHades?{id:"aid-h:v1",name:"Hadès"}:fixtures[1].card});
     if(url.endsWith("/alliance/members"))
       return forbidden?Response.json({error:"not shared"},{status:403}):
         Response.json({data:fixtures[1].members});
@@ -82,6 +82,24 @@ test("explicit approval saves stable fingerprints only, never roster or member d
   assert.equal(after.readyCount,1);
   assert.equal(after.alliances[0].approved,true);
 });
+test("Hadès joins full LoSP approved registry without replacing Zeus",async()=>{
+  const f=fixture({forHades:true});
+  f.store.set(ROSTER_APPROVAL_KEY,JSON.stringify({
+    version:1,alliances:[{fingerprint:"a".repeat(64),name:"Zeus"}]
+  }));
+  const scan=await(await rosterSyncPreflight(f.env,f.provider)).json();
+  const fingerprint=scan.alliances[0].fingerprint;
+  const result=await approveOneRosterAlliance(req("/admin/api/roster-approve-one",{
+    body:{fingerprint}
+  }),f.env,f.provider);
+  assert.equal(result.status,200);
+  assert.deepEqual(await result.json(),{status:"approved",name:"Hadès",count:2});
+  const saved=(await readApproval(f.env)).alliances;
+  assert.deepEqual(saved.map(a=>a.name),["Zeus","Hadès"]);
+  assert.ok(saved.every(a=>a.mode===undefined&&a.maxConnected===undefined),
+    "No two-player cap, no special Hadès collection mode");
+});
+
 test("unsafe, duplicate, arbitrary and unverified approvals are all rejected",async()=>{
   const f=fixture();
   const fingerprint="a".repeat(64);
