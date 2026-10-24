@@ -258,9 +258,9 @@ test("same Worker isolate can reuse app OAuth token for minute-spaced game ticks
   await runGameArchiveTick(f.env,f.provider,now+60_000);
   assert.equal(gameCalls(f).length,17);
   assert.equal(f.calls.filter(c=>c.address.endsWith("/oauth2/token")).length,1);
-  // Token expires in 300s; 60s safety margin forces a fresh token.
+  // The faster run has already finished; do not refresh an unused token.
   await runGameArchiveTick(f.env,f.provider,now+250_000);
-  assert.equal(f.calls.filter(c=>c.address.endsWith("/oauth2/token")).length,2);
+  assert.equal(f.calls.filter(c=>c.address.endsWith("/oauth2/token")).length,1);
   assert.equal(gameCalls(f).length,17);
   assert.equal((await gameArchiveStatus(f.env,now)).status,"completed");
 });
