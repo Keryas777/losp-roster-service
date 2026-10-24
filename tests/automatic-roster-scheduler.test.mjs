@@ -5,6 +5,7 @@ import {RosterBatchLock} from "../src/roster-batch-lock.js";
 import {CAPTAIN_PREFIX} from "../src/captain-vault.js";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 import {completeKey,BATCH_PREFIX} from "../src/private-roster-batches.js";
+import {rosterAttemptKey,rosterCooldownKey} from "../src/roster-auto-diagnostics.js";
 import {ROSTER_CRON,TICK_API_BUDGET,rosterWindow,manualRosterWindow,runRosterAutoTick,rosterAutoStatus,handleAdminRosterAutoTest} from "../src/automatic-roster-scheduler.js";
 import worker from "../src/index.js";
 import {handleAdmin} from "../src/admin-routes.js";
@@ -178,6 +179,60 @@ test("one scheduled minute processes two approved alliances and isolates errors"
   assert.equal((await runRosterAutoTick(f.env,at,f.fetchImpl)).status,"already-processed");
   assert.equal(f.calls.length,calls);
 });
+test("last per-alliance attempt is recorded with a safe status and no private identifiers",async()=>{
+ const f=fixture();
+ await runRosterAutoTick(f.env,controller("2026-10-18T14:00:00Z"),f.fetchImpl);
+ const record=JSON.parse(f.store.get(rosterAttemptKey(fp)));
+ assert.equal(record.version,1);
+ assert.equal(record.campaign,"2026-10-18-pm");
+ assert.equal(record.at,"2026-10-18T14:00Z");
+ assert.equal(record.outcome,"complete-co-members");
+ assert.equal(record.httpStatus,200);
+ assert.ok(record.requests>0&&record.requests<=TICK_API_BUDGET);
+ assert.equal(record.retryAt,undefined);
+ assert.doesNotMatch(JSON.stringify(record),/TOKEN_PRIVATE|Co1|Co2|aid007|self/);
+ await runRosterAutoTick(f.env,controller("2026-10-18T14:02:00Z"),f.fetchImpl);
+ const completed=JSON.parse(f.store.get(rosterAttemptKey(fp)));
+ assert.equal(completed.outcome,"complete");
+ assert.equal(completed.at,"2026-10-18T14:02Z");
+ const calls=f.calls.length;
+ await runRosterAutoTick(f.env,controller("2026-10-18T14:04:00Z"),f.fetchImpl);
+ assert.equal(f.calls.length,calls);
+ assert.deepEqual(JSON.parse(f.store.get(rosterAttemptKey(fp))),completed,
+   "A no-op complete Cron must not pretend to be a new provider read");
+});
+
+test("rate limits keep the real failure reason and retry time during cooldown",async()=>{
+ const f=fixture();f.flags.limit=true;
+ await runRosterAutoTick(f.env,controller("2026-10-18T02:00:00Z"),f.fetchImpl);
+ const first=JSON.parse(f.store.get(rosterAttemptKey(fp)));
+ const pause=JSON.parse(f.store.get(rosterCooldownKey(fp)));
+ assert.equal(first.outcome,"rate-limited");
+ assert.equal(first.httpStatus,409);
+ assert.ok(first.requests>0);
+ assert.equal(first.retryAt,"2026-10-18T03:00:00.000Z");
+ assert.equal(first.retryAt,pause.until);
+ await runRosterAutoTick(f.env,controller("2026-10-18T02:02:00Z"),f.fetchImpl);
+ assert.deepEqual(JSON.parse(f.store.get(rosterAttemptKey(fp))),first,
+   "A cooldown tick must not erase the last actual failure");
+});
+
+test("optional diagnostic R2 write errors cannot abort the real microbatch",async()=>{
+ const f=fixture();
+ const put=f.env.CAPTAIN_BUCKET.put;
+ f.env.CAPTAIN_BUCKET.put=async(key,...args)=>{
+   if(key===rosterAttemptKey(fp))throw Error("Optional telemetry unavailable");
+   return put(key,...args);
+ };
+ const first=await runRosterAutoTick(f.env,controller("2026-10-18T02:00:00Z"),f.fetchImpl);
+ assert.equal(first.status,"complete-co-members");
+ assert.equal(f.store.has(rosterAttemptKey(fp)),false);
+ assert.ok(f.store.has(BATCH_PREFIX+fp+"/progress.json"));
+ const next=await runRosterAutoTick(f.env,controller("2026-10-18T02:02:00Z"),f.fetchImpl);
+ assert.equal(next.status,"complete");
+ assert.ok(f.store.has(completeKey(fp)));
+});
+
 test("duplicate cron invocation is idempotent: never re-downloads a roster",async()=>{
  const f=fixture(),time="2026-10-18T02:00:00Z";
  await runRosterAutoTick(f.env,controller(time),f.fetchImpl);
