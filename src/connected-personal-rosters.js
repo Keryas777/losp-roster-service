@@ -3,14 +3,13 @@
 import {CAPTAIN_PREFIX,validCaptainKey,captainConfigReady} from "./captain-vault.js";
 import {collectPersonalRoster} from "./roster-collector.js";
 import {discoverAlliance} from "./alliance-coverage.js";
-import {CONNECTED_ALLIANCE_PREFIX} from "./connected-alliance-index.js";
+import {readApproval} from "./roster-sync-preflight.js";
 
 const ROOT="roster-batches/v1/connected-personal-rosters/";
 const SIZE=3_000_000;
 const AGE=7*86400000;
 const HEX=/^[a-f0-9]{64}$/;
 const key=id=>ROOT+id;
-const indexed=key=>CONNECTED_ALLIANCE_PREFIX+key.slice(CAPTAIN_PREFIX.length);
 const metadata={httpMetadata:{contentType:"application/json",
   cacheControl:"private, no-store"}};
 const sha=async text=>[...new Uint8Array(await crypto.subtle.digest("SHA-256",
@@ -50,6 +49,14 @@ export async function captureConnectedPersonalRoster(env,sessionKey,token,
     const fingerprint=await sha(before.aid);
     if(expectedFingerprint&&expectedFingerprint!==fingerprint)
       return {status:"alliance-changed"};
+    // LoSP alliances use their own complete, shared-roster scheduler.
+    // An outside captain's consent NEVER authorizes background retrieval
+    // of any fellow alliance member.
+    const approvals=await readApproval(env);
+    if(approvals.status==="invalid-registry")
+      return {status:"invalid-approval-registry"};
+    if(approvals.alliances.some(a=>a.fingerprint===fingerprint))
+      return {status:"managed-by-alliance-sync"};
     const previous=await readConnectedPersonalRoster(env,sessionKey,now);
     if(campaign&&previous?.campaign===campaign)
       return {status:"already-collected"};
@@ -90,39 +97,3 @@ export async function captureConnectedPersonalRoster(env,sessionKey,token,
   }catch{return {status:"unavailable"};}
 }
 
-export async function collectOneConnectedAllianceRoster(env,fp,maxConnected,
-    campaign,fetchImpl=fetch,now=Date.now()){
-  if(!HEX.test(fp)||!Number.isSafeInteger(maxConnected)||maxConnected<1||
-     maxConnected>24||!/^\d{4}-\d{2}-\d{2}-(?:am|pm)$/.test(campaign))
-    return {status:"invalid-config"};
-  const {listCaptainSessionKeys}=await import("./alliance-coverage.js");
-  // All session keys are opaque and independent. The quota applies only to
-  // explicit current OAuth participants, never other roster-sharing members.
-  const keys=await listCaptainSessionKeys(env.CAPTAIN_BUCKET);
-  let collected=0,attempted=0;
-  for(const captainKey of keys){
-    const obj=await env.CAPTAIN_BUCKET.get(indexed(captainKey));
-    if(!obj)continue;
-    let directory;
-    try{directory=JSON.parse(await obj.text());}catch{continue;}
-    if(directory?.fingerprint!==fp)continue;
-    attempted++;
-    // Strictly stop at the configured number of connected accounts.
-    if(attempted>maxConnected)break;
-    const existing=await readConnectedPersonalRoster(env,captainKey,now);
-    if(existing?.campaign===campaign){collected++;continue;}
-    const stub=env.CAPTAIN_REFRESH_COORDINATOR.get(
-      env.CAPTAIN_REFRESH_COORDINATOR.idFromName(captainKey));
-    const res=await stub.fetch(new Request("https://captain-coordinator.internal/",{
-      method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({action:"access",key:captainKey})
-    }));
-    if(!res.ok)return {status:"session-unavailable"};
-    const grant=await res.json();
-    if(grant.status!=="active"||typeof grant.accessToken!=="string")continue;
-    return captureConnectedPersonalRoster(env,captainKey,grant.accessToken,
-      fetchImpl,now,campaign,fp);
-  }
-  return {status:collected?"complete":"no-connected-accounts",
-    completed:collected,connected:Math.min(attempted,maxConnected)};
-}
