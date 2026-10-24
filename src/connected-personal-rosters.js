@@ -83,8 +83,8 @@ export async function captureConnectedPersonalRoster(env,sessionKey,token,
     // Preserve original Scopely envelopes only in the private capture object.
     const source=JSON.stringify({version:1,kind:"private-provider-source",
       capturedAt:timestamp,allianceFingerprint:fingerprint,session,
-      membersBefore:collected.sourceMembershipBefore,
-      membersAfter:collected.sourceMembershipAfter,
+      // The membership lists are checked transiently to identify the
+      // connected user, never archived for an outside alliance.
       pages:collected.sourceResponses});
     if(source.length>SIZE)return {status:"source-too-large"};
     const run=crypto.randomUUID();
