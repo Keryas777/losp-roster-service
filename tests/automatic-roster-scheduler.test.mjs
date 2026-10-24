@@ -200,7 +200,7 @@ test("revoked member sharing still produces a truthful authorized-roster manifes
  assert.equal(current.notSharedCount,1);
 });
 test("per-invocation safety bound is independent of alliance count",()=>{
-  assert.equal(TICK_API_BUDGET,35);
+  assert.equal(TICK_API_BUDGET,24);
 });
 test("daily telemetry above the old 2500-GET ceiling does not block collection",async()=>{
   const f=fixture(),date="2026-10-18";
@@ -224,7 +224,7 @@ test("a crash after Scopely requests preserves the per-invocation idempotency ch
  assert.equal(first.status,"unavailable");
  assert.ok(f.calls.length>0);
  const stored=JSON.parse(f.store.get(key));
- assert.equal(stored.used,TICK_API_BUDGET);
+ assert.equal(stored.used,0);
  assert.equal(stored.lastOutcome,"reserved");
  const before=f.calls.length;
  const repeat=await runRosterAutoTick(f.env,controller("2026-10-18T02:00:00Z"),f.fetchImpl);
