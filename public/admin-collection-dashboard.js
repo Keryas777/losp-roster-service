@@ -269,8 +269,13 @@
           renderProgress(article,{done:a.completed,total:a.eligible},
             "Rosters autorisés traités");
         if(Number.isSafeInteger(a.noShareCount)&&a.noShareCount>0){
-          node("p",a.noShareCount+" membre(s) ont choisi de ne pas partager "+
-            "leur roster sur "+count(a.observedMembers)+" membres observés. "+
+          node("p",a.noShareCount+" membre(s) sans partage de roster autorisé "+
+            "selon la dernière réponse Scopely, sur "+count(a.observedMembers)+
+            " membres observés. "+
+            (a.eligible===0?"ATTENTION : aucun roster de coéquipier "+
+              "n'est accessible ; seule la fiche personnelle OAuth "+
+              "peut être collectée. Vérifier les paramètres de partage "+
+              "des membres dans MSF. ":"")+
             (a.progress==="partial-consent"?
               a.snapshot==="valid"&&a.manifestCoverage==="authorized-only"?
                 "Manifeste des rosters autorisés présent.":
