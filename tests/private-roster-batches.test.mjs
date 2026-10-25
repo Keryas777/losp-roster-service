@@ -9,6 +9,8 @@ import {RosterBatchLock} from "../src/roster-batch-lock.js";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 import {CAPTAIN_PREFIX} from "../src/captain-vault.js";
 import {BATCH_PREFIX,handleRosterMicrobatch,getRosterBatchStatus} from "../src/private-roster-batches.js";
+import {collectAllianceRosterSample} from "../src/roster-collector.js";
+import {handleRosterR2Coverage} from "../src/roster-r2-coverage.js";
 
 const origin="https://losp-roster-service.deliriousfan7.workers.dev";
 const hash=s=>createHash("sha256").update(s).digest("hex");
@@ -23,7 +25,7 @@ const request=(fp=fingerprint,extra={})=>
     headers:{Origin:origin,"Content-Type":"application/json"},
     body:JSON.stringify({fingerprint:fp,...extra})});
 const statusRequest=fp=>new Request(origin+"/admin/api/roster-batch-status?fingerprint="+fp);
-function fixture({noOptout=false,members=users}={}){
+function fixture({noOptout=false,members=users,optOutCount=1}={}){
  const store=new Map(),logs=[],storage=new Map(),counters={calls:0,revision:0,reorder:false,changedRosters:false,conditionalHits:0};
  store.set(ROSTER_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
    {name:"Zeus",fingerprint},
@@ -37,6 +39,7 @@ function fixture({noOptout=false,members=users}={}){
    CAPTAIN_SESSIONS_ENABLED:"true",CAPTAIN_ENCRYPTION_KEY_HEX:"ab".repeat(32),
    CAPTAIN_BUCKET:{
      get:async k=>store.has(k)?{text:async()=>store.get(k)}:null,
+     head:async k=>store.has(k)?{key:k}:null,
      put:async(k,v)=>{store.set(k,v);logs.push(k)},
      delete:async k=>store.delete(k),
      list:async({prefix})=>({objects:prefix===CAPTAIN_PREFIX?
@@ -64,7 +67,8 @@ function fixture({noOptout=false,members=users}={}){
        meta:{serverSchema:"opaque",version:77}});
    if(url.endsWith("/alliance/members"))return Response.json({data:[
      mkMember("self",true),...(counters.reorder?[...members].reverse():members).map((x,i)=>mkMember(
-       counters.revision&&i===2?x+"-changed":x)),...(noOptout?[]:[mkMember("private",false,false)])
+       counters.revision&&i===2?x+"-changed":x)),...(noOptout?[]:Array.from({length:optOutCount},(_,i)=>
+         mkMember(i===0?"private":"private"+i,false,false)))
    ],meta:{arbitraryProviderField:{deep:"kept"}}});
    if(new URL(url).pathname==="/player/v1/roster"){
      const u=new URL(url),since=u.searchParams.get("since");
@@ -99,7 +103,7 @@ function fixture({noOptout=false,members=users}={}){
  };
  return {store,logs,counters,storage,env,api,lock};
 }
-test("an automatic alliance batch reads eight shared rosters and saves stable indices",async()=>{
+test("an automatic alliance batch reads one shared roster within the 24-GET budget",async()=>{
   const members=Array.from({length:11},(_,i)=>"Member"+String(i).padStart(2,"0"));
   const f=fixture({members,noOptout:true}),now=Date.UTC(2026,9,24,17);
   const res=await handleRosterMicrobatch(request(),f.env,f.api,now,{
@@ -107,13 +111,13 @@ test("an automatic alliance batch reads eight shared rosters and saves stable in
   });
   assert.equal(res.status,200);
   const data=await res.json();
-  assert.equal(data.savedThisBatch,8);
-  assert.equal(data.completed,8);
-  assert.equal(data.remaining,3);
+  assert.equal(data.savedThisBatch,1);
+  assert.equal(data.completed,1);
+  assert.equal(data.remaining,10);
   assert.equal(data.status,"in-progress");
   assert.ok(data.requestsThisBatch<=24);
   const saved=[...f.store.keys()].filter(k=>/\/member-[0-9]+\.json$/.test(k));
-  assert.equal(saved.length,8);
+  assert.equal(saved.length,1);
 });
 test("a two-player batch persists only complete separate R2 objects and advances after writes",async()=>{
  const f=fixture(),now=Date.UTC(2026,9,18,18);
@@ -332,8 +336,9 @@ test("foreign Origin, unknown fingerprint, forged admin and public access fail c
 test("automatic campaign finalizes only after the captain personal roster and all co-members",async()=>{
  const f=fixture({noOptout:true}),now=Date.UTC(2026,9,18,18);
  const internal=i=>({campaign:"2026-10-18-pm",tick:"2026-10-18T"+(16+i)+":00Z"});
- for(const expected of [5]){
-   const response=await handleRosterMicrobatch(request(),f.env,f.api,now+expected*1000,internal(expected));
+ for(let expected=1;expected<=5;expected++){
+   const response=await handleRosterMicrobatch(request(),f.env,f.api,
+     now+expected*1000,internal(expected));
    assert.equal(response.status,200);
    assert.equal((await response.json()).completed,expected);
  }
@@ -359,4 +364,92 @@ test("automatic campaign finalizes only after the captain personal roster and al
  assert.equal(selfRaw.providerResponse.data.length,207);
  const reRun=await handleRosterMicrobatch(request(),f.env,f.api,now+12000,internal(8));
  assert.equal((await reRun.json()).status,"already-processed-tick");
+});
+
+
+test("24-person alliance completes via 1-member Cron slices without exceeding 24 upstream GET",async()=>{
+ const members=Array.from({length:23},(_,i)=>"m"+String(i).padStart(2,"0"));
+ const f=fixture({members,noOptout:true});
+ const origin=Date.UTC(2026,9,25,2,0,0);
+ let completed=false;
+ for(let i=0;i<24;i++){
+   const now=origin+i*60000;
+   const stamp=new Date(now).toISOString().slice(0,16)+"Z";
+   let used=0;
+   const bounded=async(url,opts)=>{
+     used++;
+     if(used>24)throw Error("scopely-invocation-limit");
+     return f.api(url,opts);
+   };
+   const r=await handleRosterMicrobatch(request(),f.env,bounded,now,{
+     campaign:"2026-10-25-am",tick:stamp
+   });
+   assert.equal(r.status,200,"slice "+i+" must not exhaust the bounded budget");
+   const result=await r.json();
+   assert.ok(used>0&&used<=24);
+   if(i<23)assert.ok(["in-progress","complete-co-members"].includes(result.status));
+   else {
+     assert.equal(result.status,"complete");
+     completed=true;
+   }
+ }
+ assert.equal(completed,true);
+ const pointer=JSON.parse(f.store.get(BATCH_PREFIX+fingerprint+"/latest-complete.json"));
+ assert.equal(pointer.total,24);
+ assert.equal(pointer.coMembers,23);
+ assert.equal(pointer.coverage,"all-members");
+ assert.ok(f.store.has(BATCH_PREFIX+fingerprint+"/"+pointer.runId+"/member-self.json"));
+ for(let i=0;i<23;i++)
+   assert.ok(f.store.has(BATCH_PREFIX+fingerprint+"/"+pointer.runId+"/member-"+i+".json"));
+});
+test("Hadès: all 23 co-members opt out, but authorized captain roster is archived",async()=>{
+ const f=fixture({members:[],optOutCount:23});
+ const at=Date.UTC(2026,9,25,2,15);
+ const upstream=[];
+ const provider=async(url,options)=>{
+   upstream.push(url);
+   return f.api(url,options);
+ };
+ const r=await handleRosterMicrobatch(request(),f.env,provider,at,{
+   campaign:"2026-10-25-am",tick:"2026-10-25T02:15Z"
+ });
+ assert.equal(r.status,200);
+ const payload=await r.json();
+ assert.equal(payload.status,"partial-consent");
+ assert.equal(payload.personalRosterCollected,true);
+ assert.equal(payload.savedThisBatch,1);
+ assert.equal(upstream.some(x=>x.includes("/roster/member/")),false,
+   "The 23 non-sharing teammates must never be queried");
+ const pointer=JSON.parse(f.store.get(BATCH_PREFIX+fingerprint+"/latest-complete.json"));
+ assert.equal(pointer.total,1);
+ assert.equal(pointer.observedMembers,24);
+ assert.equal(pointer.coMembers,0);
+ assert.equal(pointer.coverage,"authorized-only");
+ assert.equal(pointer.notSharedCount,23);
+ assert.ok(f.store.has(BATCH_PREFIX+fingerprint+"/"+pointer.runId+"/member-self.json"));
+ const check=(await(await handleRosterR2Coverage(
+   new Request(origin+"/admin/api/roster-r2-coverage?fingerprint="+fingerprint),
+   f.env,at)).json()).alliances[0];
+ assert.equal(check.progress.status,"partial-consent");
+ assert.equal(check.progress.eligibleCoMembers,0);
+ assert.equal(check.manifest.verified,true);
+ assert.equal(check.manifest.files.checked,1);
+ assert.equal(check.manifest.files.missing,0);
+});
+test("local invocation budget is not misreported as Scopely network failure",async()=>{
+ const f=fixture({members:["A"],noOptout:true});
+ let calls=0;
+ const exceeded=async(url,opts)=>{
+   calls++;
+   if(calls>1)throw Error("scopely-invocation-limit");
+   return f.api(url,opts);
+ };
+ const first=await collectAllianceRosterSample("TOKEN_Z",exceeded,{
+   maxMembers:1,preferSinglePage:true,requireCurrentMembership:true
+ });
+ assert.equal(first.status,"request-budget");
+ const lost=await collectAllianceRosterSample("TOKEN_Z",async()=>{
+   throw Error("real-network-error");
+ },{maxMembers:1});
+ assert.equal(lost.status,"network-error");
 });

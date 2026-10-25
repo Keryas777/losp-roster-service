@@ -12,7 +12,9 @@ const FP=/^[0-9a-f]{64}$/;
 const RUN=/^[0-9a-f-]{36}$/;
 const MAX_SNAPSHOT_BYTES=3_000_000;
 const BATCH_SIZE=2;
-const AUTOMATIC_BATCH_SIZE=8;
+// Large /player rosters can need up to 10 pages each. Keep each Cron
+// microbatch inside its existing 24-GET bound, even without a usable cache.
+const AUTOMATIC_BATCH_SIZE=1;
 const answer=(v,status=200)=>Response.json(v,{status,headers:{
   "Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff",
   "X-Robots-Tag":"noindex","Referrer-Policy":"no-referrer"
@@ -83,7 +85,7 @@ async function readState(env,fp){
   if(s.version!==1||s.fingerprint!==fp||!RUN.test(s.runId)||
      !/^[0-9a-f]{64}$/.test(s.membershipDigest)||
      !Number.isInteger(s.completed)||s.completed<0||
-     !Number.isInteger(s.totalEligible)||s.totalEligible<1||
+     !Number.isInteger(s.totalEligible)||s.totalEligible<0||
      s.totalEligible>100||s.completed>s.totalEligible||
      !Number.isFinite(Date.parse(s.expiresAt))||
      !Number.isFinite(Date.parse(s.startedAt))||
@@ -310,7 +312,22 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     if(previous&&(previous.membershipDigest!==result.membershipDigest||
        previous.totalEligible!==result.sharedCount))
       return answer({status:"membership-changed-restart-required"},409);
-    if(!result.sharedCount)return answer({status:"no-shared-co-members"},409);
+    if(!result.sharedCount){
+      if(!campaign)return answer({status:"no-shared-co-members"},409);
+      // No co-member permits roster sharing: the captain's OWN authorized
+      // roster is still accessible via OAuth. Archive that source only;
+      // never probe /roster/member without consent.
+      if(previous)return answer({status:"invalid-zero-member-progress"},409);
+      const selfOnly={
+        version:1,fingerprint:fp,runId:crypto.randomUUID(),
+        membershipDigest:result.membershipDigest,
+        startedAt:new Date(now).toISOString(),
+        expiresAt:new Date(now+BATCH_MAX_AGE_MS).toISOString(),
+        totalEligible:0,completed:0,observedMembers:result.memberCount,
+        campaign,selfCompleted:false,lastAutoTick:internal.tick
+      };
+      return finishSelf(env,fp,selfOnly,selected,baseline,now,fetchImpl,internal.tick);
+    }
     if(result.selectedCount<1||result.rosters.length!==result.selectedCount||
        result.rosters.some(r=>!Array.isArray(r.chars)||r.chars.length===0))
       return answer({status:"no-complete-roster"},409);
