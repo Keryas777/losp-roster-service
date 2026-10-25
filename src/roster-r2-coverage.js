@@ -26,7 +26,7 @@ async function r2JSON(bucket,key){
 function validProgress(p,fp){
   return p?.version===1&&p.fingerprint===fp&&RUN.test(p.runId)&&
     FP.test(p.membershipDigest)&&Number.isInteger(p.completed)&&p.completed>=0&&
-    Number.isInteger(p.totalEligible)&&p.totalEligible>=1&&p.totalEligible<=100&&
+    Number.isInteger(p.totalEligible)&&p.totalEligible>=0&&p.totalEligible<=100&&
     p.completed<=p.totalEligible&&validDate(p.startedAt)&&validDate(p.expiresAt)&&
     Date.parse(p.expiresAt)-Date.parse(p.startedAt)===BATCH_MAX_AGE_MS&&
     (p.selfCompleted===undefined||typeof p.selfCompleted==="boolean")&&
