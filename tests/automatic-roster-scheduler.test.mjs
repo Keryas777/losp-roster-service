@@ -112,14 +112,16 @@ test("real Cloudflare cron event 07:50:31 French time maps to 05:50 UTC",()=>{
 test("delayed cron runs once per logical 1-minute slot despite duplicate events",async()=>{
  const f=fixture();
  const first=await runRosterAutoTick(f.env,controller("2026-10-19T05:50:31.718Z"),f.fetchImpl);
- assert.equal(first.status,"complete-co-members");
+ assert.equal(first.status,"in-progress");
  assert.ok(first.requestsThisTick>0);
  const before=f.calls.length;
  const same=await runRosterAutoTick(f.env,controller("2026-10-19T05:50:57.123Z"),f.fetchImpl);
  assert.equal(same.status,"already-processed");
  assert.equal(f.calls.length,before);
  const next=await runRosterAutoTick(f.env,controller("2026-10-19T05:52:31.718Z"),f.fetchImpl);
- assert.equal(next.status,"complete");
+ assert.equal(next.status,"complete-co-members");
+ const last=await runRosterAutoTick(f.env,controller("2026-10-19T05:54:31Z"),f.fetchImpl);
+ assert.equal(last.status,"complete");
  assert.ok(f.store.has(completeKey(fp)));
 });
 test("disabled and retention-unconfirmed are fail-closed with zero Scopely requests",async()=>{
@@ -132,7 +134,7 @@ test("disabled and retention-unconfirmed are fail-closed with zero Scopely reque
 });
 test("AM and PM campaigns read both co-members and personal account, publish only when complete",async()=>{
  const f=fixture();
- const morning=["02:00","02:02"],evening=["14:00","14:02"];
+ const morning=["02:00","02:02","02:04"],evening=["14:00","14:02","14:04"];
  for(const [n,t] of morning.entries()){
    const res=await runRosterAutoTick(f.env,controller("2026-10-18T"+t+":00Z"),f.fetchImpl);
    assert.ok(["in-progress","complete-co-members","complete"].includes(res.status),JSON.stringify(res));
@@ -186,17 +188,20 @@ test("last per-alliance attempt is recorded with a safe status and no private id
  assert.equal(record.version,1);
  assert.equal(record.campaign,"2026-10-18-pm");
  assert.equal(record.at,"2026-10-18T14:00Z");
- assert.equal(record.outcome,"complete-co-members");
+ assert.equal(record.outcome,"in-progress");
  assert.equal(record.httpStatus,200);
  assert.ok(record.requests>0&&record.requests<=TICK_API_BUDGET);
  assert.equal(record.retryAt,undefined);
  assert.doesNotMatch(JSON.stringify(record),/TOKEN_PRIVATE|Co1|Co2|aid007|self/);
  await runRosterAutoTick(f.env,controller("2026-10-18T14:02:00Z"),f.fetchImpl);
+ const between=JSON.parse(f.store.get(rosterAttemptKey(fp)));
+ assert.equal(between.outcome,"complete-co-members");
+ await runRosterAutoTick(f.env,controller("2026-10-18T14:04:00Z"),f.fetchImpl);
  const completed=JSON.parse(f.store.get(rosterAttemptKey(fp)));
  assert.equal(completed.outcome,"complete");
- assert.equal(completed.at,"2026-10-18T14:02Z");
+ assert.equal(completed.at,"2026-10-18T14:04Z");
  const calls=f.calls.length;
- await runRosterAutoTick(f.env,controller("2026-10-18T14:04:00Z"),f.fetchImpl);
+ await runRosterAutoTick(f.env,controller("2026-10-18T14:06:00Z"),f.fetchImpl);
  assert.equal(f.calls.length,calls);
  assert.deepEqual(JSON.parse(f.store.get(rosterAttemptKey(fp))),completed,
    "A no-op complete Cron must not pretend to be a new provider read");
@@ -225,11 +230,13 @@ test("optional diagnostic R2 write errors cannot abort the real microbatch",asyn
    return put(key,...args);
  };
  const first=await runRosterAutoTick(f.env,controller("2026-10-18T02:00:00Z"),f.fetchImpl);
- assert.equal(first.status,"complete-co-members");
+ assert.equal(first.status,"in-progress");
  assert.equal(f.store.has(rosterAttemptKey(fp)),false);
  assert.ok(f.store.has(BATCH_PREFIX+fp+"/progress.json"));
  const next=await runRosterAutoTick(f.env,controller("2026-10-18T02:02:00Z"),f.fetchImpl);
- assert.equal(next.status,"complete");
+ assert.equal(next.status,"complete-co-members");
+ const final=await runRosterAutoTick(f.env,controller("2026-10-18T02:04:00Z"),f.fetchImpl);
+ assert.equal(final.status,"complete");
  assert.ok(f.store.has(completeKey(fp)));
 });
 
@@ -320,17 +327,17 @@ test("admin diagnostic runs a real, bounded AM microbatch at 12:46 French time",
    }),f.env,f.fetchImpl,at);
  assert.equal(r.status,200);
  const out=await r.json();
- assert.equal(out.status,"complete-co-members");
+ assert.equal(out.status,"in-progress");
  assert.equal(out.alliance,"Zeus");
  assert.ok(out.requestsThisTick>0&&out.requestsThisTick<=TICK_API_BUDGET);
- assert.equal(f.calls.filter(x=>x.includes("/roster/member/")).length,2);
+ assert.equal(f.calls.filter(x=>x.includes("/roster/member/")).length,1);
  const budget=JSON.parse(f.store.get("roster-auto/v1/days/2026-10-19.json"));
  assert.equal(budget.lastMode,"admin-test");
  assert.equal(budget.lastTick,"2026-10-19T10:46Z");
  assert.equal(budget.used,out.requestsThisTick);
  const progress=[...f.store.entries()].find(([k])=>k.endsWith("/progress.json"));
  assert.ok(progress);
- assert.equal(JSON.parse(progress[1]).completed,2);
+ assert.equal(JSON.parse(progress[1]).completed,1);
 });
 test("repeated admin test in one slot is idempotent, next slot can finish personal roster",async()=>{
  const f=fixture(),at=d("2026-10-19T10:46:31.718Z");
@@ -344,7 +351,9 @@ test("repeated admin test in one slot is idempotent, next slot can finish person
  const again=await (await run(at+10000)).json();
  assert.equal(again.status,"already-processed");
  assert.equal(f.calls.length,before);
- const next=await (await run(d("2026-10-19T10:48:32Z"))).json();
+ const between=await (await run(d("2026-10-19T10:48:32Z"))).json();
+ assert.equal(between.status,"complete-co-members");
+ const next=await (await run(d("2026-10-19T10:50:32Z"))).json();
  assert.equal(next.status,"complete");
  assert.ok(f.store.has(completeKey(fp)));
  const secondMode=JSON.parse(f.store.get("roster-auto/v1/days/2026-10-19.json"));
@@ -378,7 +387,7 @@ test("admin diagnostic ignores daily telemetry but respects disabled-mode guards
       "Content-Type":"application/json"},body:"{}"
   });
   const allowed=await (await handleAdminRosterAutoTest(req(),f.env,f.fetchImpl,t)).json();
-  assert.equal(allowed.status,"complete-co-members");
+  assert.equal(allowed.status,"in-progress");
   assert.ok(f.calls.length>0);
   const before=f.calls.length;
   f.env.ROSTER_AUTO_ENABLED="false";
