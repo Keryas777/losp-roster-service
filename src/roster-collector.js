@@ -245,7 +245,16 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
       return { status: "invalid-members", requests: budget.used };
     }
     seenMembers.add(member.id);
-    if (member.isSelf !== true && member.card?.rosterShare === true) candidates.push(member);
+    if(member.isSelf!==true){
+      // An absent / malformed flag is NOT evidence of a player refusing
+      // sharing. Previously this silently counted as "not shared" and could
+      // publish a misleading captain-only alliance snapshot.
+      if(!object(member.card))
+        return {status:"invalid-members",requests:budget.used};
+      if(typeof member.card.rosterShare!=="boolean")
+        return {status:"sharing-consent-unverified",requests:budget.used};
+      if(member.card.rosterShare===true)candidates.push(member);
+    }
   }
   // Persistent captain sessions are account-bound, not alliance-bound.
   // Fail closed if Scopely cannot unambiguously identify the authorized

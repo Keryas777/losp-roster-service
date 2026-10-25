@@ -87,6 +87,8 @@ export async function readAllianceCoverage(token,fetchImpl=fetch){
        !member.card||typeof member.card!=="object"||Array.isArray(member.card))
       return fail("invalid-members");
     ids.add(member.id);
+    if(member.isSelf!==true&&typeof member.card.rosterShare!=="boolean")
+      return fail("sharing-consent-unverified");
     if(member.isSelf===true)self++;
     if(member.card.rosterShare===true){
       shared++;
