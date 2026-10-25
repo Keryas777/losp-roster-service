@@ -205,3 +205,19 @@ test("on-demand admin scan is read-only, independent of disabled daily cron and 
   assert.ok(fx.requests.every(x=>!x.url.includes("/roster/member/")));
   assert.doesNotMatch(JSON.stringify(snapshot),/TOKEN_|self1|self2|self3|private-one|private-two/);
 });
+
+
+test("private alliance census does not infer an opt-out from absent rosterShare",async()=>{
+  for(const value of [undefined,null,0,"true"]){
+    const list=[member("self",true),member("other",false,true)];
+    if(value===undefined)delete list[1].card.rosterShare;
+    else list[1].card.rosterShare=value;
+    const found=await readAllianceCoverage("SECRET",async()=>json(list));
+    assert.deepEqual(found,{ok:false,status:"sharing-consent-unverified"});
+  }
+  const valid=await readAllianceCoverage("SECRET",async()=>json([
+    member("self",true),member("other",false,false)
+  ]));
+  assert.equal(valid.otherShared,0);
+  assert.equal(valid.notShared,2);
+});
