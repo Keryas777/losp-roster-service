@@ -99,7 +99,7 @@ function fixture({noOptout=false,members=users}={}){
  };
  return {store,logs,counters,storage,env,api,lock};
 }
-test("an automatic alliance batch reads eight shared rosters and saves stable indices",async()=>{
+test("an automatic alliance batch reads one shared roster within the 24-GET budget",async()=>{
   const members=Array.from({length:11},(_,i)=>"Member"+String(i).padStart(2,"0"));
   const f=fixture({members,noOptout:true}),now=Date.UTC(2026,9,24,17);
   const res=await handleRosterMicrobatch(request(),f.env,f.api,now,{
@@ -107,13 +107,13 @@ test("an automatic alliance batch reads eight shared rosters and saves stable in
   });
   assert.equal(res.status,200);
   const data=await res.json();
-  assert.equal(data.savedThisBatch,8);
-  assert.equal(data.completed,8);
-  assert.equal(data.remaining,3);
+  assert.equal(data.savedThisBatch,1);
+  assert.equal(data.completed,1);
+  assert.equal(data.remaining,10);
   assert.equal(data.status,"in-progress");
   assert.ok(data.requestsThisBatch<=24);
   const saved=[...f.store.keys()].filter(k=>/\/member-[0-9]+\.json$/.test(k));
-  assert.equal(saved.length,8);
+  assert.equal(saved.length,1);
 });
 test("a two-player batch persists only complete separate R2 objects and advances after writes",async()=>{
  const f=fixture(),now=Date.UTC(2026,9,18,18);
@@ -332,8 +332,9 @@ test("foreign Origin, unknown fingerprint, forged admin and public access fail c
 test("automatic campaign finalizes only after the captain personal roster and all co-members",async()=>{
  const f=fixture({noOptout:true}),now=Date.UTC(2026,9,18,18);
  const internal=i=>({campaign:"2026-10-18-pm",tick:"2026-10-18T"+(16+i)+":00Z"});
- for(const expected of [5]){
-   const response=await handleRosterMicrobatch(request(),f.env,f.api,now+expected*1000,internal(expected));
+ for(let expected=1;expected<=5;expected++){
+   const response=await handleRosterMicrobatch(request(),f.env,f.api,
+     now+expected*1000,internal(expected));
    assert.equal(response.status,200);
    assert.equal((await response.json()).completed,expected);
  }
