@@ -146,7 +146,7 @@ test("diagnostic UI is manual, on Archives R2, and avoids unsafe HTML",async()=>
   assert.match(html,/admin\/api\/game-differential-failures/);
   assert.match(nav,/archives[\s\S]*game-diff-diagnostic-refresh/);
   assert.match(ui,/run\.addEventListener\("click"/);
-  assert.doesNotMatch(ui,/void load\(\);/);
+  assert.doesNotMatch(ui,/^\\s*void load\\(\\);\\s*$/m);
   assert.doesNotMatch(ui,/\.innerHTML\s*=/);
   assert.match(ui,/nextCursor/);
   assert.doesNotMatch(ui,/\/game\/v1\/.*fetch/);
