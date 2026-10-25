@@ -53,7 +53,11 @@ async function request(path, token, budget, fetchImpl) {
       redirect: "manual",
       signal: AbortSignal.timeout(10000)
     });
-  } catch {
+  } catch(error) {
+    // An exception from OUR scheduler's explicit 24-GET limit is not a
+    // network failure. Preserve the cause in private R2 diagnostics.
+    if(error instanceof Error&&error.message==="scopely-invocation-limit")
+      return {status:"request-budget"};
     return { status: "network-error" };
   }
   // Official conditional GET: 344 UNCHANGED, only useful with a matching cached roster.
