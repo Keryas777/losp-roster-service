@@ -287,3 +287,47 @@ test("stale collection cookie cannot enter private collector", async () => {
   assert.equal(calls.length, 2);
   assert.doesNotMatch(await res.text(), /Collecte paginée terminée/);
 });
+
+
+test("missing or invalid rosterShare cannot silently become zero consenting allies",async()=>{
+  const owner={id:"owner",isSelf:true,card:{name:"Owner"}};
+  for(const flag of [undefined,null,"true",1]){
+    const teammate={id:"shared-player",isSelf:false,card:{name:"Mate"}};
+    if(flag!==undefined)teammate.card.rosterShare=flag;
+    const calls=[];
+    const result=await collectAllianceRosterSample(TOKEN,async(url)=>{
+      calls.push(url);
+      if(url.endsWith("/alliance/members"))
+        return Response.json({data:[owner,teammate]});
+      throw Error("Cannot fetch player roster without verified sharing");
+    },{maxMembers:1,startIndex:0,requireCurrentMembership:true});
+    assert.equal(result.status,"sharing-consent-unverified");
+    assert.equal(result.requests,1);
+    assert.equal(calls.length,1);
+  }
+});
+test("all explicit shared roster flags are collected; explicit false never is",async()=>{
+  const owner={id:"owner",isSelf:true,card:{name:"Owner"}};
+  const list=[owner,
+    {id:"yes1",isSelf:false,card:{name:"Yes1",rosterShare:true}},
+    {id:"no1",isSelf:false,card:{name:"No1",rosterShare:false}},
+    {id:"yes2",isSelf:false,card:{name:"Yes2",rosterShare:true}}
+  ];
+  const requested=[];
+  const result=await collectAllianceRosterSample(TOKEN,async(url)=>{
+    const u=new URL(url);
+    if(u.pathname.endsWith("/alliance/members"))
+      return Response.json({data:list});
+    requested.push(u.pathname);
+    return Response.json({data:[{id:"Hero",power:1}],
+      meta:{perTotal:1,asOf:"2026-10-25"}});
+  },{maxMembers:3,startIndex:0,preferSinglePage:true,
+    requireCurrentMembership:true,requireStableMembership:true});
+  assert.equal(result.status,"complete");
+  assert.equal(result.sharedCount,2);
+  assert.equal(result.completedCount,2);
+  assert.deepEqual(requested.sort(),[
+    "/player/v1/roster/member/yes1",
+    "/player/v1/roster/member/yes2"
+  ]);
+});
