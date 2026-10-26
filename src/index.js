@@ -12,6 +12,7 @@ import { ROSTER_CRON, runRosterAutoTick } from "./automatic-roster-scheduler.js"
 import {GAME_ARCHIVE_CRON,runGameArchiveTick} from "./game-catalog-archive.js";
 import {runGameArchiveSchemaAuditTick} from "./game-archive-schema-audit.js";
 import {runGameOrphanAuditTick} from "./game-archive-orphan-audit.js";
+import {runGameProvenanceReconcileTick} from "./game-archive-provenance-reconcile.js";
 import {runPlayerCampaignTick} from "./player-campaign.js";
 import {runGameDifferentialTick} from "./game-differential-sync.js";
 import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
@@ -196,6 +197,12 @@ export default {
         status:orphanAudit.status,phase:orphanAudit.phase||null,
         objects:orphanAudit.objects||0,orphaned:orphanAudit.orphaned||0
       }));
+      const provenance=await runGameProvenanceReconcileTick(env);
+      if(provenance.status==="running"||provenance.status==="snapshot-complete")
+        console.info("game-provenance-cron",JSON.stringify({
+          status:provenance.status,phase:provenance.phase||null,
+          matched:provenance.matched||0,unresolved:provenance.unresolved||0
+        }));
       return;
     }
     if(controller?.cron===ROSTER_CRON){
