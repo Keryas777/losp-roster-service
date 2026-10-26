@@ -78,7 +78,8 @@ async function read(bucket){
      !Number.isInteger(s.memberIndex)||s.memberIndex<0||
      !Number.isSafeInteger(s.requestsToday)||s.requestsToday<0||
      !Number.isSafeInteger(s.saved)||!Number.isSafeInteger(s.skipped)||
-     !Number.isSafeInteger(s.failed)||!Number.isSafeInteger(s.alreadyPresent))
+     !Number.isSafeInteger(s.failed)||!Number.isSafeInteger(s.alreadyPresent)||
+     (s.errors!==undefined&&(!Array.isArray(s.errors)||s.errors.length>60)))
     throw Error("invalid-player-campaign");
   return s;
 }
@@ -174,6 +175,18 @@ function move(s){
   }
 }
 function fail(s,reason,now,stopReason=false){
+  // Bounded R2-only diagnostic trail. Older runs cannot be reconstructed.
+  // Store opaque OAuth session fingerprint, family and fixed error reason,
+  // never raw IDs of teammates, payloads or bearer tokens.
+  if(!Array.isArray(s.errors))s.errors=[];
+  const family=s.members!==null?"shared-member-squads":
+    FAMILIES[s.familyIndex]||"alliance-members";
+  const safeReason=typeof reason==="string"?
+    reason.slice(0,80):"unknown";
+  s.errors.push({at:new Date(now).toISOString(),
+    session:s.sessions[s.sessionIndex]||null,family,
+    reason:safeReason,retry:(s.retries||0)+1});
+  if(s.errors.length>60)s.errors=s.errors.slice(-60);
   s.lastError=reason;
   if(stopReason){
     s.nextAttemptAt=new Date(now+60*60000).toISOString();

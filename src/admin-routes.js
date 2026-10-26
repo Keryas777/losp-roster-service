@@ -16,6 +16,7 @@ import {handleGameArchiveSchemaAudit} from "./game-archive-schema-audit.js";
 import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
 import {handlePlayerExtraArchive} from "./player-extras-archive.js";
 import {handlePlayerCampaignAdmin} from "./player-campaign.js";
+import {handlePlayerR2Explorer} from "./player-r2-explorer.js";
 import {handleCollectionOverview} from "./collection-overview.js";
 import {gameDifferentialStatus} from "./game-differential-sync.js";
 import {handleGameDifferentialFailureDiagnostic} from "./game-differential-diagnostic.js";
@@ -75,6 +76,27 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<button id="player-campaign-refresh" type="button">Voir l’avancement (R2)</button>'+ 
 '<p id="player-campaign-status" role="status">Vérifier le statut de la synchronisation automatique dans R2.</p>'+  
 '<div id="player-campaign-report" class="scroll"></div></section>'+ 
+'<section id="player-r2-explorer"><h2>Explorer les vrais fichiers privés /player (R2)</h2>'+
+'<p>Lecture seule : sélectionner un compte OAuth ou une alliance approuvée, ouvrir une page source Scopely ou un roster archivé. Affiche les preuves physiques, la fraîcheur et les échecs connus. Aucun appel à Scopely.</p>'+
+'<button type="button" id="player-r2-load">Charger les comptes et alliances depuis R2</button>'+
+'<p id="player-r2-status" role="status">Aucune archive privée lue pour le moment.</p>'+
+'<div class="controls"><label>Type<select id="player-r2-type"><option value="extra">Familles personnelles et équipes partagées</option><option value="roster">Rosters des alliances</option></select></label>'+
+'<label id="player-r2-account-wrap">Compte OAuth<select id="player-r2-account"></select></label>'+
+'<label id="player-r2-family-wrap">Famille<select id="player-r2-family"><option value="personal-squads">Équipes sauvegardées</option><option value="personal-inventory">Inventaire</option><option value="personal-wishlist">Liste de souhaits</option><option value="personal-events">Événements et progression</option><option value="shared-member-squads">Équipes des membres partageant leur roster</option></select></label>'+
+'<label id="player-r2-alliance-wrap" hidden>Alliance<select id="player-r2-alliance"></select></label></div>'+
+'<button type="button" id="player-r2-list">Lister les fichiers R2</button>'+
+'<div id="player-r2-summary" class="health-cards" aria-live="polite"></div>'+
+'<div id="player-r2-diagnostics" class="scroll"></div>'+
+'<div class="controls"><label id="player-r2-roster-mode-wrap" hidden>Fichiers roster<select id="player-r2-roster-mode"><option value="roster-file">Rosters normalisés</option><option value="roster-source">Réponses originales Scopely</option></select></label>'+
+'<label>Fichier<select id="player-r2-target"></select></label>'+
+'<label id="player-r2-page-wrap">Page R2<select id="player-r2-page"></select></label></div>'+
+'<button id="player-r2-open" type="button">Ouvrir ce fichier R2</button>'+
+'<button id="player-r2-more-files" type="button" hidden>Fichiers suivants</button>'+
+'<p id="player-r2-file-meta" class="muted"></p>'+
+'<div class="actions"><button id="player-r2-prev" type="button" disabled>20 entrées précédentes</button>'+
+'<button id="player-r2-next" type="button" disabled>20 entrées suivantes</button></div>'+
+'<pre id="player-r2-json" class="scroll" tabindex="0">Choisis un fichier archivé pour afficher son contenu JSON.</pre>'+
+'<p class="muted">Les JSON sont des aperçus paginés des fichiers physiques R2 ; les champs de type secret sont masqués dans l’affichage uniquement. L’historique des erreurs n’est disponible que pour les nouvelles collectes instrumentées. Ne pas partager de captures contenant des informations privées de joueurs.</p></section>'+
 '<section><h2>Archives privées /player non couvertes par les rosters</h2>'+
 '<p>Différencier les comptes OAuth (équipes, inventaire, souhaits, événements) et les membres non connectés (uniquement équipes si partage du roster actif). Capture manuelle, réponses sources intégrales conservées en R2 privé sept jours. Aucune collecte automatique supplémentaire.</p>'+
 '<label>Famille<select id="player-extra-resource">'+
@@ -181,7 +203,8 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-pid-diagnostic.js" defer></script>'+
 '<script src="/admin-roster-preflight.js" defer></script>'+ 
 '<script src="/admin-roster-r2-coverage.js" defer></script>'+ 
-'<script src="/admin-player-extras.js" defer></script>'+ 
+'<script src="/admin-player-extras.js" defer></script>'+
+'<script src="/admin-player-r2-explorer.js" defer></script>'+ 
 '<script src="/admin-player-campaign.js" defer></script>'+ 
 '<script src="/admin-secondary-probes.js" defer></script>'+
 '<script src="/admin-game-archive.js" defer></script>'+
@@ -270,6 +293,8 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     return handleAllianceSeasonRanks(request,env,fetchImpl);
   if(pathname==="/admin/api/player-extras")
     return handlePlayerExtraArchive(request,env,fetchImpl);
+  if(pathname==="/admin/api/player-r2-explorer")
+    return handlePlayerR2Explorer(request,env);
   if(pathname==="/admin/api/player-campaign")
     return handlePlayerCampaignAdmin(request,env);
   return new Response("Not Found",{status:404});
