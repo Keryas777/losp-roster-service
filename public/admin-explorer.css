@@ -133,3 +133,34 @@ details{margin:.4rem 0;border-radius:8px;padding:.55rem;border:1px solid #364765
 /* Consent refusals are normal, not a collector error. */
 .collection-alliance .collection-coverage-info{color:#b5d9d1;font-size:.88rem;
  border-left:3px solid #72bda4;padding-left:.6rem;margin:.5rem 0}
+
+
+/* Private /player source reader: compact on iOS Safari and Discord browser. */
+#player-r2-explorer .controls{display:flex;flex-wrap:wrap;gap:.65rem;margin:.8rem 0}
+#player-r2-explorer .controls label{display:flex;flex:1 1 180px;flex-direction:column;gap:.25rem;min-width:0}
+#player-r2-explorer select{min-height:44px;width:100%;min-width:0;max-width:100%;
+ overflow:hidden;text-overflow:ellipsis}
+#player-r2-explorer button{min-height:44px}
+#player-r2-summary,#player-r2-diagnostics{
+ background:#101d30;border:1px solid #35445c;border-radius:9px;
+ padding:.65rem .8rem;margin:.6rem 0;overflow-wrap:anywhere
+}
+#player-r2-summary:empty,#player-r2-diagnostics:empty{display:none}
+#player-r2-summary p,#player-r2-diagnostics p{margin:.45rem 0;color:#c6d9e9}
+#player-r2-diagnostics{max-height:220px;overflow:auto}
+#player-r2-json{display:block;white-space:pre;overflow:auto;
+ background:#091321;color:#e2eefc;border:1px solid #385472;
+ border-radius:8px;padding:.8rem;min-height:110px;max-height:65vh;
+ font: .78rem/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
+ -webkit-overflow-scrolling:touch;tab-size:2;overscroll-behavior:contain;
+}
+#player-r2-file-meta{font-size:.82rem;overflow-wrap:anywhere}
+#player-r2-explorer .actions{display:flex;flex-wrap:wrap;gap:.4rem}
+#player-r2-explorer .actions button{flex:1 1 140px}
+@media(max-width:560px){
+ #player-r2-explorer #player-r2-load,
+ #player-r2-explorer #player-r2-list,
+ #player-r2-explorer #player-r2-open,
+ #player-r2-explorer #player-r2-more-files{width:100%;margin:.28rem 0}
+ #player-r2-json{font-size:.72rem;max-height:55vh}
+}
