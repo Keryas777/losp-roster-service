@@ -190,7 +190,7 @@ test("approved alliance can inspect its own normalized roster and original sourc
  const listing=await(await f.ask({view:"roster-sources",fingerprint:FP})).json();
  assert.equal(listing.sources.length,1);
  const rawResponse=await f.ask({view:"roster-source",fingerprint:FP,
-   source:r.folder+"roster-member-0-page-0.json",offset:"20"});
+   source:r.folder.slice("provider-source/".length)+"roster-member-0-page-0.json",offset:"20"});
  const raw=await rawResponse.json();
  assert.equal(rawResponse.status,200,JSON.stringify(raw));
  assert.equal(raw.document.providerResponse.data[0].id,"Hero20");
