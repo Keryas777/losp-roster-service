@@ -116,7 +116,8 @@ async function addEvidence(b,run,hash,e){
   // never pick one candidate by enumeration order.
   const remaining=entries.filter(x=>x.path!==e.path);
   shard[hash]=[...remaining,e].sort((a,b)=>a.path.localeCompare(b.path));
-  await write(b,key,shard);
+  try{await write(b,key,shard);}
+  catch{throw Error("evidence-write-failed");}
 }
 async function sourcesTick(b,s,now){
   const page=await list(b,DIFF_LATEST,s.cursor);
@@ -145,14 +146,16 @@ async function sourcesTick(b,s,now){
         {s.sources.rejected++;continue;}
       if(!validAge(receipt.checkedAt,now)||!validAge(receipt.storedAt,now))
         {s.sources.tooOld++;continue;}
+      // Storage writes must NOT be swallowed as invalid source evidence.
+      // Retrying the same R2 page is required after a transient put failure.
       await addEvidence(b,s.runId,p.sha256,{
         path:p.path,receiptKey:p.receiptKey,
         checkedAt:receipt.checkedAt,storedAt:receipt.storedAt,
         confidence:"later-official-get-exact-bytes"
       });
       s.sources.verified++;
-    }catch{
-      // A malformed pointer is not evidence. The scan never invents a path.
+    }catch(error){
+      if(error?.message==="evidence-write-failed")throw error;
       s.sources.rejected++;
     }
   }
