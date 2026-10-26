@@ -12,7 +12,7 @@ const HASH=/^[0-9a-f]{64}$/;
 const PATH=/^\/game\/v1\/[A-Za-z0-9/_:?.=%&,+-]{1,800}$/;
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const LOCK="c".repeat(64);
-const PAGE=20,DAY=86400000,MAX_AGE=30*DAY;
+const PAGE=100,DAY=86400000,MAX_AGE=30*DAY;
 const HEADERS={"Cache-Control":"private, no-store","X-Robots-Tag":"noindex",
   "X-Content-Type-Options":"nosniff","Referrer-Policy":"no-referrer"};
 const respond=(value,status=200)=>Response.json(value,{status,headers:HEADERS});
@@ -108,56 +108,99 @@ async function list(b,path,cursor){
     throw Error("invalid-r2-page");
   return page;
 }
-async function addEvidence(b,run,hash,e){
-  const key=evidenceKey(run,hash),shard=await read(b,key)||{};
-  if(!shard||typeof shard!=="object"||Array.isArray(shard))throw Error("invalid-shard");
-  const entries=Array.isArray(shard[hash])?shard[hash]:[];
-  // Idempotent after an interrupted Cron. Distinct paths stay distinct,
-  // never pick one candidate by enumeration order.
-  const remaining=entries.filter(x=>x.path!==e.path);
-  shard[hash]=[...remaining,e].sort((a,b)=>a.path.localeCompare(b.path));
-  try{await write(b,key,shard);}
-  catch{throw Error("evidence-write-failed");}
+// Keep each Cron below the R2 subrequest budget, but avoid one minute per
+// twenty entries. Batching per SHA shard removes redundant R2 read/writes.
+const CONCURRENT=8;
+async function sourceEvidence(b,o,now){
+  try{
+    const p=await read(b,o.key,5000);
+    if(!p||!PATH.test(p.path||"")||!HASH.test(p.sha256||"")||
+       p.observedSha256!==p.sha256||
+       o.key!==DIFF_LATEST+await sha256(p.path)+".json"||
+       !/^game-archive\\/v1\\/diff\\/runs\\/[0-9a-f-]{36}\\/checks\\/\\d{8}\\.json$/i.test(p.receiptKey||""))
+      return {status:"rejected"};
+    const receipt=await read(b,p.receiptKey,6000);
+    if(!receipt||receipt.version!==2||
+       !["changed","unchanged"].includes(receipt.status)||
+       receipt.path!==p.path||receipt.sha256!==p.sha256||
+       receipt.observedSha256!==p.sha256||
+       receipt.objectKey!==p.objectKey||
+       receipt.checkedAt!==p.checkedAt)
+      return {status:"rejected"};
+    if(typeof p.objectKey!=="string"||
+       !p.objectKey.endsWith("/objects/"+p.sha256+".json")||
+       !(p.objectKey.startsWith(ROOT+"runs/")||
+         p.objectKey.startsWith(ROOT+"diff/runs/"))||
+       !await b.head(p.objectKey))
+      return {status:"rejected"};
+    if(!validAge(receipt.checkedAt,now)||!validAge(receipt.storedAt,now))
+      return {status:"tooOld"};
+    return {status:"verified",sha:p.sha256,evidence:{
+      path:p.path,receiptKey:p.receiptKey,
+      checkedAt:receipt.checkedAt,storedAt:receipt.storedAt,
+      confidence:"later-official-get-exact-bytes"
+    }};
+  }catch{
+    // Keep the historical meaning of rejected: not usable as exact evidence.
+    // The new batch never rewrites previously persisted counters.
+    return {status:"rejected"};
+  }
+}
+async function sourceBatch(b,objects,now){
+  const results=new Array(objects.length);
+  let position=0;
+  await Promise.all(Array.from({length:Math.min(CONCURRENT,objects.length)},
+    async()=>{
+      while(position<objects.length){
+        const i=position++;
+        results[i]=await sourceEvidence(b,objects[i],now);
+      }
+    }));
+  return results;
+}
+async function saveEvidenceBatch(b,run,results){
+  const groups=new Map();
+  for(const result of results){
+    if(result.status!=="verified")continue;
+    const shard=result.sha.slice(0,2);
+    if(!groups.has(shard))groups.set(shard,[]);
+    groups.get(shard).push(result);
+  }
+  const work=[...groups].map(([shard,entries])=>({shard,entries}));
+  let position=0,failed=null;
+  await Promise.all(Array.from({length:Math.min(CONCURRENT,work.length)},
+    async()=>{
+      while(position<work.length){
+        const {shard,entries}=work[position++];
+        try{
+          const key=prefix(run)+"evidence/"+shard+".json";
+          const current=await read(b,key)||{};
+          if(!current||typeof current!=="object"||Array.isArray(current))
+            throw Error("invalid-shard");
+          for(const {sha,evidence} of entries){
+            const existing=Array.isArray(current[sha])?current[sha]:[];
+            current[sha]=[...existing.filter(x=>x.path!==evidence.path),evidence]
+              .sort((a,b)=>a.path.localeCompare(b.path));
+          }
+          await write(b,key,current);
+        }catch(error){
+          failed=error;
+        }
+      }
+    }));
+  // If one write failed, the R2 cursor must remain unchanged. Replaying
+  // previously committed shards is safe and cannot duplicate references.
+  if(failed)throw Error("evidence-write-failed");
 }
 async function sourcesTick(b,s,now){
   const page=await list(b,DIFF_LATEST,s.cursor);
-  for(const o of page.objects){
-    s.sources.listed++;
-    try{
-      const p=await read(b,o.key,5000);
-      if(!p||!PATH.test(p.path||"")||!HASH.test(p.sha256||"")||
-         p.observedSha256!==p.sha256||
-         o.key!==DIFF_LATEST+await sha256(p.path)+".json"||
-         !/^game-archive\/v1\/diff\/runs\/[0-9a-f-]{36}\/checks\/\d{8}\.json$/i.test(p.receiptKey||""))
-        {s.sources.rejected++;continue;}
-      const receipt=await read(b,p.receiptKey,6000);
-      if(!receipt||receipt.version!==2||
-         !["changed","unchanged"].includes(receipt.status)||
-         receipt.path!==p.path||receipt.sha256!==p.sha256||
-         receipt.observedSha256!==p.sha256||
-         receipt.objectKey!==p.objectKey||
-         receipt.checkedAt!==p.checkedAt)
-        {s.sources.rejected++;continue;}
-      if(typeof p.objectKey!=="string"||
-         !p.objectKey.endsWith("/objects/"+p.sha256+".json")||
-         !(p.objectKey.startsWith(ROOT+"runs/")||
-           p.objectKey.startsWith(ROOT+"diff/runs/"))||
-         !await b.head(p.objectKey))
-        {s.sources.rejected++;continue;}
-      if(!validAge(receipt.checkedAt,now)||!validAge(receipt.storedAt,now))
-        {s.sources.tooOld++;continue;}
-      // Storage writes must NOT be swallowed as invalid source evidence.
-      // Retrying the same R2 page is required after a transient put failure.
-      await addEvidence(b,s.runId,p.sha256,{
-        path:p.path,receiptKey:p.receiptKey,
-        checkedAt:receipt.checkedAt,storedAt:receipt.storedAt,
-        confidence:"later-official-get-exact-bytes"
-      });
-      s.sources.verified++;
-    }catch(error){
-      if(error?.message==="evidence-write-failed")throw error;
-      s.sources.rejected++;
-    }
+  const results=await sourceBatch(b,page.objects,now);
+  await saveEvidenceBatch(b,s.runId,results);
+  s.sources.listed+=results.length;
+  for(const result of results){
+    if(result.status==="verified")s.sources.verified++;
+    else if(result.status==="tooOld")s.sources.tooOld++;
+    else s.sources.rejected++;
   }
   s.cursor=page.truncated?page.cursor:null;
   if(!page.truncated)s.phase="objects";
