@@ -11,6 +11,7 @@ import {handleGameArchiveGapAudit} from "./game-archive-gaps.js";
 import {handleGameArchiveInspect} from "./game-archive-inspector.js";
 import {handleGameArchiveInventory} from "./game-archive-inventory.js";
 import {handleGameOrphanAudit} from "./game-archive-orphan-audit.js";
+import {handleGameProvenanceReconcile} from "./game-archive-provenance-reconcile.js";
 import {handleGameArchiveSchemaAudit} from "./game-archive-schema-audit.js";
 import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
 import {handlePlayerExtraArchive} from "./player-extras-archive.js";
@@ -130,6 +131,13 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<button id="game-orphan-copy" type="button" disabled>Copier le rapport JSON</button>'+
 '<p id="game-orphan-status" role="status"></p>'+
 '<div id="game-orphan-summary" class="health-cards"></div></section>'+
+'<section><h2>Rapprochement prouvé des provenances R2</h2>'+
+'<p>Compare les objets orphelins à des réponses officielles ultérieures dont les octets et les reçus différentiels concordent exactement. Les associations incertaines restent non attribuées. Aucune réécriture des reçus originaux ni appel Scopely.</p>'+
+'<button id="game-provenance-start" type="button">Lancer le rapprochement R2</button>'+
+'<button id="game-provenance-refresh" type="button">Actualiser le rapprochement</button>'+
+'<button id="game-provenance-copy" type="button" disabled>Copier le bilan JSON</button>'+
+'<p id="game-provenance-status" role="status"></p>'+
+'<div id="game-provenance-summary" class="health-cards"></div></section>'+
 '<section><h2>Explorer les JSON déjà archivés dans R2</h2>'+
 '<p>Échantillonnage privé en lecture seule : reçus, familles réellement collectées et structure de quelques JSON. Aucun nouvel appel Scopely, aucune modification des archives.</p>'+
 '<button id="game-inspect-start" type="button">Examiner les premières archives</button>'+
@@ -179,7 +187,8 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-game-archive.js" defer></script>'+
 '<script src="/admin-game-archive-inspector.js" defer></script>'+
 '<script src="/admin-game-r2-inventory.js" defer></script>'+
-'<script src="/admin-game-orphan-audit.js" defer></script>'+
+'<script src="/admin-game-orphan-audit.js" defer></script>'+ 
+'<script src="/admin-game-provenance.js" defer></script>'+
 '<script src="/admin-game-schema-audit.js" defer></script>'+
 '<script src="/admin-game-archive-gaps.js" defer></script>'+
 '<script src="/admin-game-differential-diagnostic.js" defer></script></body></html>';
@@ -192,6 +201,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
         "/admin/api/msf-secondary-probe","/admin/api/game-archive",
         "/admin/api/game-archive-schema-audit",
         "/admin/api/game-archive-orphan-audit",
+        "/admin/api/game-provenance-reconcile",
         "/admin/api/alliance-season-ranks","/admin/api/player-extras",
          "/admin/api/player-campaign"].includes(endpoint)))
     return new Response("Method Not Allowed",{status:405});
@@ -254,6 +264,8 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     return handleGameArchiveSchemaAudit(request,env);
   if(pathname==="/admin/api/game-archive-orphan-audit")
     return handleGameOrphanAudit(request,env);
+  if(pathname==="/admin/api/game-provenance-reconcile")
+    return handleGameProvenanceReconcile(request,env);
   if(pathname==="/admin/api/alliance-season-ranks")
     return handleAllianceSeasonRanks(request,env,fetchImpl);
   if(pathname==="/admin/api/player-extras")
