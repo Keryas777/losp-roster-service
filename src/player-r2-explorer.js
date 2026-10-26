@@ -67,8 +67,12 @@ function entryMeta(value,prefix,now){
      !Number.isSafeInteger(value.total)||value.total<0||
      value.pages.some((p,i)=>p?.page!==i+1||
        typeof p.key!=="string"||!p.key.startsWith(prefix)||
-       !/\/page-[1-8]\.json$/.test(p.key)||!Number.isSafeInteger(p.count)||
+       !RUN.test(p.key.slice(prefix.length).split("/")[0])||
+       p.key!==prefix+p.key.slice(prefix.length).split("/")[0]+
+         "/page-"+(i+1)+".json"||!Number.isSafeInteger(p.count)||
        p.count<0))return {status:"invalid-manifest"};
+  if(new Set(value.pages.map(p=>p.key.slice(prefix.length).split("/")[0])).size!==1)
+    return {status:"invalid-manifest"};
   if(Date.parse(value.expiresAt)<=now)return {status:"expired",
     capturedAt:value.capturedAt,expiresAt:value.expiresAt};
   if(Date.parse(value.capturedAt)>now)return {status:"invalid-manifest"};
@@ -144,7 +148,7 @@ function view(document,offset){
     if(depth>36)return "[profondeur maximale d'affichage]";
     if(Array.isArray(v))return v.map(x=>redact(x,depth+1));
     if(v&&typeof v==="object"){
-      const o={};
+      const o=Object.create(null);
       for(const [k,x] of Object.entries(v))
         o[k]=hidden.test(k)?"[masqué]":redact(x,depth+1);
       return o;
@@ -278,7 +282,9 @@ export async function handlePlayerR2Explorer(request,env,now=Date.now()){
         const obj=result.data;
         if(obj?.version!==1||obj.runId!==m.record.runId||
            obj.allianceFingerprint!==fp||
-           String(obj.memberIndex)!==role||!Array.isArray(obj.characters))
+           String(obj.memberIndex)!==role||!Array.isArray(obj.characters)||
+           !validDate(obj.capturedAt)||Date.parse(obj.capturedAt)>now||
+           !validDate(obj.expiresAt)||obj.expiresAt!==m.record.expiresAt)
           return respond({error:"source-inconsistent"},409);
         return respond({status:"ok",source:"private-r2-only",
           file:{kind:"normalized-roster",role,bytes:result.bytes,
@@ -307,7 +313,10 @@ export async function handlePlayerR2Explorer(request,env,now=Date.now()){
         if(obj?.version!==1||obj.kind!=="private-provider-source"||
            obj.runId!==m.record.runId||obj.allianceFingerprint!==fp||
            typeof obj.endpoint!=="string"||
-           !obj.endpoint.startsWith("/player/v1/"))
+           !obj.endpoint.startsWith("/player/v1/")||
+           ![200,344].includes(obj.httpStatus)||!validDate(obj.capturedAt)||
+           Date.parse(obj.capturedAt)>now||Date.parse(obj.capturedAt)>
+             Date.parse(m.record.capturedAt))
           return respond({error:"source-inconsistent"},409);
         return respond({status:"ok",source:"private-r2-only",
           file:{kind:"provider-source",name:selection,bytes:stored.bytes,
