@@ -28,7 +28,7 @@ Une date d'upload manquante ou expirée empêche toute association certifiée.
 Après fusion de la PR et déploiement Cloudflare effectivement confirmé :
 ouvrir /admin → Archives R2 → Rapprochement prouvé des provenances R2 ;
 cliquer une fois sur « Lancer le rapprochement R2 ».
-Le Cron existant continue par lots de 20 entrées, même onglet fermé.
+Le Cron existant continue par lots de 100 entrées R2 (lecture des sources parallèle et écriture groupée par préfixe SHA), même onglet fermé. La taille des lots n'a aucune incidence sur les quotas Scopely : cette étape ne fait aucun GET officiel.
 « Actualiser le rapprochement » lit le checkpoint privé R2.
 Le démarrage exige l'ancien audit snapshot-complete de la même campagne.
 Les doubles clics ne relancent pas ni ne remettent à zéro.
@@ -59,3 +59,8 @@ La campagne ne sera considérée exécutée en production qu'après confirmation
 du déploiement, lancement administrateur et statut snapshot-complete.
 Un rapport 0 association exacte peut être un résultat valide : les preuves
 disponibles ne permettent pas de certifier l'origine de tous les orphelins.
+
+## Correctif de débit du 26 octobre 2026
+Le premier déploiement avait un lot arbitraire de 20 sources puis 20 objets par minute : plus de 7 420 sources examinées après plusieurs heures, alors qu'aucune limite externe n'était atteinte. Ce lot est désormais de 100, avec lecture concurrente bornée et écriture groupée par shard SHA (au lieu d'un read/write R2 pour chaque source). Le checkpoint, son curseur opaque, les compteurs et les preuves déjà écrites sont réutilisés tels quels, **sans redémarrer la campagne**. Les nouveaux tests couvrent explicitement la reprise après les 20 anciennes entrées et le traitement de plus de 200 sources/objets.
+
+Les 1 662 sources « rejected » déjà comptées ne démontrent PAS une erreur API : le compteur agrège aussi les réponses dont seul `meta.asOf` a fait diverger le hash des octets observés, ainsi que les pointeurs/reçus ne pouvant pas fournir une preuve exacte. Leur cause précise n'est pas déductible du seul compteur agrégé et n'est pas modifiée rétroactivement.

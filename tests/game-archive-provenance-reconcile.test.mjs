@@ -74,10 +74,10 @@ function fixture(){
       references
     });
   }
-  function official(path,body,{received=now-86400000,observed,missing=false}={}){
+  function official(path,body,{received=now-86400000,observed,missing=false,ordinal=1}={}){
     const id=hash(body),h=hash(path),diff=root+"diff/";
     const obj=diff+"runs/11111111-2222-4333-8444-555555555555/objects/"+id+".json";
-    const receiptKey=diff+"runs/11111111-2222-4333-8444-555555555555/checks/00000001.json";
+    const receiptKey=diff+"runs/11111111-2222-4333-8444-555555555555/checks/"+String(ordinal).padStart(8,"0")+".json";
     const checkedAt=new Date(received).toISOString();
     const receipt={version:2,path,status:"changed",
       sha256:id,observedSha256:observed||id,objectKey:obj,
@@ -202,6 +202,55 @@ test("explicit start requires finished old audit; admin Access and same origin s
   assert.equal(guarded.status,403);
   assert.equal(f.calls.length,before);
 });
+test("one Cron reads 100 sources instead of 20, batches shard writes and resumes",async()=>{
+  const f=fixture(),base=p+"provenance-reconciliation/v1/";
+  f.snapshot();
+  for(let i=0;i<205;i++){
+    const body=JSON.stringify({data:{id:"accelerated-"+i}});
+    const path="/game/v1/characters/accelerated-"+i;
+    f.official(path,body,{ordinal:i+1});
+    f.orphan(body);
+  }
+  await handleGameProvenanceReconcile(request("POST"),f.env,now);
+  let state=await runGameProvenanceReconcileTick(f.env,now);
+  assert.equal(state.phase,"sources");
+  assert.equal((await get(f)).sources.listed,100);
+  let written=f.writes.filter(x=>x.startsWith(base+"evidence/"));
+  assert.ok(written.length<=100,"each SHA prefix shard should be written at most once per page");
+  state=await runGameProvenanceReconcileTick(f.env,now+1000);
+  assert.equal((await get(f)).sources.listed,200);
+  state=await runGameProvenanceReconcileTick(f.env,now+2000);
+  assert.equal(state.phase,"objects");
+  assert.equal((await get(f)).sources.listed,205);
+  const completed=await runToEnd(f);
+  assert.equal(completed.objects.matched,205);
+  assert.equal(completed.objects.orphaned,205);
+  assert.equal(completed.objects.unresolved,0);
+  assert.equal(completed.sources.verified,205);
+  assert.ok(f.writes.every(x=>x.startsWith(base)));
+});
+
+test("upgrade resumes historical 20-per-tick R2 cursor without clearing counters",async()=>{
+  const f=fixture(),key=p+"provenance-reconciliation/v1/progress.json";
+  f.snapshot();
+  for(let i=0;i<135;i++)
+    f.official("/game/v1/characters/C"+i,
+      JSON.stringify({data:{id:"C"+i}}),{ordinal:i+1});
+  await handleGameProvenanceReconcile(request("POST"),f.env,now);
+  const checkpoint=JSON.parse(f.store.get(key));
+  checkpoint.cursor="20"; // an opaque cursor persisted by the old 20-record worker
+  checkpoint.sources={listed:20,verified:20,rejected:0,tooOld:0};
+  f.set(key,checkpoint);
+  await runGameProvenanceReconcileTick(f.env,now);
+  const state=await get(f);
+  assert.equal(state.status,"running");
+  assert.equal(state.phase,"sources");
+  assert.equal(state.sources.listed,120,"the old 20 entries must NOT be reread");
+  assert.equal(state.sources.verified,120);
+  await runGameProvenanceReconcileTick(f.env,now+1000);
+  assert.equal((await get(f)).sources.listed,135);
+});
+
 test("private admin UX keeps new control under R2 tab and never accesses Scopely",async()=>{
   const code=await readFile(new URL("../public/admin-game-provenance.js",import.meta.url),"utf8");
   const admin=await readFile(new URL("../src/admin-routes.js",import.meta.url),"utf8");
