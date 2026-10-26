@@ -10,7 +10,7 @@
       "connected-alliance-directory","check-coverage","roster-preflight","roster-r2-refresh"]},
     {id:"archives",label:"Archives R2",targets:[
       "player-campaign-start","game-archive-status","game-diff-diagnostic-refresh",
-      "game-r2-inventory-start","game-orphan-start",
+      "game-r2-inventory-start","game-orphan-start","game-provenance-start",
       "game-inspect-start","game-schema-start"]},
     {id:"advanced",label:"Outils avancés",targets:[
       "player-extra-capture","msf-secondary-probe","pid-check","load","output"]}
