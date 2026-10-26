@@ -117,7 +117,7 @@ async function sourceEvidence(b,o,now){
     if(!p||!PATH.test(p.path||"")||!HASH.test(p.sha256||"")||
        p.observedSha256!==p.sha256||
        o.key!==DIFF_LATEST+await sha256(p.path)+".json"||
-       !/^game-archive\\/v1\\/diff\\/runs\\/[0-9a-f-]{36}\\/checks\\/\\d{8}\\.json$/i.test(p.receiptKey||""))
+       !/^game-archive\/v1\/diff\/runs\/[0-9a-f-]{36}\/checks\/\d{8}\.json$/i.test(p.receiptKey||""))
       return {status:"rejected"};
     const receipt=await read(b,p.receiptKey,6000);
     if(!receipt||receipt.version!==2||
