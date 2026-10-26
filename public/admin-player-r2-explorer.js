@@ -106,6 +106,15 @@ async function loadAccounts(){
  }catch(e){status.textContent="Impossible de charger : "+e.message;}
  finally{enable("player-r2-load",true);}
 }
+function refreshPageOptions(){
+ page.replaceChildren();
+ const option=target.options[target.selectedIndex];
+ const count=Number(option?.dataset?.pages||0);
+ for(let i=1;i<=count;i++){
+   const item=document.createElement("option");item.value=String(i);
+   item.textContent="Page R2 "+i;page.appendChild(item);
+ }
+}
 function entriesOptions(items,append=false){
  if(!append)target.replaceChildren();
  for(const item of items){
@@ -113,6 +122,7 @@ function entriesOptions(items,append=false){
       "Membre partagé "+item.target.slice(0,11);
    option(target,item.target,display+" · "+human(item.status)+
      " · "+when(item.capturedAt));
+   target.lastChild.dataset.pages=String(item.pages||0);
  }
 }
 async function list(cursorValue=null,append=false){
@@ -140,10 +150,7 @@ async function list(cursorValue=null,append=false){
         "Les identifiants partagés sont masqués par empreinte. Une archive absente"+
         " n'est pas automatiquement un refus Scopely."]);
      renderTraces(data.traces);
-     if(selectedFamily()!=="shared-member-squads"&&data.entries.length){
-       for(let i=1;i<=(data.entries[0].pages||0);i++)
-         option(page,String(i),"Page R2 "+i);
-     }
+     refreshPageOptions();
      cursor=data.nextCursor||null;hasMore=data.more===true;
      show("player-r2-more-files",hasMore);
      status.textContent="Liste lue depuis R2 · "+data.entries.length+" entrée(s) dans ce lot.";
@@ -246,7 +253,7 @@ target.addEventListener("change",()=>{resetPreview();
    const opt=target.options[target.selectedIndex];
    const text=opt?.textContent||"";
    // Pages are loaded only from the selected verified manifest on read.
-   page.replaceChildren();for(let i=1;i<=8;i++)option(page,String(i),"Page "+i);
+   refreshPageOptions();
    if(!text.includes("Archivé"))status.textContent="Cette entrée n'est pas forcément lisible.";
  }
 });
