@@ -211,7 +211,7 @@ test("one-minute production schedule is used without touching existing roster cr
   assert.equal(GAME_ARCHIVE_CRON,"* * * * *");
   assert.ok(schedule.includes(GAME_ARCHIVE_CRON));
   assert.ok(!schedule.includes("*/15 * * * *"));
-  assert.ok(schedule.includes("* 2-5,14-17 * * *"));
+  assert.ok(schedule.includes("* 2-3,14-15 * * *"));
   assert.ok(schedule.includes("15 3 * * *"));
   assert.ok(schedule.includes("15 * * * *"));
   assert.equal(new Set(schedule).size,schedule.length);
