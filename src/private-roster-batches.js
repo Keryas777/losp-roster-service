@@ -22,6 +22,11 @@ const answer=(v,status=200)=>Response.json(v,{status,headers:{
 const stateKey=fp=>BATCH_PREFIX+fp+"/progress.json";
 const playerKey=(fp,id,index)=>BATCH_PREFIX+fp+"/"+id+"/member-"+index+".json";
 export const completeKey=fp=>BATCH_PREFIX+fp+"/latest-complete.json";
+// Stable per-campaign receipt for late imports. Written after all authorized
+// member files and the OAuth owner's roster, before mutable "latest" pointers.
+// It uses the existing seven-day roster-batches R2 lifecycle.
+export const campaignCompleteKey=(fp,campaign)=>
+  BATCH_PREFIX+fp+"/campaigns/"+campaign+".json";
 // Archive original provider JSON envelopes, not only the fields used by LoSP.
 // All objects remain under the EXISTING 7-day R2 lifecycle prefix. Unique
 // paths preserve every successful tick rather than overwriting prior metadata.
@@ -204,14 +209,23 @@ async function finishSelf(env,fp,previous,selected,baseline,now,fetchImpl,tick){
     coMembers:previous.totalEligible,includesPersonal:true,
     coverage:notSharedCount?"authorized-only":"all-members",notSharedCount,
     capturedAt:new Date(now).toISOString(),expiresAt:previous.expiresAt};
-  // Each authorized member snapshot and the OAuth roster were written
-  // BEFORE this pointer, so a failed write cannot publish a completed run.
-  await env.CAPTAIN_BUCKET.put(completeKey(fp),JSON.stringify(complete),{
+  // All member snapshots and the owner roster exist before this receipt.
+  // A later campaign may overwrite both mutable progress.json and
+  // latest-complete.json; never overwrite the receipt for ANOTHER campaign.
+  const completedState={...previous,selfCompleted:true,lastAutoTick:tick};
+  const storageOptions={
     httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
-  });
-  await env.CAPTAIN_BUCKET.put(stateKey(fp),JSON.stringify({
-    ...previous,selfCompleted:true,lastAutoTick:tick
-  }),{httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}});
+  };
+  if(previous.campaign){
+    await env.CAPTAIN_BUCKET.put(campaignCompleteKey(fp,previous.campaign),
+      JSON.stringify({version:1,campaign:previous.campaign,
+        progress:completedState,manifest:complete}),storageOptions);
+  }
+  // Preserve existing live pointers and roster scheduler behavior unchanged.
+  await env.CAPTAIN_BUCKET.put(completeKey(fp),JSON.stringify(complete),
+    storageOptions);
+  await env.CAPTAIN_BUCKET.put(stateKey(fp),JSON.stringify(completedState),
+    storageOptions);
   return answer({...publicState({...previous,selfCompleted:true},now),
     savedThisBatch:1,charactersThisBatch:report.chars.length,
     pagesThisBatch:report.pages,unchangedThisBatch:report.unchanged?1:0,
