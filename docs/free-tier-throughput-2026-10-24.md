@@ -9,7 +9,7 @@ Documentation officielle (mise à jour le 12 octobre 2026) : https://developers.
 - Workers Free : **50 sous-requêtes externes par invocation** ; **1000 sous-requêtes internes** vers R2, Durable Objects, etc.
 - **6 connexions HTTP sortantes simultanées**, par invocation.
 - **10 ms de CPU** par exécution : ce n'est **pas** le temps total de réseau ; le dépassement CPU réel doit être surveillé en production.
-- **5 déclencheurs Cron** par compte Free. Notre service en conserve **4** : `15 * * * *`, `15 3 * * *`, `* 2-5,14-17 * * *` et `* * * * *` ; le cinquième créneau reste disponible pour un autre Worker du même compte.
+- **5 déclencheurs Cron** par compte Free. Notre service en conserve **4** : `15 * * * *`, `15 3 * * *`, `* 2-3,14-15 * * *` et `* * * * *` ; le cinquième créneau reste disponible pour un autre Worker du même compte.
 - Les erreurs `429` Scopely continuent de déclencher les délais existants. Aucune limite journalière Scopely n'est déduite des quotas Cloudflare.
 
 ## Rosters
