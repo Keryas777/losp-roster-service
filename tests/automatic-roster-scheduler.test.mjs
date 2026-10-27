@@ -83,44 +83,47 @@ function fixture(){
 }
 test("only valid scheduled 1-minute UTC windows start campaigns",()=>{
  assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-18T02:00:00Z")).campaign,"2026-10-18-am");
- assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-18T05:58:00Z")).tick,238);
+ assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-18T03:58:00Z")).tick,118);
  assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-18T14:00:00Z")).campaign,"2026-10-18-pm");
- assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-18T06:00:00Z")),null);
+ assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-18T04:00:00Z")),null);
+ assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-18T15:58:00Z")).tick,118);
+ assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-18T16:00:00Z")),null);
  // The first minute after a scheduled boundary may still belong to the
  // same one-minute cron slot, because real Cloudflare dispatches can be delayed.
  assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-18T14:01:00Z")).stamp,
    "2026-10-18T14:01Z");
  assert.equal(rosterWindow("15 3 * * *",d("2026-10-18T03:15:00Z")),null);
 });
-test("real Cloudflare cron event 07:50:31 French time maps to 05:50 UTC",()=>{
- // Cloudflare Observability 2026-10-19 07:50:32 UTC+2, event at 05:50:31.718Z.
+test("a delayed 03:50 UTC cron is idempotent; the old 05:50 slot is now excluded",()=>{
+ // Historical observability: the former 05:50 UTC event is now outside the AM window.
  // ScheduledController.scheduledTime is milliseconds; logs print seconds.
- const observed=d("2026-10-19T05:50:31.718Z");
+ assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-19T05:50:31.718Z")),null);
+ const observed=d("2026-10-19T03:50:31.718Z");
  const result=rosterWindow(ROSTER_CRON,observed);
  assert.deepEqual(result,{
    date:"2026-10-19",campaign:"2026-10-19-am",
-   tick:230,stamp:"2026-10-19T05:50Z"
+   tick:110,stamp:"2026-10-19T03:50Z"
  });
- assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-19T05:50:59.999Z")).stamp,
+ assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-19T03:50:59.999Z")).stamp,
    result.stamp);
- assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-19T05:51:29Z")).stamp,
-   "2026-10-19T05:51Z");
- assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-19T05:52:31.718Z")).stamp,
-   "2026-10-19T05:52Z");
- assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-19T06:00:32Z")),null);
+ assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-19T03:51:29Z")).stamp,
+   "2026-10-19T03:51Z");
+ assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-19T03:52:31.718Z")).stamp,
+   "2026-10-19T03:52Z");
+ assert.equal(rosterWindow(ROSTER_CRON,d("2026-10-19T04:00:32Z")),null);
 });
 test("delayed cron runs once per logical 1-minute slot despite duplicate events",async()=>{
  const f=fixture();
- const first=await runRosterAutoTick(f.env,controller("2026-10-19T05:50:31.718Z"),f.fetchImpl);
+ const first=await runRosterAutoTick(f.env,controller("2026-10-19T03:50:31.718Z"),f.fetchImpl);
  assert.equal(first.status,"in-progress");
  assert.ok(first.requestsThisTick>0);
  const before=f.calls.length;
- const same=await runRosterAutoTick(f.env,controller("2026-10-19T05:50:57.123Z"),f.fetchImpl);
+ const same=await runRosterAutoTick(f.env,controller("2026-10-19T03:50:57.123Z"),f.fetchImpl);
  assert.equal(same.status,"already-processed");
  assert.equal(f.calls.length,before);
- const next=await runRosterAutoTick(f.env,controller("2026-10-19T05:52:31.718Z"),f.fetchImpl);
+ const next=await runRosterAutoTick(f.env,controller("2026-10-19T03:52:31.718Z"),f.fetchImpl);
  assert.equal(next.status,"complete-co-members");
- const last=await runRosterAutoTick(f.env,controller("2026-10-19T05:54:31Z"),f.fetchImpl);
+ const last=await runRosterAutoTick(f.env,controller("2026-10-19T03:54:31Z"),f.fetchImpl);
  assert.equal(last.status,"complete");
  assert.ok(f.store.has(completeKey(fp)));
 });
@@ -158,6 +161,7 @@ test("AM and PM campaigns read both co-members and personal account, publish onl
  assert.ok(fetches.slice(apiBefore).every(url=>new URL(url).searchParams.get("since")==="ASOF_1"));
  const status=await rosterAutoStatus(f.env,d("2026-10-18T16:00:00Z"));
  assert.equal(status.enabled,true);
+ assert.deepEqual(status.utcWindows,["02:00–04:00","14:00–16:00"]);
  assert.ok(status.requestsToday>0&&status.requestsToday<80);
  assert.equal((await worker.fetch(new Request("https://losp-roster-service.deliriousfan7.workers.dev/api/rosters"),f.env)).status,404);
 });

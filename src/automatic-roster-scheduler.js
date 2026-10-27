@@ -5,7 +5,7 @@ import {handleRosterMicrobatch} from "./private-roster-batches.js";
 import {rosterAttemptKey,rosterCooldownKey,rosterAttemptRecord}
   from "./roster-auto-diagnostics.js";
 
-export const ROSTER_CRON="* 2-5,14-17 * * *";
+export const ROSTER_CRON="* 2-3,14-15 * * *";
 // Per-invocation bound, not a Scopely quota: 2 x 24 GET stays below the
 // Cloudflare Workers Free limit of 50 external subrequests per invocation.
 export const TICK_API_BUDGET=24;
@@ -51,8 +51,8 @@ export function rosterWindow(cron,scheduledTime){
   if(!Number.isFinite(d.getTime()))return null;
   const h=d.getUTCHours(),m=d.getUTCMinutes();
   let period,start;
-  if(h>=2&&h<=5){period="am";start=2;}
-  else if(h>=14&&h<=17){period="pm";start=14;}
+  if(h>=2&&h<=3){period="am";start=2;}
+  else if(h>=14&&h<=15){period="pm";start=14;}
   else return null;
   const date=dateOf(slotMs),tick=(h-start)*60+m;
   return {date,campaign:date+"-"+period,tick,
@@ -83,7 +83,7 @@ export async function rosterAutoStatus(env,time=Date.now()){
   const retention=env?.ROSTER_RETENTION_CONFIRMED==="true";
   const out={enabled,retentionConfirmed:retention,
     dailyBudget:null,perTickBudget:TICK_API_BUDGET,
-    utcWindows:["02:00–06:00","14:00–18:00"],frequencyMinutes:1};
+    utcWindows:["02:00–04:00","14:00–16:00"],frequencyMinutes:1};
   if(!captainConfigReady(env))return {status:"storage-unavailable",...out};
   try{
     const data=await read(env.CAPTAIN_BUCKET,dayKey(dateOf(time)));
