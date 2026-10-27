@@ -8,7 +8,7 @@ import {handleAdmin} from "../src/admin-routes.js";
 import {RosterBatchLock} from "../src/roster-batch-lock.js";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 import {CAPTAIN_PREFIX} from "../src/captain-vault.js";
-import {BATCH_PREFIX,handleRosterMicrobatch,getRosterBatchStatus} from "../src/private-roster-batches.js";
+import {BATCH_PREFIX,campaignCompleteKey,handleRosterMicrobatch,getRosterBatchStatus} from "../src/private-roster-batches.js";
 import {collectAllianceRosterSample} from "../src/roster-collector.js";
 import {handleRosterR2Coverage} from "../src/roster-r2-coverage.js";
 
@@ -452,4 +452,71 @@ test("local invocation budget is not misreported as Scopely network failure",asy
    throw Error("real-network-error");
  },{maxMembers:1});
  assert.equal(lost.status,"network-error");
+});
+
+
+test("each completed AM/PM campaign keeps its own receipt after newer mutable pointers overwrite",async()=>{
+ const f=fixture({members:["A","B"],noOptout:true});
+ async function collect(day,period,base){
+   const campaign=day+"-"+period;
+   for(let i=0;i<3;i++){
+     const when=base+i*60000;
+     const response=await handleRosterMicrobatch(request(),f.env,f.api,when,{
+       campaign,tick:new Date(when).toISOString().slice(0,16)+"Z"
+     });
+     assert.equal(response.status,200);
+     if(i===2)assert.equal((await response.json()).status,"complete");
+   }
+ }
+ await collect("2026-10-26","pm",Date.UTC(2026,9,26,14));
+ const firstKey=campaignCompleteKey(fingerprint,"2026-10-26-pm");
+ const firstRaw=f.store.get(firstKey);
+ assert.ok(firstRaw,"The first campaign has a durable R2 completion receipt");
+ const first=JSON.parse(firstRaw);
+ assert.equal(first.version,1);
+ assert.equal(first.progress.campaign,"2026-10-26-pm");
+ assert.equal(first.progress.selfCompleted,true);
+ assert.equal(first.progress.completed,2);
+ assert.equal(first.manifest.total,3);
+ assert.equal(first.manifest.coMembers,2);
+ assert.equal(first.manifest.includesPersonal,true);
+ assert.ok(f.store.has(BATCH_PREFIX+fingerprint+"/"+first.manifest.runId+"/member-self.json"));
+ await collect("2026-10-27","am",Date.UTC(2026,9,27,2));
+ assert.equal(f.store.get(firstKey),firstRaw,
+   "Starting and completing a newer campaign cannot touch the prior receipt");
+ const second=JSON.parse(f.store.get(campaignCompleteKey(fingerprint,"2026-10-27-am")));
+ assert.equal(second.progress.campaign,"2026-10-27-am");
+ assert.notEqual(second.progress.runId,first.progress.runId);
+ assert.deepEqual(JSON.parse(f.store.get(BATCH_PREFIX+fingerprint+"/latest-complete.json")),
+   second.manifest);
+ assert.equal(JSON.parse(f.store.get(BATCH_PREFIX+fingerprint+"/progress.json")).campaign,
+   "2026-10-27-am");
+ assert.ok(f.store.has(BATCH_PREFIX+fingerprint+"/"+first.manifest.runId+"/member-0.json"));
+});
+test("a failed R2 completion receipt write never publishes mutable completed pointers",async()=>{
+ const f=fixture({members:["A"],noOptout:true});
+ const begin=Date.UTC(2026,9,26,14);
+ const start=await handleRosterMicrobatch(request(),f.env,f.api,begin,{
+   campaign:"2026-10-26-pm",tick:"2026-10-26T14:00Z"
+ });
+ assert.equal(start.status,200);
+ const bucket=f.env.CAPTAIN_BUCKET,put=bucket.put;
+ bucket.put=async(key,value,options)=>{
+   if(key===campaignCompleteKey(fingerprint,"2026-10-26-pm"))
+     throw Error("R2 simulated write outage");
+   return put(key,value,options);
+ };
+ const complete=await handleRosterMicrobatch(request(),f.env,f.api,begin+60000,{
+   campaign:"2026-10-26-pm",tick:"2026-10-26T14:01Z"
+ });
+ assert.equal(complete.status,503);
+ assert.equal(f.store.has(BATCH_PREFIX+fingerprint+"/latest-complete.json"),false);
+ assert.equal(JSON.parse(f.store.get(BATCH_PREFIX+fingerprint+"/progress.json")).selfCompleted,
+   false);
+ bucket.put=put;
+ const recovered=await handleRosterMicrobatch(request(),f.env,f.api,begin+120000,{
+   campaign:"2026-10-26-pm",tick:"2026-10-26T14:02Z"
+ });
+ assert.equal(recovered.status,200);
+ assert.ok(f.store.has(campaignCompleteKey(fingerprint,"2026-10-26-pm")));
 });
