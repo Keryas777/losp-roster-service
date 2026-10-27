@@ -2,6 +2,7 @@
 import {captainConfigReady} from "./captain-vault.js";
 import {readApproval} from "./roster-sync-preflight.js";
 import {handleRosterMicrobatch} from "./private-roster-batches.js";
+import {dispatchCompleteRosterCampaign} from "./roster-github-dispatch.js";
 import {rosterAttemptKey,rosterCooldownKey,rosterAttemptRecord}
   from "./roster-auto-diagnostics.js";
 
@@ -211,8 +212,19 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
       lastMode:manual?"admin-test":"cron",
       outcomes:outcomes.map(o=>({status:o.status,requests:o.requests}))
     });
+    // Wake GitHub as soon as every private R2 receipt is complete. Checking
+    // every five minutes also retries a transient GitHub outage, but never
+    // triggers another Scopely request or blocks the collector.
+    let githubDispatch="disabled";
+    if(slot.tick%5===0||(used>0&&outcomes.some(o=>
+      o.status==="complete"||o.status==="partial-consent"))){
+      try{githubDispatch=await dispatchCompleteRosterCampaign(env,slot,
+        alliances,options.githubFetch||fetch);}
+      catch{githubDispatch="unavailable";}
+    }
     return {status:outcome,requestsThisTick:used,
       requestsToday:d.used+used,
+      ...(githubDispatch!=="disabled"?{githubDispatch}:{}),
       ...(outcomes.length===1?{httpStatus:outcomes[0].httpStatus}:{}),
       alliancesProcessed:outcomes.length,
       ...(manual?{alliance:approval.alliances.find(a=>a.fingerprint===selected[0])?.name||"approved"}:{})};
