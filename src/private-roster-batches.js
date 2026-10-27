@@ -283,7 +283,7 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     const selected=await chooseAccount(env,fp,fetchImpl);
     if(selected.status!=="ok")return answer({status:selected.status},409);
     if(campaign&&previous&&previous.completed===previous.totalEligible)
-      return finishSelf(env,fp,previous,selected,baseline,now,fetchImpl,internal.tick);
+      return await finishSelf(env,fp,previous,selected,baseline,now,fetchImpl,internal.tick);
     const startIndex=previous?.completed||0;
     const cachedForMember=async(member,index)=>{
       if(!baseline||Date.parse(baseline.expiresAt)<=now)return null;
@@ -340,7 +340,7 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
         totalEligible:0,completed:0,observedMembers:result.memberCount,
         campaign,selfCompleted:false,lastAutoTick:internal.tick
       };
-      return finishSelf(env,fp,selfOnly,selected,baseline,now,fetchImpl,internal.tick);
+      return await finishSelf(env,fp,selfOnly,selected,baseline,now,fetchImpl,internal.tick);
     }
     if(result.selectedCount<1||result.rosters.length!==result.selectedCount||
        result.rosters.some(r=>!Array.isArray(r.chars)||r.chars.length===0))
