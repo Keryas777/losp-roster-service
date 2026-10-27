@@ -210,7 +210,8 @@ export default {
       // Aggregate status and request counts only; no roster data, tokens or IDs.
       console.info("roster-auto-cron",JSON.stringify({
         status:report.status,requestsThisTick:report.requestsThisTick||0,
-        requestsToday:report.requestsToday||0
+        requestsToday:report.requestsToday||0,
+        ...(report.githubDispatch?{githubDispatch:report.githubDispatch}:{})
       }));
       return;
     }
