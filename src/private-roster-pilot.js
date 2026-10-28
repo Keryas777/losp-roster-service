@@ -47,10 +47,10 @@ export async function chooseAccount(env,requested,fetchImpl){
   if(hint){
     const token=await accessToken(env,hint).catch(()=>null);
     if(token){
-      const current=await discoverAlliance(token,fetchImpl);probes++;
+      const current=await discoverAlliance(token,fetchImpl,{includeSourcePayload:true});probes++;
       if(current.ok&&await fingerprint(current.aid)===requested)
         return {status:"ok",token,aid:current.aid,name:current.name,
-          discoveryRequests:probes};
+          sourcePayload:current.sourcePayload,discoveryRequests:probes};
     }
     try{await env.CAPTAIN_BUCKET.delete(hintKey);}catch{}
   }
@@ -59,7 +59,7 @@ export async function chooseAccount(env,requested,fetchImpl){
     if(key===hint)continue;
     const token=await accessToken(env,key).catch(()=>null);
     if(!token)continue;
-    const current=await discoverAlliance(token,fetchImpl);probes++;
+    const current=await discoverAlliance(token,fetchImpl,{includeSourcePayload:true});probes++;
     if(!current.ok)continue;
     if(await fingerprint(current.aid)===requested){
       try{await env.CAPTAIN_BUCKET.put(hintKey,
@@ -67,7 +67,7 @@ export async function chooseAccount(env,requested,fetchImpl){
           httpMetadata:{contentType:"application/json",cacheControl:"no-store"}
         });}catch{}
       return {status:"ok",token,aid:current.aid,name:current.name,
-        discoveryRequests:probes};
+        sourcePayload:current.sourcePayload,discoveryRequests:probes};
     }
   }
   return {status:"approved-alliance-unavailable"};
