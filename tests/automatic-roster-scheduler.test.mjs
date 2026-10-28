@@ -431,7 +431,7 @@ test("Thursday morning writes a private trophy marker and wakes GitHub on the fi
  const pointer=JSON.parse(f.store.get(trophyCardKey(fp,"2026-10-22-am")));
  assert.equal(pointer.kind,"trophy-card-ready");
  assert.equal(pointer.capturedAt,"2026-10-22T02:00:00.000Z");
- assert.match(pointer.sourceKey,/\/alliance-card\\.json$/);
+ assert.match(pointer.sourceKey,/\/alliance-card\.json$/);
  assert.equal(triggered.length,1);
  assert.equal(f.calls.some(x=>x.includes("github.com")),false,
    "No GitHub request is counted as a Scopely request");
