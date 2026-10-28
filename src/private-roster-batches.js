@@ -71,7 +71,7 @@ async function storeAllianceSource(env,fp,runId,now,entries,campaign=null){
   // A small, private readiness pointer; no roster completion or additional
   // Scopely call is needed. Written only after the original card is archived.
   const card=entries.card?.data;
-  if(campaign&&/^\\d{4}-\\d{2}-\\d{2}-am$/.test(campaign)&&
+  if(campaign&&/^\d{4}-\d{2}-\d{2}-am$/.test(campaign)&&
      [4,6].includes(new Date(now).getUTCDay())&&
      typeof card?.id==="string"&&typeof card?.name==="string"&&
      ["warTrophies","warRank","raidRank"].every(k=>
