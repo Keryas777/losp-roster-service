@@ -22,6 +22,7 @@ const answer=(v,status=200)=>Response.json(v,{status,headers:{
 const stateKey=fp=>BATCH_PREFIX+fp+"/progress.json";
 const playerKey=(fp,id,index)=>BATCH_PREFIX+fp+"/"+id+"/member-"+index+".json";
 export const completeKey=fp=>BATCH_PREFIX+fp+"/latest-complete.json";
+export const trophyCardKey=(fp,campaign)=>BATCH_PREFIX+fp+"/campaigns/"+campaign+"-trophy-card.json";
 // Stable per-campaign receipt for late imports. Written after all authorized
 // member files and the OAuth owner's roster, before mutable "latest" pointers.
 // It uses the existing seven-day roster-batches R2 lifecycle.
@@ -30,7 +31,7 @@ export const campaignCompleteKey=(fp,campaign)=>
 // Archive original provider JSON envelopes, not only the fields used by LoSP.
 // All objects remain under the EXISTING 7-day R2 lifecycle prefix. Unique
 // paths preserve every successful tick rather than overwriting prior metadata.
-async function storeAllianceSource(env,fp,runId,now,entries){
+async function storeAllianceSource(env,fp,runId,now,entries,campaign=null){
   const capturedAt=new Date(now).toISOString();
   const folder=BATCH_PREFIX+fp+"/"+runId+"/provider-source/"+crypto.randomUUID()+"/";
   const sources=[
@@ -66,6 +67,20 @@ async function storeAllianceSource(env,fp,runId,now,entries){
     await env.CAPTAIN_BUCKET.put(folder+name+".json",raw,{
       httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
     });
+  }
+  // A small, private readiness pointer; no roster completion or additional
+  // Scopely call is needed. Written only after the original card is archived.
+  const card=entries.card?.data;
+  if(campaign&&/^\\d{4}-\\d{2}-\\d{2}-am$/.test(campaign)&&
+     [4,6].includes(new Date(now).getUTCDay())&&
+     typeof card?.id==="string"&&typeof card?.name==="string"&&
+     ["warTrophies","warRank","raidRank"].every(k=>
+       Number.isSafeInteger(card[k])&&card[k]>=0)){
+    await env.CAPTAIN_BUCKET.put(trophyCardKey(fp,campaign),
+      JSON.stringify({version:1,kind:"trophy-card-ready",fingerprint:fp,
+        campaign,capturedAt,sourceKey:folder+"alliance-card.json"}),{
+        httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
+      });
   }
 }
 
@@ -182,7 +197,7 @@ async function finishSelf(env,fp,previous,selected,baseline,now,fetchImpl,tick){
     card:after.sourcePayload,
     before:report.sourceMembershipBefore,after:report.sourceMembershipAfter,
     rosters:[{role:"self",pages:report.sourceResponses}]
-  });
+  },previous.campaign);
   const record={version:1,kind:"private-staged-personal-roster",
     allianceFingerprint:fp,runId:previous.runId,memberIndex:"self",
     name:report.name,volatileMemberId:report.memberId,
@@ -363,7 +378,7 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
       rosters:result.rosters.map((roster,i)=>({
         role:"member-"+(startIndex+i),pages:roster.sourceResponses
       }))
-    });
+    },campaign);
     const snapshots=result.rosters.map((r,i)=>({
       key:playerKey(fp,runId,startIndex+i),value:JSON.stringify({
         version:1,kind:"private-staged-microbatch",allianceFingerprint:fp,
