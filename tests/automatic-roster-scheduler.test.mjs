@@ -438,3 +438,19 @@ test("Thursday morning writes a private trophy marker and wakes GitHub on the fi
  assert.ok(f.store.has(BATCH_PREFIX+fp+"/progress.json"),
    "Existing roster campaign remains intact");
 });
+
+test("a roster API failure cannot block trophy readiness from the captain card",async()=>{
+ const f=fixture(),sent=[];
+ f.flags.limit=true;
+ f.env.TROPHY_GITHUB_DISPATCH_ENABLED="true";
+ f.env.ROSTER_GITHUB_DISPATCH_TOKEN="TEST_GITHUB_ONLY";
+ const result=await runRosterAutoTick(f.env,
+   controller("2026-10-22T02:00:00Z"),f.fetchImpl,{
+     githubFetch:async(url,opts)=>{sent.push({url,opts});return {status:204};}
+   });
+ assert.equal(result.status,"rate-limited");
+ assert.equal(result.trophyDispatch,"dispatched");
+ assert.ok(f.store.has(trophyCardKey(fp,"2026-10-22-am")));
+ assert.equal(sent.length,1);
+ assert.equal(f.store.has(completeKey(fp)),false);
+});
