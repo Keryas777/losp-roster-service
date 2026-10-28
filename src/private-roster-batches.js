@@ -22,6 +22,7 @@ const answer=(v,status=200)=>Response.json(v,{status,headers:{
 const stateKey=fp=>BATCH_PREFIX+fp+"/progress.json";
 const playerKey=(fp,id,index)=>BATCH_PREFIX+fp+"/"+id+"/member-"+index+".json";
 export const completeKey=fp=>BATCH_PREFIX+fp+"/latest-complete.json";
+export const trophyCardKey=(fp,campaign)=>BATCH_PREFIX+fp+"/campaigns/"+campaign+"-trophy-card.json";
 // Stable per-campaign receipt for late imports. Written after all authorized
 // member files and the OAuth owner's roster, before mutable "latest" pointers.
 // It uses the existing seven-day roster-batches R2 lifecycle.
@@ -67,6 +68,37 @@ async function storeAllianceSource(env,fp,runId,now,entries){
       httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
     });
   }
+
+}
+
+
+// The captain discovery GET already fetched AllianceCard. Preserve that exact
+// authorized response before touching any player roster: one private source
+// per post-war AM campaign, no new provider GET and no roster dependency.
+async function storeEarlyTrophyCard(env,fp,campaign,source,now){
+  if(!campaign||!/^\d{4}-\d{2}-\d{2}-am$/.test(campaign)||
+     ![4,6].includes(new Date(now).getUTCDay()))return;
+  const card=source?.data;
+  if(!card||typeof card.id!=="string"||typeof card.name!=="string"||
+     !["warTrophies","warRank","raidRank"].every(k=>
+       Number.isSafeInteger(card[k])&&card[k]>=0))return;
+  const existing=await env.CAPTAIN_BUCKET.get(trophyCardKey(fp,campaign));
+  if(existing)return;
+  const capturedAt=new Date(now).toISOString();
+  const folder=BATCH_PREFIX+fp+"/"+crypto.randomUUID()+
+    "/provider-source/"+crypto.randomUUID()+"/";
+  const sourceKey=folder+"alliance-card.json";
+  const raw=JSON.stringify({version:1,kind:"private-provider-source",
+    allianceFingerprint:fp,runId:crypto.randomUUID(),capturedAt,
+    endpoint:"/player/v1/alliance/card",httpStatus:200,
+    providerResponse:source});
+  if(raw.length>MAX_SNAPSHOT_BYTES)throw Error("source-envelope-too-large");
+  const options={httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}};
+  await env.CAPTAIN_BUCKET.put(sourceKey,raw,options);
+  await env.CAPTAIN_BUCKET.put(trophyCardKey(fp,campaign),JSON.stringify({
+    version:1,kind:"trophy-card-ready",fingerprint:fp,
+    campaign,capturedAt,sourceKey
+  }),options);
 }
 
 const selfKey=(fp,id)=>BATCH_PREFIX+fp+"/"+id+"/member-self.json";
@@ -282,6 +314,10 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     if(refresh)previous=null;
     const selected=await chooseAccount(env,fp,fetchImpl);
     if(selected.status!=="ok")return answer({status:selected.status},409);
+    // This is independent of roster pages and survives their later failures.
+    // Failure of this auxiliary archive must not compromise roster collection.
+    try{await storeEarlyTrophyCard(env,fp,campaign,selected.sourcePayload,now);}
+    catch{/* The next scheduled tick may try again. */}
     if(campaign&&previous&&previous.completed===previous.totalEligible)
       return await finishSelf(env,fp,previous,selected,baseline,now,fetchImpl,internal.tick);
     const startIndex=previous?.completed||0;

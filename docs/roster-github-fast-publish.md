@@ -50,3 +50,28 @@ existants restent des secours indépendants.
 **Remarque :** un événement `workflow_dispatch` réduit la dépendance
 aux Cron GitHub, mais GitHub Actions ne garantit pas une heure exacte de
 démarrage ou la disponibilité immédiate d'un runner.
+
+## Trophées de guerre : réveil indépendant des rosters
+
+Le jeudi et le samedi, dès 02:00 UTC, chaque première vérification valide
+du capitaine donne déjà une réponse `/player/v1/alliance/card`.
+Sans nouvelle requête Scopely, le Worker archive cette réponse dans le
+préfixe R2 privé `roster-batches/v1/` (rétention existante de sept jours),
+puis crée un marqueur de disponibilité propre à l'alliance et à la campagne.
+
+Quand toutes les alliances approuvées disposent de leur marqueur valide,
+`src/trophy-github-dispatch.js` lance
+`pull-alliance-standings-r2.yml` avec `early=true`, sans attendre la fin
+des rosters des joueurs. Le contrôle est refait à chaque nouvelle lecture
+et toutes les cinq minutes en secours. L'envoi utilise le secret
+`ROSTER_GITHUB_DISPATCH_TOKEN` déjà dédié à GitHub ; il est activable
+indépendamment par `TROPHY_GITHUB_DISPATCH_ENABLED` (déclaré `true` dans
+`wrangler.jsonc`).
+
+L'Action relit l'enveloppe source officielle en R2, vérifie les six
+identités et nombres, puis applique son propre verrou de publication :
+`LOSP_R2_HISTORY_PUBLICATION_APPROVED=true`. Aucune donnée privée n'est
+transmise dans le POST GitHub ; ce dernier ne contient que le jour UTC.
+Un dispatch HTTP 204 est un réveil accepté, pas la preuve d'un import réussi.
+Les horaires GitHub restent des secours ; aucune modification des autres
+tâches de rosters ni aucun appel Scopely supplémentaire.
