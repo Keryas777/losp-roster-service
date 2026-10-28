@@ -4,7 +4,7 @@ import {createHash} from "node:crypto";
 import {RosterBatchLock} from "../src/roster-batch-lock.js";
 import {CAPTAIN_PREFIX} from "../src/captain-vault.js";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
-import {completeKey,BATCH_PREFIX} from "../src/private-roster-batches.js";
+import {completeKey,trophyCardKey,BATCH_PREFIX} from "../src/private-roster-batches.js";
 import {rosterAttemptKey,rosterCooldownKey} from "../src/roster-auto-diagnostics.js";
 import {ROSTER_CRON,TICK_API_BUDGET,rosterWindow,manualRosterWindow,runRosterAutoTick,rosterAutoStatus,handleAdminRosterAutoTest} from "../src/automatic-roster-scheduler.js";
 import worker from "../src/index.js";
@@ -65,7 +65,8 @@ function fixture(){
    calls.push(url);
    assert.equal(opts.headers.Authorization,"Bearer "+token);
    if(url.endsWith("/alliance/card"))
-     return Response.json({data:{id:"aid007:v1",name:"Zeus"}});
+     return Response.json({data:{id:"aid007:v1",name:"Zeus",
+       warTrophies:2875,warRank:322,raidRank:77}});
    if(url.endsWith("/alliance/members"))
      return Response.json({data:members()});
    if(url.includes("/player/v1/roster")){
@@ -414,4 +415,26 @@ test("private one-shot endpoint cannot be invoked without a Cloudflare Access ad
  assert.equal(result.status,403);
  assert.equal(f.calls.length,0);
  assert.equal(f.store.has("roster-auto/v1/days/2026-10-19.json"),false);
+});
+
+test("Thursday morning writes a private trophy marker and wakes GitHub on the first card",async()=>{
+ const f=fixture(),triggered=[];
+ f.env.TROPHY_GITHUB_DISPATCH_ENABLED="true";
+ f.env.ROSTER_GITHUB_DISPATCH_TOKEN="TEST_GITHUB_ONLY";
+ const run=await runRosterAutoTick(f.env,
+   controller("2026-10-22T02:00:00Z"),f.fetchImpl,{
+     githubFetch:async(url,opts)=>{
+       triggered.push({url,opts});return {status:204};
+     }
+   });
+ assert.equal(run.trophyDispatch,"dispatched");
+ const pointer=JSON.parse(f.store.get(trophyCardKey(fp,"2026-10-22-am")));
+ assert.equal(pointer.kind,"trophy-card-ready");
+ assert.equal(pointer.capturedAt,"2026-10-22T02:00:00.000Z");
+ assert.match(pointer.sourceKey,/\/alliance-card\\.json$/);
+ assert.equal(triggered.length,1);
+ assert.equal(f.calls.some(x=>x.includes("github.com")),false,
+   "No GitHub request is counted as a Scopely request");
+ assert.ok(f.store.has(BATCH_PREFIX+fp+"/progress.json"),
+   "Existing roster campaign remains intact");
 });
