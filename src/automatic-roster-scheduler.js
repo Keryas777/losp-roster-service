@@ -3,6 +3,7 @@ import {captainConfigReady} from "./captain-vault.js";
 import {readApproval} from "./roster-sync-preflight.js";
 import {handleRosterMicrobatch} from "./private-roster-batches.js";
 import {dispatchCompleteRosterCampaign} from "./roster-github-dispatch.js";
+import {dispatchCompleteTrophyCards} from "./trophy-github-dispatch.js";
 import {rosterAttemptKey,rosterCooldownKey,rosterAttemptRecord}
   from "./roster-auto-diagnostics.js";
 
@@ -222,9 +223,21 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
         alliances,options.githubFetch||fetch);}
       catch{githubDispatch="unavailable";}
     }
+    // Trophy cards are available at the beginning of the roster microbatches:
+    // trigger independently of member-roster completion, with five-minute
+    // retry checks and an immediate check after every actual provider tick.
+    let trophyDispatch="disabled";
+    if(slot.campaign.endsWith("-am")&&
+       [4,6].includes(new Date(timestamp).getUTCDay())&&
+       (slot.tick%5===0||used>0)){
+      try{trophyDispatch=await dispatchCompleteTrophyCards(env,slot,
+        alliances,options.githubFetch||fetch);}
+      catch{trophyDispatch="unavailable";}
+    }
     return {status:outcome,requestsThisTick:used,
       requestsToday:d.used+used,
       ...(githubDispatch!=="disabled"?{githubDispatch}:{}),
+      ...(trophyDispatch!=="disabled"?{trophyDispatch}:{}),
       ...(outcomes.length===1?{httpStatus:outcomes[0].httpStatus}:{}),
       alliancesProcessed:outcomes.length,
       ...(manual?{alliance:approval.alliances.find(a=>a.fingerprint===selected[0])?.name||"approved"}:{})};
