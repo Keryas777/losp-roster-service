@@ -150,6 +150,8 @@ test("captures real Archangel awakened material image URLs and names from item o
   assert.equal(p.metadataStatus,"observed-item-fields");
   assert.equal(p.fileCount,2);
   assert.equal(p.metadataEvidenceCount,1);
+  assert.equal(p.metadataVariants.length,1);
+  assert.equal(p.metadataVariants[0].sampleSha256.length,64);
   const u=report.materials.find(m=>m.id===ultimate);
   assert.equal(u.abilityType,"ULTIMATE");
   assert.equal(u.icon,ultIcon);
@@ -177,6 +179,7 @@ test("does not manufacture icon URLs; preserves conflicting observed variants",a
   assert.equal(item.fileCount,2);
   assert.equal(item.metadataVariants.length,2);
   assert.equal(item.metadataVariants.reduce((n,x)=>n+x.fileCount,0),2);
+  assert.equal(item.icon,icon);
   assert.equal(item.metadataVariants[0].icon,icon);
   assert.equal(item.metadataVariants[1].icon,null);
   assert.ok(item.metadataVariants.every(x=>!JSON.stringify(x).includes("untrusted.test")));
