@@ -29,9 +29,12 @@ function fixture(){
     delete:async()=>{throw Error("unexpected R2 deletion");}
   };
   const archive=(path,data,properties={})=>{
-    const sha="a".repeat(64);
+    const sha=checksum(JSON.stringify(data));
     const objectKey=ROOT+"diff/runs/"+RUN+"/objects/"+sha+".json";
-    const receiptKey=ROOT+"diff/runs/"+RUN+"/checks/00000001.json";
+    const ordinal=[GAME,...["striker","raider","skirmisher","healer",
+      "fortifier"].map(id=>GAME+"/"+id)].indexOf(path)+1;
+    const receiptKey=ROOT+"diff/runs/"+RUN+"/checks/"+
+      String(ordinal).padStart(8,"0")+".json";
     // Shared immutable fixture object and receipt are fine for one route.
     put(objectKey,{data,meta:{asOf:"PRIVATE_METADATA"}});
     const receipt={version:2,path,status:"changed",sha256:sha,
@@ -70,15 +73,21 @@ test("read-only ISO-8 root returns five real-looking tier-four URLs without play
   assert.match(res.headers.get("cache-control"),/no-store/);
 });
 
-test("detail record is preferred and nonofficial tier four is never exposed",async()=>{
+test("verified detail wins over root; nonofficial image URLs are never exposed",async()=>{
   const f=fixture();
   const bad="https://unsafe.invalid/SECRET_ACCESS_TOKEN.png";
-  f.archive(GAME,{striker:{icons:[null,null,null,null,bad]}});
+  f.archive(GAME,{striker:{icons:[null,null,null,null,bad]},
+    raider:{icons:[null,null,null,null,bad]}});
+  f.archive(GAME+"/striker",{icons:[null,null,null,null,official("STRIKER")]});
   const a=await get(f);
-  const first=(await a.json()).classes.find(x=>x.id==="striker");
-  assert.equal(first.tier4.url,null);
-  assert.equal(first.tier4.status,"unrecognized-url");
-  assert.doesNotMatch(JSON.stringify(first),/SECRET_ACCESS_TOKEN/);
+  const entries=(await a.json()).classes;
+  const first=entries.find(x=>x.id==="striker");
+  assert.equal(first.tier4.url,official("STRIKER"));
+  assert.equal(first.sourcePath,GAME+"/striker");
+  const rejected=entries.find(x=>x.id==="raider");
+  assert.equal(rejected.tier4.url,null);
+  assert.equal(rejected.tier4.status,"unrecognized-url");
+  assert.doesNotMatch(JSON.stringify(entries),/SECRET_ACCESS_TOKEN/);
 });
 
 test("tampered and expired pointers fail closed with no fallback Scopely request",async()=>{
