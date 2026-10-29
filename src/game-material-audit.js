@@ -5,7 +5,7 @@ import {GAME_ARCHIVE_ROOT} from "./game-catalog-archive.js";
 
 const ROOT=GAME_ARCHIVE_ROOT,ACTIVE=ROOT+"active.json";
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
-const LOCK="e".repeat(64),PAGE=20,CONCURRENCY=4;
+const LOCK="9".repeat(64),PAGE=20,CONCURRENCY=4; // Separate DO from game collector, differential, orphan and provenance audits.
 const MAX_BYTES=750_000,MAX_STATE_BYTES=3_000_000,DAY=86400000,TTL=30*DAY;
 const RUN=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 const HASH=/^[a-f0-9]{64}\.json$/;
