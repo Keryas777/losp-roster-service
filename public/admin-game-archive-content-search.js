@@ -12,10 +12,11 @@
   const VALID=/^[A-Za-z0-9_:-]{3,100}$/;
   const CURSOR=/^[A-Za-z0-9+/=_-]{1,800}$/;
   const STORAGE="losp-r2-game-content-foreground-v2";
-  const MAX_CARDS=20;
+  const PAGE_SIZE=20,MAX_EXAMPLES=20;
   const ZERO=()=>({listed:0,searched:0,tooLarge:0,expired:0,missing:0,unverified:0});
   let term="",cursor=null,totals=ZERO(),matches=0,done=false;
-  let findings=[],otherSamples=[],running=false,stopping=false,controller=null;
+  let findings=[],otherSamples=[],visibleCount=PAGE_SIZE,
+    running=false,stopping=false,controller=null;
   const node=(tag,value)=>{
     const el=document.createElement(tag);
     if(value!==undefined)el.textContent=String(value);
@@ -36,15 +37,15 @@
       totals=Object.fromEntries(Object.keys(ZERO()).map(k=>
         [k,Number.isSafeInteger(s.totals[k])&&s.totals[k]>=0?s.totals[k]:0]));
       matches=Number.isSafeInteger(s.matches)?s.matches:0;
-      findings=s.findings.slice(0,MAX_CARDS);
-      otherSamples=s.otherSamples.slice(0,MAX_CARDS);
+      findings=s.findings;
+      otherSamples=s.otherSamples.slice(0,MAX_EXAMPLES);
       query.value=term;render();
       status.textContent=(done?"Recherche terminée. ":"Recherche interrompue, reprise disponible. ")+progress();
     }catch{}
   }
   function reset(){
     term=query.value.trim();cursor=null;totals=ZERO();
-    matches=0;done=false;findings=[];otherSamples=[];
+    matches=0;done=false;findings=[];otherSamples=[];visibleCount=PAGE_SIZE;
     results.replaceChildren();save();
   }
   function progress(){
@@ -68,11 +69,11 @@
            !/^ABILITY_MATERIAL_[A-Z0-9_]{1,80}$/.test(id))continue;
         const existing=findings.find(x=>x.id===id);
         if(existing){existing.count++;continue;}
-        if(findings.length<MAX_CARDS)findings.push({
+        findings.push({
           id,sha256:item.sha256,uploadedAt:item.uploadedAt,count:1
         });
       }
-    }else if(otherSamples.length<MAX_CARDS &&
+    }else if(otherSamples.length<MAX_EXAMPLES &&
       !otherSamples.some(x=>x.sha256===item.sha256)){
       otherSamples.push({sha256:item.sha256,uploadedAt:item.uploadedAt,
         excerpts:(item.excerpts||[]).slice(0,2)});
@@ -113,13 +114,26 @@
     if(findings.length){
       const heading=node("h4","Identifiants de matériaux distincts retrouvés");
       results.append(heading);
-      for(const match of findings){
+      results.append(node("p",fmt(findings.length)+" identifiant(s) distinct(s) trouvés. "+
+        "Affichage progressif pour préserver le confort sur mobile."));
+      for(const match of findings.slice(0,visibleCount)){
         const card=node("article");card.className="member-card";
         card.append(node("strong",match.id));
         card.append(node("p",fmt(match.count)+" fichier(s) correspondant(s) · "+
           "SHA-256 vérifié · URL historique non prouvée"));
         card.append(node("p","Exemple stocké le : "+match.uploadedAt));
         fullJSON(card,match.sha256);results.append(card);
+      }
+      if(findings.length>visibleCount){
+        const remaining=findings.length-visibleCount;
+        const button=node("button","Afficher "+fmt(Math.min(PAGE_SIZE,remaining))+
+          " identifiants supplémentaires ("+fmt(remaining)+" restants)");
+        button.type="button";
+        button.addEventListener("click",()=>{
+          visibleCount+=PAGE_SIZE;
+          render();
+        });
+        results.append(button);
       }
     }
     if(otherSamples.length){
