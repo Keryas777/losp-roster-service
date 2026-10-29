@@ -6,7 +6,7 @@ import {inspectIsoIconsR2,handleGameIsoIconsR2} from "../src/game-iso-icons-r2.j
 import {handleAdmin} from "../src/admin-routes.js";
 
 const HOST="https://losp-roster-service.deliriousfan7.workers.dev";
-const URL=HOST+"/admin/api/game-iso-icons-r2";
+const ENDPOINT=HOST+"/admin/api/game-iso-icons-r2";
 const ROOT="game-archive/v1/";
 const GAME="/game/v1/iso8Abilities";
 const RUN="12345678-1234-4234-8234-123456789abc";
@@ -47,7 +47,7 @@ function fixture(){
   };
   return {db,put,bucket,calls,archive};
 }
-const get=(f,url=URL)=>handleGameIsoIconsR2(new Request(url),{
+const get=(f,url=ENDPOINT)=>handleGameIsoIconsR2(new Request(url),{
   CAPTAIN_BUCKET:f.bucket},AT);
 
 test("read-only ISO-8 root returns five real-looking tier-four URLs without player data",async()=>{
@@ -109,13 +109,13 @@ test("tampered and expired pointers fail closed with no fallback Scopely request
 
 test("HTTP methods, query strings and missing storage reject requests",async()=>{
   const f=fixture();
-  assert.equal((await handleGameIsoIconsR2(new Request(URL,{method:"POST"}),
+  assert.equal((await handleGameIsoIconsR2(new Request(ENDPOINT,{method:"POST"}),
     {CAPTAIN_BUCKET:f.bucket},AT)).status,405);
-  assert.equal((await get(f,URL+"?key=anything")).status,400);
-  assert.equal((await handleGameIsoIconsR2(new Request(URL),{},AT)).status,503);
+  assert.equal((await get(f,ENDPOINT+"?key=anything")).status,400);
+  assert.equal((await handleGameIsoIconsR2(new Request(ENDPOINT),{},AT)).status,503);
   assert.deepEqual(f.calls,[]);
   // Gate must reject unauthenticated requests before touching the bucket.
-  const protectedResponse=await handleAdmin(new Request(URL),{CAPTAIN_BUCKET:f.bucket});
+  const protectedResponse=await handleAdmin(new Request(ENDPOINT),{CAPTAIN_BUCKET:f.bucket});
   assert.notEqual(protectedResponse.status,200);
   assert.deepEqual(f.calls,[]);
 });
