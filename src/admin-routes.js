@@ -10,6 +10,7 @@ import {handleGameArchiveAdmin} from "./game-catalog-archive.js";
 import {handleGameArchiveGapAudit} from "./game-archive-gaps.js";
 import {handleGameArchiveInspect} from "./game-archive-inspector.js";
 import {handleGameArchiveItemSearch} from "./game-archive-item-search.js";
+import {handleGameArchiveContentSearch} from "./game-archive-content-search.js";
 import {handleGameIsoIconsR2} from "./game-iso-icons-r2.js";
 import {handleGameArchiveInventory} from "./game-archive-inventory.js";
 import {handleGameOrphanAudit} from "./game-archive-orphan-audit.js";
@@ -175,7 +176,15 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<button id="game-item-more" type="button" hidden>Continuer la recherche</button>'+
 '<button id="game-item-copy" type="button" disabled>Copier le JSON archivé</button>'+
 '<p id="game-item-status" role="status" aria-live="polite">Aucune recherche R2 lancée.</p>'+
-'<div id="game-item-result" class="scroll"></div>'+
+'<div id="game-item-result" class="scroll"></div>'+ 
+'<h3>Rechercher dans le contenu des JSON R2</h3>'+
+'<p>Recherche un texte à l’intérieur des objets de jeu archivés, y compris sans reçu historique. Par exemple ability_material_ pour les quatre couleurs. Recherche plus longue, par lots, sans API Scopely. Les objets expirés ou volumineux sont ignorés.</p>'+
+'<label for="game-content-query">Texte à retrouver dans les JSON</label>'+
+'<input id="game-content-query" type="search" maxlength="100" placeholder="ability_material_" autocomplete="off">'+
+'<button id="game-content-start" type="button">Rechercher dans les contenus R2</button>'+
+'<button id="game-content-more" type="button" hidden>Poursuivre la recherche</button>'+
+'<p id="game-content-status" role="status" aria-live="polite">Aucune recherche de contenu lancée.</p>'+
+'<div id="game-content-results" class="scroll"></div>'+
 '<button id="game-inspect-start" type="button">Examiner les premières archives</button>'+
 '<button id="game-inspect-next" type="button" disabled>Examiner le lot suivant</button>'+
 '<button id="game-inspect-copy" type="button" disabled>Copier le résumé d’analyse</button>'+
@@ -224,6 +233,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-game-archive.js" defer></script>'+
 '<script src="/admin-game-archive-inspector.js" defer></script>'+
 '<script src="/admin-game-archive-item-search.js" defer></script>'+
+'<script src="/admin-game-archive-content-search.js" defer></script>'+
 '<script src="/admin-game-iso-icons-r2.js?v=20261029b" defer></script>'+
 '<script src="/admin-game-r2-inventory.js" defer></script>'+
 '<script src="/admin-game-orphan-audit.js" defer></script>'+ 
@@ -299,6 +309,8 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     return handleGameArchiveInspect(request,env);
   if(pathname==="/admin/api/game-archive-item-search")
     return handleGameArchiveItemSearch(request,env);
+  if(pathname==="/admin/api/game-archive-content-search")
+    return handleGameArchiveContentSearch(request,env);
   if(pathname==="/admin/api/game-iso-icons-r2")
     return handleGameIsoIconsR2(request,env);
   if(pathname==="/admin/api/game-archive-inventory")
