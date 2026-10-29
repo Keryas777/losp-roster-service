@@ -17,6 +17,23 @@ const HEADERS={"Cache-Control":"private, no-store","X-Robots-Tag":"noindex",
   "X-Content-Type-Options":"nosniff","Referrer-Policy":"no-referrer"};
 const respond=(data,code=200)=>Response.json(data,{status:code,headers:HEADERS});
 const object=x=>x!==null&&typeof x==="object"&&!Array.isArray(x);
+const kind=x=>Array.isArray(x)?"array":x===null?"null":typeof x;
+// Field names and primitive kinds only: never expose raw game JSON values,
+// untrusted strings, player data, private R2 keys, or nonofficial URLs.
+const safeKeys=x=>object(x)?Object.keys(x)
+  .filter(k=>/^[A-Za-z0-9_-]{1,64}$/.test(k)).slice(0,24):[];
+const inspectShape=x=>{
+  const keys=safeKeys(x);
+  const icons=object(x)?x.icons:undefined;
+  return {kind:kind(x),fields:keys,
+    iconsKind:kind(icons),
+    iconsCount:Array.isArray(icons)?Math.min(icons.length,1000):null,
+    children:keys.slice(0,10).map(key=>({
+      field:key,kind:kind(x[key]),
+      fields:safeKeys(x[key]).slice(0,12),
+      count:Array.isArray(x[key])?Math.min(x[key].length,1000):null
+    }))};
+};
 const fresh=(stamp,now)=>{
   const t=typeof stamp==="string"?Date.parse(stamp):NaN;
   return Number.isFinite(t)&&t<=now+300000&&now-t<MAX_AGE;
@@ -119,12 +136,16 @@ export async function inspectIsoIconsR2(bucket,now=Date.now()){
       provenance:source.provenance||"v2-receipt-certified",
       observedHashMatchesStorage:source.observedHashMatchesStorage??null,
       iconCount:entry?.count??null,
+      structure:{root:inspectShape(rootData),detail:inspectShape(detailData),
+        selected:inspectShape(data)},
       tier4:{status:tier4?.state||"absent",url:tier4?.url||null},
       // Additional official image URLs are useful for visual comparison.
       icons:(entry?.slots||[]).map(x=>({tier:x.index,status:x.state,url:x.url}))};
   });
   return {status:"ok",source:"private-r2-only",
     note:"Indice 4 candidat au palier orange. Sources V1 : octets et date R2 vérifiés, provenance de la route non certifiable sans reçu V2.",
+    rootStructure:inspectShape(root.status==="verified"||
+      root.status==="legacy-byte-verified"?root.data:null),
     sources:sources.map(({path,status,checkedAt,storedAt,provenance})=>({
       path,status,checkedAt:checkedAt||null,storedAt:storedAt||null,
       provenance:provenance||null})),
