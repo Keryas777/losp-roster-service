@@ -100,7 +100,7 @@ export async function handleGameArchiveContentSearch(request,env,now=Date.now())
       const rows=page.objects.slice(offset,offset+5);
       const resolved=await Promise.all(rows.map(async row=>{
         const name=row.key.slice(prefix.length);
-        if(!/^[a-f0-9]{64}\\.json$/.test(name))
+        if(!/^[a-f0-9]{64}\.json$/.test(name))
           return {issue:"unverified"};
         const sha=name.slice(0,-5);
         try{
