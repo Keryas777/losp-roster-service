@@ -98,6 +98,23 @@ test("expiry removes historical output even with an old completed audit",async()
   assert.equal((await f.read()).count,1);
   assert.equal((await publicAwakenedMaterials(f.req(),f.env,NOW+2*86400000)).status,503);
 });
+test("in-app browser tracking parameters do not break the public catalog",async()=>{
+  const f=fixture();audit(f);
+  const urls=[
+    URL+"?utm_source=chatgpt.com",
+    URL+"?utm_source=chatgpt.com&utm_medium=link",
+    URL+"?ref=discord&open_in_browser=1",
+    URL+"?unexpected=ignored"
+  ];
+  const baseline=await f.read();
+  for(const url of urls){
+    const response=await publicAwakenedMaterials(new Request(url),f.env,NOW);
+    assert.equal(response.status,200,url);
+    assert.deepEqual(await response.json(),baseline);
+  }
+  assert.equal(f.calls.put.length,0,"public GET remains read-only");
+});
+
 test("no mutation or private access on unsupported request",async()=>{
   const f=fixture();audit(f);
   const r=await publicAwakenedMaterials(new Request(URL,{method:"POST"}),f.env,NOW);
