@@ -156,7 +156,7 @@ function classification(id){
   return {category:"ordinary-material",characterId:null,abilityType:null};
 }
 const signature=m=>JSON.stringify([m.name,m.description,m.icon]);
-function collectMaterials(payload){
+export function collectMaterials(payload){
   const ids=new Set(),metadata=new Map(),stack=[payload];
   while(stack.length){
     const value=stack.pop();
