@@ -69,18 +69,24 @@ function publicReport(s,now){
     source:"private-R2-original-game-archive",
     provenance:"blob-sha256-verified-original-endpoint-unproven",
     stats:s.stats,distinctIds:Object.keys(s.items).length,
-    materials:Object.entries(s.items).map(([id,value])=>({
-      id,fileCount:value.fileCount,sampleSha256:value.sampleSha256,
-      sampleUploadedAt:value.sampleUploadedAt,
-      category:value.category,characterId:value.characterId,
-      abilityType:value.abilityType,
-      name:value.metadata?.[0]?.name||null,
-      description:value.metadata?.[0]?.description||null,
-      icon:value.metadata?.[0]?.icon||null,
-      metadataStatus:value.metadata?.length?"observed-item-fields":"id-reference-only",
-      metadataEvidenceCount:value.metadata?.reduce((n,x)=>n+x.fileCount,0)||0,
-      metadataVariants:value.metadata||[]
-    })).sort((a,b)=>a.id.localeCompare(b.id)),
+    materials:Object.entries(s.items).map(([id,value])=>{
+      // Prefer a directly observed official icon to a sparse earlier
+      // reference; keep every conflicting source variant in the report.
+      const variants=[...(value.metadata||[])].sort((a,b)=>
+        Number(Boolean(b.icon))-Number(Boolean(a.icon))||
+        Number(Boolean(b.name))-Number(Boolean(a.name))||
+        Number(Boolean(b.description))-Number(Boolean(a.description))||
+        b.fileCount-a.fileCount);
+      const best=variants[0]||null;
+      return {id,fileCount:value.fileCount,
+        sampleSha256:value.sampleSha256,sampleUploadedAt:value.sampleUploadedAt,
+        category:value.category,characterId:value.characterId,
+        abilityType:value.abilityType,name:best?.name||null,
+        description:best?.description||null,icon:best?.icon||null,
+        metadataStatus:variants.length?"observed-item-fields":"id-reference-only",
+        metadataEvidenceCount:variants.reduce((n,x)=>n+x.fileCount,0),
+        metadataVariants:variants};
+    }).sort((a,b)=>a.id.localeCompare(b.id)),
     coverage:{
       originalObjects:true,differentialObjects:false,rawUnindexed:false,
       maxObjectBytes:MAX_BYTES,maxSourceAgeDays:30,
