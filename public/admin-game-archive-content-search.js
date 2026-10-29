@@ -11,7 +11,7 @@
   if(!query||!start||!more||!pause||!status||!results)return;
   const VALID=/^[A-Za-z0-9_:-]{3,100}$/;
   const CURSOR=/^[A-Za-z0-9+/=_-]{1,800}$/;
-  const STORAGE="losp-r2-game-content-foreground-v2";
+  const STORAGE="losp-r2-game-content-foreground-v3";
   const PAGE_SIZE=20,MAX_EXAMPLES=20;
   const ZERO=()=>({listed:0,searched:0,tooLarge:0,expired:0,missing:0,unverified:0});
   let term="",cursor=null,totals=ZERO(),matches=0,done=false;
