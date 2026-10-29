@@ -172,7 +172,12 @@ export async function runGameMaterialAuditTick(env,now=Date.now()){
     if(!RUN.test(active?.runId||""))return {status:"not-started"};
     const progressKey=key(active.runId),s=await read(b,progressKey);
     if(!s||s.version!==1||s.runId!==active.runId)return {status:"not-started"};
-    if(expired(s,now))return {status:"expired"};
+    if(expired(s,now)){
+      // Physically remove only this generated report at the source TTL.
+      // Never delete original blobs, receipts, other audits or credentials.
+      if(b.delete)await b.delete(progressKey);
+      return {status:"expired"};
+    }
     if(s.status!=="running")return {status:s.status};
     const root=prefix(s.runId);
     const listing=await b.list({prefix:root,limit:PAGE,
