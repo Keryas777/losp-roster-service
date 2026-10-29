@@ -57,15 +57,25 @@
         }
         card.append(node("p","Source : "+(entry.sourcePath||"aucune")+
           " · "+(entry.sourceStatus||"indisponible")));
+        if(entry.provenance==="legacy-path-not-receipt-certified"){
+          card.append(node("p","Archive historique V1 : contenu et date R2 contrôlés, "+
+            "mais provenance de la route non certifiée par un reçu V2."));
+          if(entry.observedHashMatchesStorage===false)
+            card.append(node("p","Attention : l'empreinte observée du vieux "+
+              "pointeur diffère du fichier physiquement vérifié."));
+        }
         if(entry.storedAt)
           card.append(node("p","Stockage R2 : "+entry.storedAt));
         report.append(card);
       }
-      const missing=(data.sources||[]).filter(x=>x.status!=="verified");
+      const legacy=(data.sources||[]).filter(x=>x.status==="legacy-byte-verified");
+      const missing=(data.sources||[]).filter(x=>
+        x.status!=="verified"&&x.status!=="legacy-byte-verified");
       status.textContent="Lecture R2 terminée : "+
         data.classes.filter(x=>x.tier4?.url).length+
         "/5 candidats avec une URL officielle. "+
-        (missing.length?missing.length+" route(s) sans preuve fraîche vérifiée. ":"")+
+        (legacy.length?legacy.length+" source(s) historiques V1 à provenance limitée. ":"")+
+        (missing.length?missing.length+" route(s) sans contenu contrôlé. ":"")+
         "L'indice 4 doit encore être comparé visuellement au jeu. Aucun appel Scopely.";
     }catch(err){
       status.textContent="Diagnostic R2 indisponible : "+
