@@ -29,7 +29,7 @@ const meta=async(b,key)=>{
   if(!obj||!Number.isFinite(obj.size)||obj.size>4096)return null;
   return JSON.parse(await obj.text());
 };
-async function readVerified(b,key,sha,now,listing=null){
+async function readVerified(b,key,sha,now,listing=null,term=null){
   const uploaded=listing?.uploaded;
   const size=listing?.size;
   // Do not load large or expired objects, even if the archived bytes still exist.
@@ -41,8 +41,11 @@ async function readVerified(b,key,sha,now,listing=null){
   const date=obj.uploaded??uploaded;
   if(!fresh(date,now))return {issue:"expired"};
   const raw=await obj.text();
-  if(new TextEncoder().encode(raw).byteLength!==obj.size||
-     await sha256(raw)!==sha)return {issue:"unverified"};
+  if(new TextEncoder().encode(raw).byteLength!==obj.size)
+    return {issue:"unverified"};
+  // Most blobs will not match: avoid SHA and JSON parsing until a term appears.
+  if(term&&!raw.toLowerCase().includes(term))return {notMatched:true};
+  if(await sha256(raw)!==sha)return {issue:"unverified"};
   try{
     const payload=JSON.parse(raw);
     if(!payload||typeof payload!=="object"||Array.isArray(payload)||
@@ -91,24 +94,35 @@ export async function handleGameArchiveContentSearch(request,env,now=Date.now())
     const term=query.toLowerCase();
     const matches=[],stats={listed:0,searched:0,tooLarge:0,expired:0,
       missing:0,unverified:0};
-    for(const row of page.objects){
-      stats.listed++;
-      const name=row.key.slice(prefix.length);
-      if(!/^[a-f0-9]{64}\.json$/.test(name)){
-        stats.unverified++;continue;
+    // Five parallel reads per wave, at most 30 R2 GETs plus one LIST.
+    // No background jobs, mutations or provider requests.
+    for(let offset=0;offset<page.objects.length;offset+=5){
+      const rows=page.objects.slice(offset,offset+5);
+      const resolved=await Promise.all(rows.map(async row=>{
+        const name=row.key.slice(prefix.length);
+        if(!/^[a-f0-9]{64}\\.json$/.test(name))
+          return {issue:"unverified"};
+        const sha=name.slice(0,-5);
+        try{
+          const candidate=await readVerified(b,row.key,sha,now,row,term);
+          return {sha,candidate};
+        }catch{return {issue:"unverified"};}
+      }));
+      for(const result of resolved){
+        stats.listed++;
+        const candidate=result.candidate;
+        if(result.issue||candidate?.issue){
+          const issue=result.issue||candidate.issue;
+          stats[issue]??=0;stats[issue]++;
+          continue;
+        }
+        stats.searched++;
+        if(candidate.notMatched)continue;
+        const sample=excerpts(candidate.raw,term);
+        if(sample.length)matches.push({sha256:result.sha,
+          uploadedAt:candidate.uploadedAt,excerpts:sample,
+          provenance:"original-request-unverified"});
       }
-      const sha=name.slice(0,-5);
-      let candidate;
-      try{candidate=await readVerified(b,row.key,sha,now,row);}
-      catch{candidate={issue:"unverified"};}
-      if(!candidate.payload){
-        stats[candidate.issue]??=0;stats[candidate.issue]++;continue;
-      }
-      stats.searched++;
-      const sample=excerpts(candidate.raw,term);
-      if(sample.length)matches.push({sha256:sha,
-        uploadedAt:candidate.uploadedAt,excerpts:sample,
-        provenance:"original-request-unverified"});
     }
     return respond({status:page.truncated?"searching":"complete",query,
       stats,matches,nextCursor:page.truncated?page.cursor:null,
