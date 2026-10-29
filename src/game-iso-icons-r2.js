@@ -32,12 +32,47 @@ async function getJSON(bucket,key,max=MAX_JSON){
   if(bytes.length>max)throw Error("oversized");
   return JSON.parse(bytes);
 }
+// V1 pointers predate the durable V2 receiptKey/storedAt contract.
+// Verify the physical R2 object, its content address and upload date;
+// never present the unprovable legacy route provenance as V2-verified.
+async function readLegacyPath(bucket,path,pointer,now){
+  const matched=OBJECT.exec(pointer.objectKey||"");
+  if(pointer.path!==path||!matched||!SHA.test(pointer.sha256||""))
+    return {path,status:"invalid-legacy-pointer"};
+  if(!fresh(pointer.checkedAt,now))
+    return {path,status:"legacy-expired"};
+  if(!bucket.head)return {path,status:"legacy-upload-date-unavailable"};
+  try{
+    const head=await bucket.head(pointer.objectKey);
+    if(!head)return {path,status:"legacy-object-missing"};
+    const uploaded=head.uploaded instanceof Date?head.uploaded.toISOString():
+      typeof head.uploaded==="string"?head.uploaded:null;
+    if(!fresh(uploaded,now))
+      return {path,status:"legacy-upload-date-unavailable-or-expired"};
+    if(!Number.isFinite(head.size)||head.size>MAX_JSON)
+      return {path,status:"legacy-unreadable-object"};
+    const item=await bucket.get(pointer.objectKey);
+    if(!item||!Number.isFinite(item.size)||item.size>MAX_JSON)
+      return {path,status:"legacy-unreadable-object"};
+    const raw=await item.text();
+    if(raw.length>MAX_JSON||await hash(raw)!==matched[1].toLowerCase())
+      return {path,status:"legacy-content-hash-mismatch"};
+    const payload=JSON.parse(raw);
+    if(!object(payload)||!object(payload.data))
+      return {path,status:"unexpected-shape"};
+    return {path,status:"legacy-byte-verified",data:payload.data,
+      checkedAt:pointer.checkedAt,storedAt:uploaded,
+      provenance:"legacy-path-not-receipt-certified",
+      observedHashMatchesStorage:pointer.sha256===matched[1].toLowerCase()};
+  }catch{return {path,status:"legacy-unreadable-object"};}
+}
 async function readIndexedPath(bucket,path,now){
   const latest=ROOT+"diff/latest/"+await hash(path)+".json";
   let pointer;
   try{pointer=await getJSON(bucket,latest,8192);}
   catch{return {path,status:"invalid-pointer"};}
   if(!pointer)return {path,status:"not-indexed"};
+  if(pointer.version===1)return readLegacyPath(bucket,path,pointer,now);
   const matched=OBJECT.exec(pointer.objectKey||"");
   if(pointer.version!==2||pointer.path!==path||
      !SHA.test(pointer.sha256||"")||
@@ -70,9 +105,9 @@ export async function inspectIsoIconsR2(bucket,now=Date.now()){
   const sources=await Promise.all(paths.map(path=>readIndexedPath(bucket,path,now)));
   const root=sources[0],classes=CLASSES.map((id,index)=>{
     const detail=sources[index+1];
-    const detailData=detail.status==="verified"?
+    const detailData=["verified","legacy-byte-verified"].includes(detail.status)?
       (object(detail.data[id])?detail.data[id]:detail.data):null;
-    const rootData=root.status==="verified"?root.data[id]:null;
+    const rootData=["verified","legacy-byte-verified"].includes(root.status)?root.data[id]:null;
     const fromDetail=object(detailData)&&Array.isArray(detailData.icons);
     const data=fromDetail?detailData:rootData;
     const source=fromDetail?detail:root;
@@ -81,15 +116,18 @@ export async function inspectIsoIconsR2(bucket,now=Date.now()){
     return {id,status:entry?.status||"absent",
       sourceStatus:source.status,sourcePath:source.path,
       checkedAt:source.checkedAt||null,storedAt:source.storedAt||null,
+      provenance:source.provenance||"v2-receipt-certified",
+      observedHashMatchesStorage:source.observedHashMatchesStorage??null,
       iconCount:entry?.count??null,
       tier4:{status:tier4?.state||"absent",url:tier4?.url||null},
       // Additional official image URLs are useful for visual comparison.
       icons:(entry?.slots||[]).map(x=>({tier:x.index,status:x.state,url:x.url}))};
   });
   return {status:"ok",source:"private-r2-only",
-    note:"L'indice 4 est candidat au palier orange, pas une confirmation visuelle.",
-    sources:sources.map(({path,status,checkedAt,storedAt})=>({
-      path,status,checkedAt:checkedAt||null,storedAt:storedAt||null})),
+    note:"Indice 4 candidat au palier orange. Sources V1 : octets et date R2 vérifiés, provenance de la route non certifiable sans reçu V2.",
+    sources:sources.map(({path,status,checkedAt,storedAt,provenance})=>({
+      path,status,checkedAt:checkedAt||null,storedAt:storedAt||null,
+      provenance:provenance||null})),
     classes};
 }
 export async function handleGameIsoIconsR2(request,env,now=Date.now()){
