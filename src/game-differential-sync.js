@@ -7,6 +7,7 @@ import {GAME_ROOTS,GAME_ARCHIVE_ROOT,GAME_ARCHIVE_DAILY_LIMIT,
   appToken,readGameBody} from "./game-catalog-archive.js";
 import {discoverGamePhase2,phase2RootTasks} from "./game-phase2-discovery.js";
 import {characterRecoveryTasks,splitFailedAbilities} from "./game-archive-recovery.js";
+import {noteAwakenedMaterials} from "./awakened-material-catalog.js";
 
 const ROOT=GAME_ARCHIVE_ROOT+"diff/";
 const STATE=ROOT+"state.json",ACTIVE=GAME_ARCHIVE_ROOT+"active.json";
@@ -387,6 +388,10 @@ async function finishCommitted(b,s,task,receipt,now){
      current.sha256!==pointer.sha256||current.objectKey!==pointer.objectKey)
     await write(b,latestKey(pathHash),pointer);
   await discover(b,s,task.path,doc);
+  // Derive icons from the same verified response; failure must never
+  // block or repeat an otherwise successful official differential GET.
+  try{await noteAwakenedMaterials(b,doc,receipt,now);}
+  catch{console.warn("game-awakened-catalog-update-failed");}
   if(receipt.status==="changed"){
     s.changed++;s.lastChangedAt=receipt.lastChangedAt||receipt.checkedAt;
   }else s.unchanged++;
