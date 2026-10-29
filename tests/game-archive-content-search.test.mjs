@@ -70,6 +70,27 @@ test("searches original orphan blobs by JSON content, not by URL receipt",async(
   assert.equal(response.headers.get("Cache-Control"),"private, no-store");
 });
 
+test("finds all four distinct verified ability-material identifiers",async()=>{
+  const f=fixture();
+  await f.add({data:{items:[
+    {item:{id:"ABILITY_MATERIAL_GREEN_ABILITY_MAT"}},
+    {item:{id:"ABILITY_MATERIAL_BLUE_ABILITY_MAT"}},
+    {item:{id:"ABILITY_MATERIAL_PURPLE_ABILITY_MAT"}},
+    {item:{id:"ABILITY_MATERIAL_ORANGE_ABILITY_MAT"}},
+    {item:{id:"ABILITY_MATERIAL_GREEN_ABILITY_MAT"}}
+  ]}});
+  const response=await query(f,"q=ability_material_");
+  const result=await response.json();
+  assert.equal(response.status,200);
+  assert.equal(result.matches.length,1);
+  assert.deepEqual(result.matches[0].materialIds,[
+    "ABILITY_MATERIAL_BLUE_ABILITY_MAT",
+    "ABILITY_MATERIAL_GREEN_ABILITY_MAT",
+    "ABILITY_MATERIAL_ORANGE_ABILITY_MAT",
+    "ABILITY_MATERIAL_PURPLE_ABILITY_MAT"
+  ]);
+});
+
 test("only content SHA-256 and date-verified matches can open their full JSON",async()=>{
   const f=fixture();
   const expected={data:{id:"ability_material_orange",quantity:1000}};

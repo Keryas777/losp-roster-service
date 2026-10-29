@@ -178,11 +178,12 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<p id="game-item-status" role="status" aria-live="polite">Aucune recherche R2 lancée.</p>'+
 '<div id="game-item-result" class="scroll"></div>'+ 
 '<h3>Rechercher dans le contenu des JSON R2</h3>'+
-'<p>Recherche un texte à l’intérieur des objets de jeu archivés, y compris sans reçu historique. Par exemple ability_material_ pour les quatre couleurs. Recherche plus longue, par lots, sans API Scopely. Les objets expirés ou volumineux sont ignorés.</p>'+
+'<p>Recherche un texte à l’intérieur des objets de jeu archivés, y compris sans reçu historique. Par exemple ability_material_ pour les quatre couleurs. Balayage automatique par lots tant que cette page reste ouverte, avec pause et reprise. Sans API Scopely. Les objets expirés ou volumineux sont ignorés.</p>'+
 '<label for="game-content-query">Texte à retrouver dans les JSON</label>'+
 '<input id="game-content-query" type="search" maxlength="100" placeholder="ability_material_" autocomplete="off">'+
 '<button id="game-content-start" type="button">Rechercher dans les contenus R2</button>'+
 '<button id="game-content-more" type="button" hidden>Poursuivre la recherche</button>'+
+'<button id="game-content-pause" type="button" hidden>Mettre en pause</button>'+
 '<p id="game-content-status" role="status" aria-live="polite">Aucune recherche de contenu lancée.</p>'+
 '<div id="game-content-results" class="scroll"></div>'+
 '<button id="game-inspect-start" type="button">Examiner les premières archives</button>'+

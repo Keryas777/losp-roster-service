@@ -65,6 +65,23 @@ function excerpts(raw,needle){
   }
   return found;
 }
+// IDs actually present as values in the verified JSON, not guessed from an
+// icon URL or a partial snippet. Keep the response small and game-specific.
+function materialIds(payload){
+  const found=new Set(),stack=[payload];
+  while(stack.length&&found.size<16){
+    const value=stack.pop();
+    if(typeof value==="string"){
+      if(/^ABILITY_MATERIAL_[A-Z0-9_]{1,80}$/i.test(value))
+        found.add(value.toUpperCase());
+      continue;
+    }
+    if(value&&typeof value==="object"){
+      for(const field of Object.values(value))stack.push(field);
+    }
+  }
+  return [...found].sort();
+}
 export async function handleGameArchiveContentSearch(request,env,now=Date.now()){
   if(request.method!=="GET")return respond({error:"method-not-allowed"},405);
   const q=new URL(request.url).searchParams;
@@ -121,6 +138,7 @@ export async function handleGameArchiveContentSearch(request,env,now=Date.now())
         const sample=excerpts(candidate.raw,term);
         if(sample.length)matches.push({sha256:result.sha,
           uploadedAt:candidate.uploadedAt,excerpts:sample,
+          materialIds:materialIds(candidate.payload),
           provenance:"original-request-unverified"});
       }
     }
