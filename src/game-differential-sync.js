@@ -374,8 +374,8 @@ async function finishCommitted(b,s,task,receipt,now){
   const source=await b.get(receipt.objectKey);
   if(!source||Number.isFinite(source.size)&&source.size>8_000_000)
     return {error:"committed-object-unreadable",retry:false};
-  let doc;
-  try{doc=JSON.parse(await source.text());}
+  let doc,rawSource;
+  try{rawSource=await source.text();doc=JSON.parse(rawSource);}
   catch{return {error:"committed-object-invalid-json",retry:false};}
   if(!doc||typeof doc!=="object"||Array.isArray(doc)||!Object.hasOwn(doc,"data"))
     return {error:"committed-object-invalid-shape",retry:false};
@@ -390,8 +390,10 @@ async function finishCommitted(b,s,task,receipt,now){
   await discover(b,s,task.path,doc);
   // Derive icons from the same verified response; failure must never
   // block or repeat an otherwise successful official differential GET.
-  try{await noteAwakenedMaterials(b,doc,receipt,now);}
-  catch{console.warn("game-awakened-catalog-update-failed");}
+  if(/ability_material_/i.test(rawSource)){
+    try{await noteAwakenedMaterials(b,doc,receipt,now);}
+    catch{console.warn("game-awakened-catalog-update-failed");}
+  }
   if(receipt.status==="changed"){
     s.changed++;s.lastChangedAt=receipt.lastChangedAt||receipt.checkedAt;
   }else s.unchanged++;
