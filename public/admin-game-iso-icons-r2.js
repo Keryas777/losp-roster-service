@@ -41,7 +41,10 @@
         " · Champs : "+(shape.fields?.join(", ")||"aucun")));
       const detail=node("details");
       detail.append(node("summary","Voir la structure complète (noms de champs uniquement)"));
-      detail.append(node("pre",JSON.stringify(shape,null,2)));
+      const shapeText=node("pre",JSON.stringify(shape,null,2));
+      shapeText.style.whiteSpace="pre-wrap";
+      shapeText.style.overflowWrap="anywhere";
+      detail.append(shapeText);
       intro.append(detail);report.append(intro);
       for(const entry of data.classes){
         const card=node("div");card.className="member-card";
@@ -55,7 +58,10 @@
         card.append(node("p","Champs : "+(fields.join(", ")||"aucun")));
         const schema=node("details");
         schema.append(node("summary","Comparer les structures de la racine et du détail"));
-        schema.append(node("pre",JSON.stringify(entry.structure||{},null,2)));
+        const schemaText=node("pre",JSON.stringify(entry.structure||{},null,2));
+        schemaText.style.whiteSpace="pre-wrap";
+        schemaText.style.overflowWrap="anywhere";
+        schema.append(schemaText);
         card.append(schema);
         card.append(node("p","Indice 4 : "+(image?
           "PNG officiel candidat — à comparer au jeu":
