@@ -5,8 +5,8 @@
   const status=document.getElementById("game-iso-r2-status");
   const report=document.getElementById("game-iso-r2-report");
   if(!button||!status||!report)return;
-  const labels={striker:"Attaquant",raider:"Pillard",
-    skirmisher:"Escarmoucheur",healer:"Soigneur",
+  const labels={striker:"Attaquant",raider:"Fantassin",
+    skirmisher:"Tirailleur",healer:"Soigneur",
     fortifier:"Fortificateur"};
   const node=(tag,value)=>{
     const el=document.createElement(tag);
@@ -34,11 +34,29 @@
       const data=await res.json();
       if(data.status!=="ok"||!Array.isArray(data.classes))
         throw Error("Réponse inattendue");
+      const shape=data.rootStructure||{};
+      const intro=node("div");intro.className="member-card";
+      intro.append(node("strong","Structure du JSON R2 principal"));
+      intro.append(node("p","Type : "+(shape.kind||"indéterminé")+
+        " · Champs : "+(shape.fields?.join(", ")||"aucun")));
+      const detail=node("details");
+      detail.append(node("summary","Voir la structure complète (noms de champs uniquement)"));
+      detail.append(node("pre",JSON.stringify(shape,null,2)));
+      intro.append(detail);report.append(intro);
       for(const entry of data.classes){
         const card=node("div");card.className="member-card";
         card.append(node("h3",labels[entry.id]||entry.id));
         const candidate=entry.tier4||{};
         const image=validUrl(candidate.url);
+        card.append(node("p","Structure capacité : "+(entry.status||"inconnue")+
+          " · icons : "+(entry.structure?.selected?.iconsKind||"absent")+
+          " · éléments : "+(entry.iconCount??"non disponible")));
+        const fields=entry.structure?.selected?.fields||[];
+        card.append(node("p","Champs : "+(fields.join(", ")||"aucun")));
+        const schema=node("details");
+        schema.append(node("summary","Comparer les structures de la racine et du détail"));
+        schema.append(node("pre",JSON.stringify(entry.structure||{},null,2)));
+        card.append(schema);
         card.append(node("p","Indice 4 : "+(image?
           "PNG officiel candidat — à comparer au jeu":
           candidate.status||"absent")));
@@ -71,7 +89,8 @@
       const legacy=(data.sources||[]).filter(x=>x.status==="legacy-byte-verified");
       const missing=(data.sources||[]).filter(x=>
         x.status!=="verified"&&x.status!=="legacy-byte-verified");
-      status.textContent="Lecture R2 terminée : "+
+      status.textContent="Structure R2 inspectée, sans exposer les valeurs. "+
+        "Lecture R2 terminée : "+
         data.classes.filter(x=>x.tier4?.url).length+
         "/5 candidats avec une URL officielle. "+
         (legacy.length?legacy.length+" source(s) historiques V1 à provenance limitée. ":"")+
