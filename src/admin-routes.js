@@ -9,6 +9,7 @@ import {PUBLIC_SOURCE_ROUTES,handlePublicSourceProbe} from "./public-msf-source-
 import {handleGameArchiveAdmin} from "./game-catalog-archive.js";
 import {handleGameArchiveGapAudit} from "./game-archive-gaps.js";
 import {handleGameArchiveInspect} from "./game-archive-inspector.js";
+import {handleGameArchiveItemSearch} from "./game-archive-item-search.js";
 import {handleGameIsoIconsR2} from "./game-iso-icons-r2.js";
 import {handleGameArchiveInventory} from "./game-archive-inventory.js";
 import {handleGameOrphanAudit} from "./game-archive-orphan-audit.js";
@@ -167,7 +168,14 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<p id="game-iso-r2-status" role="status">Aucune archive consultée.</p>'+ 
 '<div id="game-iso-r2-report" class="health-cards" aria-live="polite"></div></section>'+ 
 '<section><h2>Explorer les JSON déjà archivés dans R2</h2>'+
-'<p>Échantillonnage privé en lecture seule : reçus, familles réellement collectées et structure de quelques JSON. Aucun nouvel appel Scopely, aucune modification des archives.</p>'+
+'<p>Recherche ciblée par identifiant dans les reçus et index R2 privés, puis échantillonnage des autres archives. Aucun nouvel appel Scopely ni écriture R2.</p>'+
+'<label for="game-item-id">Identifiant de l’objet archivé</label>'+
+'<input id="game-item-id" type="search" maxlength="180" placeholder="Ex. ability_material_green" autocomplete="off">'+
+'<button id="game-item-search" type="button">Rechercher cet objet dans R2</button>'+
+'<button id="game-item-more" type="button" hidden>Continuer la recherche</button>'+
+'<button id="game-item-copy" type="button" disabled>Copier le JSON archivé</button>'+
+'<p id="game-item-status" role="status" aria-live="polite">Aucune recherche R2 lancée.</p>'+
+'<div id="game-item-result" class="scroll"></div>'+
 '<button id="game-inspect-start" type="button">Examiner les premières archives</button>'+
 '<button id="game-inspect-next" type="button" disabled>Examiner le lot suivant</button>'+
 '<button id="game-inspect-copy" type="button" disabled>Copier le résumé d’analyse</button>'+
@@ -214,7 +222,8 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-player-campaign.js" defer></script>'+ 
 '<script src="/admin-secondary-probes.js" defer></script>'+
 '<script src="/admin-game-archive.js" defer></script>'+
-'<script src="/admin-game-archive-inspector.js" defer></script>'+ 
+'<script src="/admin-game-archive-inspector.js" defer></script>'+
+'<script src="/admin-game-archive-item-search.js" defer></script>'+
 '<script src="/admin-game-iso-icons-r2.js" defer></script>'+
 '<script src="/admin-game-r2-inventory.js" defer></script>'+
 '<script src="/admin-game-orphan-audit.js" defer></script>'+ 
@@ -288,6 +297,8 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     return handleGameArchiveGapAudit(request,env);
   if(pathname==="/admin/api/game-archive-inspect")
     return handleGameArchiveInspect(request,env);
+  if(pathname==="/admin/api/game-archive-item-search")
+    return handleGameArchiveItemSearch(request,env);
   if(pathname==="/admin/api/game-iso-icons-r2")
     return handleGameIsoIconsR2(request,env);
   if(pathname==="/admin/api/game-archive-inventory")
