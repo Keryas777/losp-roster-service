@@ -9,6 +9,7 @@ import {PUBLIC_SOURCE_ROUTES,handlePublicSourceProbe} from "./public-msf-source-
 import {handleGameArchiveAdmin} from "./game-catalog-archive.js";
 import {handleGameArchiveGapAudit} from "./game-archive-gaps.js";
 import {handleGameArchiveInspect} from "./game-archive-inspector.js";
+import {handleGameIsoIconsR2} from "./game-iso-icons-r2.js";
 import {handleGameArchiveInventory} from "./game-archive-inventory.js";
 import {handleGameOrphanAudit} from "./game-archive-orphan-audit.js";
 import {handleGameProvenanceReconcile} from "./game-archive-provenance-reconcile.js";
@@ -160,6 +161,11 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<button id="game-provenance-copy" type="button" disabled>Copier le bilan JSON</button>'+
 '<p id="game-provenance-status" role="status"></p>'+
 '<div id="game-provenance-summary" class="health-cards"></div></section>'+
+'<section id="game-iso-icons-r2"><h2>Icônes ISO-8 orange — archives R2</h2>'+ 
+'<p>Lecture privée des cinq classes ISO-8, sans requête Scopely ni nouvelle collecte. L’indice 4 est un candidat : le visuel doit être comparé au jeu.</p>'+ 
+'<button id="game-iso-r2-check" type="button">Chercher les 5 icônes dans R2</button>'+ 
+'<p id="game-iso-r2-status" role="status">Aucune archive consultée.</p>'+ 
+'<div id="game-iso-r2-report" class="health-cards" aria-live="polite"></div></section>'+ 
 '<section><h2>Explorer les JSON déjà archivés dans R2</h2>'+
 '<p>Échantillonnage privé en lecture seule : reçus, familles réellement collectées et structure de quelques JSON. Aucun nouvel appel Scopely, aucune modification des archives.</p>'+
 '<button id="game-inspect-start" type="button">Examiner les premières archives</button>'+
@@ -208,7 +214,8 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-player-campaign.js" defer></script>'+ 
 '<script src="/admin-secondary-probes.js" defer></script>'+
 '<script src="/admin-game-archive.js" defer></script>'+
-'<script src="/admin-game-archive-inspector.js" defer></script>'+
+'<script src="/admin-game-archive-inspector.js" defer></script>'+ 
+'<script src="/admin-game-iso-icons-r2.js" defer></script>'+
 '<script src="/admin-game-r2-inventory.js" defer></script>'+
 '<script src="/admin-game-orphan-audit.js" defer></script>'+ 
 '<script src="/admin-game-provenance.js" defer></script>'+
@@ -247,7 +254,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
       "Content-Type":"text/html; charset=utf-8",
       "Cache-Control":"private, no-store","Referrer-Policy":"no-referrer",
       "X-Robots-Tag":"noindex, nofollow, noarchive","X-Frame-Options":"DENY",
-      "Content-Security-Policy":"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"
+      "Content-Security-Policy":"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src https://assets.marvelstrikeforce.com; base-uri 'none'; frame-ancestors 'none'"
     }});
   }
   if(pathname==="/admin/api/game-differential-failures")
@@ -281,6 +288,8 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     return handleGameArchiveGapAudit(request,env);
   if(pathname==="/admin/api/game-archive-inspect")
     return handleGameArchiveInspect(request,env);
+  if(pathname==="/admin/api/game-iso-icons-r2")
+    return handleGameIsoIconsR2(request,env);
   if(pathname==="/admin/api/game-archive-inventory")
     return handleGameArchiveInventory(request,env);
   if(pathname==="/admin/api/game-archive-schema-audit")
