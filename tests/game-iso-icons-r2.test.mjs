@@ -163,6 +163,35 @@ test("legacy pointers reject mismatched bytes, missing upload timestamp, and exp
   assert.equal(report.classes[0].tier4.url,null);
 });
 
+test("R2 structure diagnostics distinguish missing icons from nested fields without exposing values",async()=>{
+  const f=fixture();
+  const data={striker:{name:"PRIVATE_NAME_OF_ABILITY",
+    ability:{icons:[null,null,null,null,official("STRIKER")]},
+    nested:{asset:"SECRET_ASSET_VALUE"}},
+    raider:{name:"PRIVATE_RAIDER_NAME",icons:[]}};
+  f.archive(GAME,data);
+  const response=await get(f),report=await response.json();
+  assert.equal(response.status,200);
+  assert.deepEqual(report.rootStructure.fields,["striker","raider"]);
+  const striker=report.classes.find(x=>x.id==="striker");
+  assert.equal(striker.status,"missing-icons");
+  assert.equal(striker.structure.root.kind,"object");
+  assert.equal(striker.structure.root.iconsKind,"undefined");
+  assert.deepEqual(striker.structure.root.fields,["name","ability","nested"]);
+  assert.deepEqual(striker.structure.root.children.find(x=>x.field==="ability").fields,
+    ["icons"]);
+  assert.equal(striker.tier4.url,null);
+  const raider=report.classes.find(x=>x.id==="raider");
+  assert.equal(raider.status,"ok");
+  assert.equal(raider.structure.root.iconsKind,"array");
+  assert.equal(raider.iconCount,0);
+  assert.equal(raider.tier4.url,null);
+  assert.doesNotMatch(JSON.stringify(report),
+    /PRIVATE_NAME_OF_ABILITY|PRIVATE_RAIDER_NAME|SECRET_ASSET_VALUE|ICON_EXTRA_ABILITY_ISO8_STRIKER_4/);
+  assert.ok(f.calls.every(([action,key])=>["get","head"].includes(action)&&
+    key.startsWith(ROOT)));
+});
+
 test("HTTP methods, query strings and missing storage reject requests",async()=>{
   const f=fixture();
   assert.equal((await handleGameIsoIconsR2(new Request(ENDPOINT,{method:"POST"}),
@@ -183,6 +212,11 @@ test("private admin is wired and UI never triggers a Scopely request",async()=>{
   ]);
   assert.match(routes,/handleGameIsoIconsR2\(request,env\)/);
   assert.match(routes,/admin-game-iso-icons-r2\.js/);
+  assert.ok(routes.includes("/admin-game-iso-icons-r2.js?v=20261029b"));
+  assert.match(ui,/raider:"Fantassin"/);
+  assert.match(ui,/skirmisher:"Tirailleur"/);
+  assert.doesNotMatch(ui,/raider:"Pillard"|skirmisher:"Escarmoucheur"/);
+  assert.match(ui,/Structure du JSON R2 principal/);
   assert.match(routes,/id="game-iso-r2-check"/);
   assert.match(routes,/img-src https:\/\/assets\.marvelstrikeforce\.com/);
   assert.match(ui,/\/admin\/api\/game-iso-icons-r2/);
