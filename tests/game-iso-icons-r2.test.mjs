@@ -16,13 +16,19 @@ const checksum=s=>createHash("sha256").update(s).digest("hex");
 const official=name=>"https://assets.marvelstrikeforce.com/imgs/"+
   "ICON_EXTRA_ABILITY_ISO8_"+name+"_4_ae128ffa.png";
 function fixture(){
-  const db=new Map(),calls=[];
+  const db=new Map(),calls=[],uploads=new Map();
   const put=(key,value)=>db.set(key,JSON.stringify(value));
   const bucket={
     get:async key=>{
       calls.push(["get",key]);
       const content=db.get(key);
       return content===undefined?null:{size:content.length,text:async()=>content};
+    },
+    head:async key=>{
+      calls.push(["head",key]);
+      const raw=db.get(key);
+      return raw===undefined?null:{size:raw.length,
+        uploaded:new Date(uploads.get(key)||stamp)};
     },
     list:async()=>{throw Error("unexpected R2 listing");},
     put:async()=>{throw Error("unexpected R2 write");},
@@ -45,7 +51,7 @@ function fixture(){
     put(ROOT+"diff/latest/"+checksum(path)+".json",pointer);
     return {pointer,receipt};
   };
-  return {db,put,bucket,calls,archive};
+  return {db,put,bucket,calls,uploads,archive};
 }
 const get=(f,url=ENDPOINT)=>handleGameIsoIconsR2(new Request(url),{
   CAPTAIN_BUCKET:f.bucket},AT);
@@ -105,6 +111,56 @@ test("tampered and expired pointers fail closed with no fallback Scopely request
   assert.equal(result.classes[0].tier4.url,null);
   const report=JSON.stringify(result);
   assert.doesNotMatch(report,/PRIVATE_SECRET|oauth|Bearer/);
+});
+
+test("legacy V1 pointers are diagnosed from actual R2 bytes and upload date",async()=>{
+  const f=fixture();
+  const data={striker:{icons:[null,null,null,null,official("STRIKER")]}};
+  const raw=JSON.stringify({data});
+  const storedSha=checksum(raw);
+  const objectKey=ROOT+"runs/"+RUN+"/objects/"+storedSha+".json";
+  f.db.set(objectKey,raw);
+  // Historical V1 could record the observed hash rather than the stored hash.
+  f.put(ROOT+"diff/latest/"+checksum(GAME)+".json",{
+    version:1,path:GAME,sha256:"a".repeat(64),objectKey,
+    checkedAt:stamp,runId:RUN
+  });
+  const result=await inspectIsoIconsR2(f.bucket,AT);
+  assert.equal(result.sources[0].status,"legacy-byte-verified");
+  assert.equal(result.sources[0].provenance,"legacy-path-not-receipt-certified");
+  assert.equal(result.classes[0].tier4.url,official("STRIKER"));
+  assert.equal(result.classes[0].sourceStatus,"legacy-byte-verified");
+  assert.equal(result.classes[0].observedHashMatchesStorage,false);
+  assert.ok(f.calls.some(([action,key])=>action==="head"&&key===objectKey));
+  assert.ok(f.calls.every(([action,key])=>
+    ["get","head"].includes(action)&&key.startsWith(ROOT)));
+  assert.doesNotMatch(JSON.stringify(result),/PRIVATE_NAME|PRIVATE_TOKEN|roster-batches/);
+});
+
+test("legacy pointers reject mismatched bytes, missing upload timestamp, and expired data",async()=>{
+  const f=fixture();
+  const data={striker:{icons:[null,null,null,null,official("STRIKER")]}};
+  const raw=JSON.stringify({data}),storedSha=checksum(raw);
+  const objectKey=ROOT+"runs/"+RUN+"/objects/"+storedSha+".json";
+  const pointerKey=ROOT+"diff/latest/"+checksum(GAME)+".json";
+  f.db.set(objectKey,raw);
+  f.put(pointerKey,{version:1,path:GAME,sha256:storedSha,
+    objectKey,checkedAt:stamp,runId:RUN});
+  f.db.set(objectKey,raw+" ");
+  let report=await inspectIsoIconsR2(f.bucket,AT);
+  assert.equal(report.sources[0].status,"legacy-content-hash-mismatch");
+  assert.equal(report.classes[0].tier4.url,null);
+  f.db.set(objectKey,raw);
+  f.uploads.set(objectKey,"2026-08-01T00:00:00Z");
+  report=await inspectIsoIconsR2(f.bucket,AT);
+  assert.equal(report.sources[0].status,"legacy-upload-date-unavailable-or-expired");
+  assert.equal(report.classes[0].tier4.url,null);
+  f.uploads.delete(objectKey);
+  f.put(pointerKey,{version:1,path:GAME,sha256:storedSha,
+    objectKey,checkedAt:"2026-08-01T00:00:00Z",runId:RUN});
+  report=await inspectIsoIconsR2(f.bucket,AT);
+  assert.equal(report.sources[0].status,"legacy-expired");
+  assert.equal(report.classes[0].tier4.url,null);
 });
 
 test("HTTP methods, query strings and missing storage reject requests",async()=>{
