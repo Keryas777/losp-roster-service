@@ -82,7 +82,9 @@ export async function noteAwakenedMaterials(bucket,document,receipt,now=Date.now
 
 export async function publicAwakenedMaterials(request,env,now=Date.now()){
   if(request.method!=="GET")return response({error:"method-not-allowed"},405);
-  if(new URL(request.url).search)return response({error:"unsupported-query"},400);
+  // Public, fixed-resource GET: query parameters do not affect the catalog.
+  // In-app browsers (including ChatGPT/Discord) may append tracking params.
+  // Ignore them rather than reject a valid request; no parameter is used.
   if(!env?.CAPTAIN_BUCKET?.get)return response({error:"unavailable"},503);
   try{
     const b=env.CAPTAIN_BUCKET;
