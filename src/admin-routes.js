@@ -188,7 +188,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<p id="game-content-status" role="status" aria-live="polite">Aucune recherche de contenu lancée.</p>'+
 '<div id="game-content-results" class="scroll"></div>'+
 '<h3>Audit automatique des matériaux de capacité</h3>'+ 
-'<p>Un seul lancement : le Cron Cloudflare analyse les fichiers R2 même lorsque cette page est fermée. Aucun appel Scopely, aucune modification des archives sources. Actualise plus tard pour récupérer le rapport.</p>'+ 
+'<p>Un seul lancement : le Cron Cloudflare inventorie les identifiants, les noms, les descriptions et les liens d’icônes officiels des matériaux dans les JSON R2, même lorsque cette page est fermée. Aucun appel Scopely ni modification des archives. Actualise ensuite pour copier ou exporter le rapport complet.</p>'+ 
 '<button id="game-material-start" type="button">Lancer l\'audit des matériaux R2</button>'+ 
 '<button id="game-material-refresh" type="button">Actualiser le rapport</button>'+ 
 '<button id="game-material-copy" type="button" disabled>Copier le rapport JSON complet</button>'+ 

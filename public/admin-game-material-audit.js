@@ -17,18 +17,21 @@
   };
   const number=value=>Number(value||0).toLocaleString("fr-FR");
   const exportJSON=()=>JSON.stringify(report,null,2);
-  const ready=()=>report&&report.status==="snapshot-complete";
+  const ready=()=>report&&report.version===2&&report.status==="snapshot-complete";
   function render(data){
     report=data;
     summary.replaceChildren();
     const s=data.stats||{};
     for(const [label,value] of [
       ["État",data.status==="snapshot-complete"?"Terminé":
-        data.status==="running"?"En cours":data.status==="expired"?"Expiré":"Non démarré"],
+        data.status==="running"?"En cours":data.status==="expired"?"Expiré":
+        data.status==="upgrade-required"?"Ancien rapport sans icônes":"Non démarré"],
       ["Fichiers R2 listés",number(s.listed)],
       ["Fichiers examinés",number(s.examined)],
       ["Fichiers contenant le terme",number(s.matched)],
       ["Matériaux distincts",number(data.distinctIds)],
+      ["Matériaux avec icône officielle",number((data.materials||[])
+        .filter(m=>m.icon).length)],
       ["Fichiers ignorés",number((s.tooLarge||0)+(s.expired||0)+
         (s.unavailable||0)+(s.invalid||0))]
     ]){
@@ -40,8 +43,23 @@
       const sample=el("details"),heading=el("summary",
         "Aperçu des identifiants ("+number(data.materials.length)+")");
       sample.append(heading);
-      for(const item of data.materials.slice(0,12))
-        sample.append(el("p",item.id+" — "+number(item.fileCount)+" JSON"));
+      for(const item of data.materials.slice(0,12)){
+        const row=el("div");row.className="member-card";
+        if(typeof item.icon==="string"&&
+           /^https:\/\/assets\.marvelstrikeforce\.com\/(?:imgs|key_art)\//.test(item.icon)){
+          const img=el("img");img.src=item.icon;img.alt=item.name||item.id;
+          img.loading="lazy";img.style.width="48px";img.style.height="48px";
+          img.style.objectFit="contain";row.append(img);
+        }
+        row.append(el("strong",item.name||item.id));
+        if(item.name)row.append(el("p",item.id));
+        row.append(el("p",number(item.fileCount)+" JSON · "+
+          (item.category==="awakened-unique-material"?
+            "Éveil "+(item.characterId||"")+" / "+(item.abilityType||""):
+            "Matériau générique")+
+          (item.icon?" · Icône officielle présente":" · Icône non trouvée")));
+        sample.append(row);
+      }
       if(data.materials.length>12)
         sample.append(el("p","Liste intégrale dans le rapport JSON exportable."));
       summary.append(sample);
@@ -49,11 +67,14 @@
     copy.disabled=!ready();
     download.disabled=!ready();
     start.textContent=ready()?"Relancer un nouvel audit R2":
+      data.status==="upgrade-required"?"Relancer avec noms et icônes":
       data.status==="running"?"Audit en cours (Cron automatique)":
       "Lancer l'audit des matériaux R2";
     start.disabled=busy||data.status==="running";
     status.textContent=(data.status==="running"?
-      "Le Cron continue même après fermeture de la page. ":"")+
+      "Le Cron continue même après fermeture de la page. ":
+      data.status==="upgrade-required"?
+        "Ancienne version : il faut relancer une fois pour extraire les icônes des JSON déjà examinés. ":"")+
       (data.updatedAt?"Dernier passage : "+data.updatedAt+". ":"")+
       (data.finishedAt?"Terminé le : "+data.finishedAt+". ":"")+
       (data.expiresAt?"Expiration du rapport : "+data.expiresAt+". ":"")+
@@ -80,8 +101,9 @@
   start.addEventListener("click",async()=>{
     if(busy)return;
     let action="start";
-    if(ready()){
-      if(!confirm("Relancer l'audit depuis le début ? Le rapport précédent sera remplacé."))return;
+    if(ready()||report?.status==="upgrade-required"){
+      if(!confirm("Relancer l'audit enrichi depuis le début ? "+
+        "Le rapport précédent sera remplacé."))return;
       action="restart";
     }
     busy=true;start.disabled=true;refresh.disabled=true;
@@ -121,7 +143,7 @@
     if(!ready())return;
     const blob=new Blob([exportJSON()],{type:"application/json"});
     const url=URL.createObjectURL(blob),link=document.createElement("a");
-    link.href=url;link.download="losp-materials-r2-"+report.runId+".json";
+    link.href=url;link.download="losp-materials-icons-r2-"+report.runId+".json";
     link.click();
     setTimeout(()=>URL.revokeObjectURL(url),1000);
   });
