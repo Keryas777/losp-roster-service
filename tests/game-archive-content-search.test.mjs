@@ -91,6 +91,29 @@ test("finds all four distinct verified ability-material identifiers",async()=>{
   ]);
 });
 
+test("content scan never truncates IDs after sixteen, including unique awakenings",async()=>{
+  const f=fixture();
+  const ids=Array.from({length:28},(_,i)=>
+    "ABILITY_MATERIAL_UNIQUE_ABILITY_MAT_HERO"+i+"_BASIC");
+  await f.add({data:{items:ids.map(id=>({item:{id}}))}});
+  const out=await (await query(f,"q=ability_material_")).json();
+  assert.equal(out.matches.length,1);
+  assert.equal(out.matches[0].materialIds.length,ids.length);
+  assert.deepEqual(out.matches[0].materialIds,[...ids].sort());
+  assert.equal(f.calls.writes,0);
+});
+
+test("mobile UI retains all found IDs while displaying pages of twenty",async()=>{
+  const {readFile}=await import("node:fs/promises");
+  const js=await readFile(
+    new URL("../public/admin-game-archive-content-search.js",import.meta.url),"utf8");
+  assert.ok(js.includes("findings=s.findings;"));
+  assert.ok(js.includes("findings.push({"));
+  assert.ok(js.includes("findings.slice(0,visibleCount)"));
+  assert.ok(js.includes("visibleCount+=PAGE_SIZE"));
+  assert.ok(!js.includes("MAX_CARDS"));
+});
+
 test("only content SHA-256 and date-verified matches can open their full JSON",async()=>{
   const f=fixture();
   const expected={data:{id:"ability_material_orange",quantity:1000}};
