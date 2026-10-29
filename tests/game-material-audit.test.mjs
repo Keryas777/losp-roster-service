@@ -10,7 +10,7 @@ const NOW=Date.parse("2026-10-29T12:00:00.000Z");
 const AT=new Date("2026-10-28T13:00:00.000Z");
 const OLD=new Date("2026-07-01T12:00:00.000Z");
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
-const URL=ORIGIN+"/admin/api/game-material-audit";
+const ENDPOINT=ORIGIN+"/admin/api/game-material-audit";
 const ROOT=GAME_ARCHIVE_ROOT+"runs/"+RUN+"/";
 const PROGRESS=ROOT+"material-audit/v1/progress.json";
 const hash=async raw=>[...new Uint8Array(await crypto.subtle.digest(
@@ -73,8 +73,8 @@ function fixture(){
   return {env,objects,calls,add,block:val=>blocked=val,
     failRead:val=>throwRead=val,progress:()=>JSON.parse(objects.get(PROGRESS).raw)};
 }
-const get=(f,now=NOW)=>handleGameMaterialAudit(new Request(URL),f.env,now);
-const post=(f,action="start",now=NOW)=>handleGameMaterialAudit(new Request(URL,{
+const get=(f,now=NOW)=>handleGameMaterialAudit(new Request(ENDPOINT),f.env,now);
+const post=(f,action="start",now=NOW)=>handleGameMaterialAudit(new Request(ENDPOINT,{
   method:"POST",headers:{Origin:ORIGIN,"Content-Type":"application/json"},
   body:JSON.stringify({action})}),f.env,now);
 
@@ -185,9 +185,9 @@ test("admin Access and Origin checks prevent unprivileged writes",async()=>{
   const noAuth={...f.env,MSF_ADMIN_ENABLED:"true",
     CF_ACCESS_TEAM_DOMAIN:"example.cloudflareaccess.com",
     CF_ACCESS_AUD:"a".repeat(64),MSF_ADMIN_EMAILS:"admin@example.test"};
-  assert.equal((await handleAdmin(new Request(URL),noAuth)).status,403);
+  assert.equal((await handleAdmin(new Request(ENDPOINT),noAuth)).status,403);
   assert.equal(f.calls.get.length,0);
-  const bad=await handleGameMaterialAudit(new Request(URL,{
+  const bad=await handleGameMaterialAudit(new Request(ENDPOINT,{
     method:"POST",headers:{Origin:"https://another.example","Content-Type":"application/json"},
     body:JSON.stringify({action:"start"})}),f.env,NOW);
   assert.equal(bad.status,403);
