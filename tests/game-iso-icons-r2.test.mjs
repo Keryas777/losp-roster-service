@@ -212,7 +212,7 @@ test("private admin is wired and UI never triggers a Scopely request",async()=>{
   ]);
   assert.match(routes,/handleGameIsoIconsR2\(request,env\)/);
   assert.match(routes,/admin-game-iso-icons-r2\.js/);
-  assert.match(routes,/admin-game-iso-icons-r2\\.js\\?v=20261029b/);
+  assert.ok(routes.includes("/admin-game-iso-icons-r2.js?v=20261029b"));
   assert.match(ui,/raider:"Fantassin"/);
   assert.match(ui,/skirmisher:"Tirailleur"/);
   assert.doesNotMatch(ui,/raider:"Pillard"|skirmisher:"Escarmoucheur"/);
