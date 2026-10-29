@@ -180,6 +180,18 @@ test("expired report hides archived IDs and requires an intentional new start",a
   assert.equal((await post(f,"start",after)).status,200);
 });
 
+test("Cron purges only the generated audit report after its source TTL",async()=>{
+  const f=fixture();
+  await f.add({data:{id:"ABILITY_MATERIAL_GREEN_ABILITY_MAT"}});
+  await post(f);
+  await runGameMaterialAuditTick(f.env,NOW);
+  const later=NOW+31*86400000;
+  assert.equal((await runGameMaterialAuditTick(f.env,later)).status,"expired");
+  assert.ok(!f.objects.has(PROGRESS));
+  assert.deepEqual(f.calls.deleted,[PROGRESS]);
+  assert.equal((await get(f,later).then(r=>r.json())).status,"not-started");
+});
+
 test("admin Access and Origin checks prevent unprivileged writes",async()=>{
   const f=fixture();
   const noAuth={...f.env,MSF_ADMIN_ENABLED:"true",
