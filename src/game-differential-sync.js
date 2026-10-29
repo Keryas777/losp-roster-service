@@ -7,6 +7,7 @@ import {GAME_ROOTS,GAME_ARCHIVE_ROOT,GAME_ARCHIVE_DAILY_LIMIT,
   appToken,readGameBody} from "./game-catalog-archive.js";
 import {discoverGamePhase2,phase2RootTasks} from "./game-phase2-discovery.js";
 import {characterRecoveryTasks,splitFailedAbilities} from "./game-archive-recovery.js";
+import {noteAwakenedMaterials} from "./awakened-material-catalog.js";
 
 const ROOT=GAME_ARCHIVE_ROOT+"diff/";
 const STATE=ROOT+"state.json",ACTIVE=GAME_ARCHIVE_ROOT+"active.json";
@@ -373,8 +374,8 @@ async function finishCommitted(b,s,task,receipt,now){
   const source=await b.get(receipt.objectKey);
   if(!source||Number.isFinite(source.size)&&source.size>8_000_000)
     return {error:"committed-object-unreadable",retry:false};
-  let doc;
-  try{doc=JSON.parse(await source.text());}
+  let doc,rawSource;
+  try{rawSource=await source.text();doc=JSON.parse(rawSource);}
   catch{return {error:"committed-object-invalid-json",retry:false};}
   if(!doc||typeof doc!=="object"||Array.isArray(doc)||!Object.hasOwn(doc,"data"))
     return {error:"committed-object-invalid-shape",retry:false};
@@ -387,6 +388,12 @@ async function finishCommitted(b,s,task,receipt,now){
      current.sha256!==pointer.sha256||current.objectKey!==pointer.objectKey)
     await write(b,latestKey(pathHash),pointer);
   await discover(b,s,task.path,doc);
+  // Derive icons from the same verified response; failure must never
+  // block or repeat an otherwise successful official differential GET.
+  if(/ability_material_/i.test(rawSource)){
+    try{await noteAwakenedMaterials(b,doc,receipt,now);}
+    catch{console.warn("game-awakened-catalog-update-failed");}
+  }
   if(receipt.status==="changed"){
     s.changed++;s.lastChangedAt=receipt.lastChangedAt||receipt.checkedAt;
   }else s.unchanged++;

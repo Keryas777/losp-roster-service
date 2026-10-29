@@ -5,6 +5,7 @@ import {createHash} from "node:crypto";
 import {RosterBatchLock} from "../src/roster-batch-lock.js";
 import {runGameDifferentialTick,gameDifferentialStatus} from "../src/game-differential-sync.js";
 import {GAME_ARCHIVE_ROOT} from "../src/game-catalog-archive.js";
+import {publicAwakenedMaterials} from "../src/awakened-material-catalog.js";
 import {handleAdmin} from "../src/admin-routes.js";
 
 const NOW=Date.UTC(2026,9,23,0,0,0);
@@ -84,6 +85,31 @@ async function finish(f,start=NOW){
   }
   throw Error("diff did not finish: "+JSON.stringify(last));
 }
+test("verified weekly differential automatically publishes new awakened icons",async()=>{
+  const icon="https://assets.marvelstrikeforce.com/imgs/NEW_HERO_SPECIAL_aa112233.png";
+  const id="ABILITY_MATERIAL_UNIQUE_ABILITY_MAT_NEW_HERO_SPECIAL";
+  const api=()=>Response.json({data:{
+    rewards:{allOf:[{item:{id,name:"New Hero Special Awakened Material",
+      icon},quantity:50}]}},meta:{asOf:"2026-10-29T08:00:00Z"}});
+  const f=fixture({api});await f.seed();
+  const {status,ts}=await finish(f);
+  assert.equal(status.status,"completed");
+  const response=await publicAwakenedMaterials(new Request(
+    "https://losp-roster-service.deliriousfan7.workers.dev/api/public/awakened-materials"
+  ),f.env,ts);
+  assert.equal(response.status,200);
+  const catalog=await response.json();
+  assert.equal(catalog.materials.length,1);
+  assert.deepEqual(catalog.materials[0],{
+    id,characterId:"NEW_HERO",abilityType:"SPECIAL",
+    name:"New Hero Special Awakened Material",
+    description:null,iconUrl:icon
+  });
+  assert.ok(f.calls.some(call=>call.url.includes("/game/v1/")));
+  assert.ok([...f.store.keys()].some(key=>
+    key==="game-archive/v1/materials/public/v1/differential.json"));
+});
+
 test("no initial archive or unfinished baseline: zero /game requests",async()=>{
   const f=fixture();
   assert.equal((await runGameDifferentialTick(f.env,f.provider,NOW)).status,
