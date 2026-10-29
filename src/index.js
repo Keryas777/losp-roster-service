@@ -11,6 +11,7 @@ import { prunePrivateRosterPilots } from "./private-roster-pilot.js";
 import { ROSTER_CRON, runRosterAutoTick } from "./automatic-roster-scheduler.js";
 import {GAME_ARCHIVE_CRON,runGameArchiveTick} from "./game-catalog-archive.js";
 import {runGameArchiveSchemaAuditTick} from "./game-archive-schema-audit.js";
+import {runGameMaterialAuditTick} from "./game-material-audit.js";
 import {runGameOrphanAuditTick} from "./game-archive-orphan-audit.js";
 import {runGameProvenanceReconcileTick} from "./game-archive-provenance-reconcile.js";
 import {runPlayerCampaignTick} from "./player-campaign.js";
@@ -197,6 +198,11 @@ export default {
         status:orphanAudit.status,phase:orphanAudit.phase||null,
         objects:orphanAudit.objects||0,orphaned:orphanAudit.orphaned||0
       }));
+      const materials=await runGameMaterialAuditTick(env);
+      if(materials.status==="running"||materials.status==="snapshot-complete")
+        console.info("game-material-audit-cron",JSON.stringify({
+          status:materials.status,listed:materials.listed||0,
+          matched:materials.matched||0,distinctIds:materials.distinctIds||0}));
       const provenance=await runGameProvenanceReconcileTick(env);
       if(provenance.status==="running"||provenance.status==="snapshot-complete")
         console.info("game-provenance-cron",JSON.stringify({
