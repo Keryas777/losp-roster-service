@@ -11,6 +11,7 @@ import {handleGameArchiveGapAudit} from "./game-archive-gaps.js";
 import {handleGameArchiveInspect} from "./game-archive-inspector.js";
 import {handleGameArchiveItemSearch} from "./game-archive-item-search.js";
 import {handleGameArchiveContentSearch} from "./game-archive-content-search.js";
+import {handleGameMaterialAudit} from "./game-material-audit.js";
 import {handleGameIsoIconsR2} from "./game-iso-icons-r2.js";
 import {handleGameArchiveInventory} from "./game-archive-inventory.js";
 import {handleGameOrphanAudit} from "./game-archive-orphan-audit.js";
@@ -186,6 +187,14 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<button id="game-content-pause" type="button" hidden>Mettre en pause</button>'+
 '<p id="game-content-status" role="status" aria-live="polite">Aucune recherche de contenu lancée.</p>'+
 '<div id="game-content-results" class="scroll"></div>'+
+'<h3>Audit automatique des matériaux de capacité</h3>'+ 
+'<p>Un seul lancement : le Cron Cloudflare analyse les fichiers R2 même lorsque cette page est fermée. Aucun appel Scopely, aucune modification des archives sources. Actualise plus tard pour récupérer le rapport.</p>'+ 
+'<button id="game-material-start" type="button">Lancer l\'audit des matériaux R2</button>'+ 
+'<button id="game-material-refresh" type="button">Actualiser le rapport</button>'+ 
+'<button id="game-material-copy" type="button" disabled>Copier le rapport JSON complet</button>'+ 
+'<button id="game-material-download" type="button" disabled>Exporter le rapport JSON</button>'+ 
+'<p id="game-material-status" role="status" aria-live="polite">Aucun rapport chargé.</p>'+ 
+'<div id="game-material-summary" class="health-cards"></div>'+
 '<button id="game-inspect-start" type="button">Examiner les premières archives</button>'+
 '<button id="game-inspect-next" type="button" disabled>Examiner le lot suivant</button>'+
 '<button id="game-inspect-copy" type="button" disabled>Copier le résumé d’analyse</button>'+
@@ -235,6 +244,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-game-archive-inspector.js" defer></script>'+
 '<script src="/admin-game-archive-item-search.js" defer></script>'+
 '<script src="/admin-game-archive-content-search.js" defer></script>'+
+'<script src="/admin-game-material-audit.js" defer></script>'+
 '<script src="/admin-game-iso-icons-r2.js?v=20261029b" defer></script>'+
 '<script src="/admin-game-r2-inventory.js" defer></script>'+
 '<script src="/admin-game-orphan-audit.js" defer></script>'+ 
@@ -250,6 +260,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
         "/admin/api/roster-batch","/admin/api/roster-auto-test",
         "/admin/api/msf-secondary-probe","/admin/api/game-archive",
         "/admin/api/game-archive-schema-audit",
+        "/admin/api/game-material-audit",
         "/admin/api/game-archive-orphan-audit",
         "/admin/api/game-provenance-reconcile",
         "/admin/api/alliance-season-ranks","/admin/api/player-extras",
@@ -312,6 +323,8 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     return handleGameArchiveItemSearch(request,env);
   if(pathname==="/admin/api/game-archive-content-search")
     return handleGameArchiveContentSearch(request,env);
+  if(pathname==="/admin/api/game-material-audit")
+    return handleGameMaterialAudit(request,env);
   if(pathname==="/admin/api/game-iso-icons-r2")
     return handleGameIsoIconsR2(request,env);
   if(pathname==="/admin/api/game-archive-inventory")
