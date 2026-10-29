@@ -69,7 +69,9 @@ function excerpts(raw,needle){
 // icon URL or a partial snippet. Keep the response small and game-specific.
 function materialIds(payload){
   const found=new Set(),stack=[payload];
-  while(stack.length&&found.size<16){
+  // JSONs are already bounded to 750 KB. Do not silently truncate the
+  // discovered IDs: an incomplete list would falsely look exhaustive.
+  while(stack.length){
     const value=stack.pop();
     if(typeof value==="string"){
       if(/^ABILITY_MATERIAL_[A-Z0-9_]{1,80}$/i.test(value))
