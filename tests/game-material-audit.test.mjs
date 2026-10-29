@@ -115,6 +115,105 @@ test("manual start persists and minute ticks finish with all IDs and deduplicate
   assert.equal((await get(f,NOW+180000).then(r=>r.json())).stats.listed,0);
 });
 
+test("captures real Archangel awakened material image URLs and names from item objects",async()=>{
+  const f=fixture();
+  const passive="ABILITY_MATERIAL_UNIQUE_ABILITY_MAT_ARCHANGEL_PASSIVE";
+  const ultimate="ABILITY_MATERIAL_UNIQUE_ABILITY_MAT_ARCHANGEL_ULTIMATE";
+  const passIcon="https://assets.marvelstrikeforce.com/imgs/"+
+    "ICON_ABILITY_MATERIAL_UNIQUE_ABILITY_MAT_ARCHANGEL_PASSIVE_85673e31.png";
+  const ultIcon="https://assets.marvelstrikeforce.com/imgs/"+
+    "ICON_ABILITY_MATERIAL_UNIQUE_ABILITY_MAT_ARCHANGEL_ULTIMATE_548ea478.png";
+  const reward={
+    data:{name:"Call of the Horsemen",firstTimeRewards:{allOf:[
+      {item:{id:passive,name:"Archangel's Passive Awakened Ability Material",
+        description:"Used to further upgrade character abilities.",icon:passIcon},quantity:200},
+      {item:{id:ultimate,name:"Archangel's Ultimate Awakened Ability Material",
+        description:"Used to further upgrade character abilities.",icon:ultIcon},quantity:200},
+      {item:{id:"ABILITY_MATERIAL_ORANGE_ABILITY_MAT",
+        name:"T4 Ability Material",
+        icon:"https://assets.marvelstrikeforce.com/imgs/ICON_ABILITY_MATERIAL_ORANGE_ABILITY_MAT_bb60fc90.png"}}
+    ]}}
+  };
+  await f.add(reward);
+  await f.add({data:{id:passive,extra:"another reference"}});
+  await post(f);
+  assert.equal((await runGameMaterialAuditTick(f.env,NOW)).status,"snapshot-complete");
+  const report=await (await get(f)).json();
+  assert.equal(report.version,2);
+  const p=report.materials.find(m=>m.id===passive);
+  assert.equal(p.category,"awakened-unique-material");
+  assert.equal(p.characterId,"ARCHANGEL");
+  assert.equal(p.abilityType,"PASSIVE");
+  assert.equal(p.name,"Archangel's Passive Awakened Ability Material");
+  assert.equal(p.description,"Used to further upgrade character abilities.");
+  assert.equal(p.icon,passIcon);
+  assert.equal(p.metadataStatus,"observed-item-fields");
+  assert.equal(p.fileCount,2);
+  assert.equal(p.metadataEvidenceCount,1);
+  const u=report.materials.find(m=>m.id===ultimate);
+  assert.equal(u.abilityType,"ULTIMATE");
+  assert.equal(u.icon,ultIcon);
+  const t4=report.materials.find(m=>m.id==="ABILITY_MATERIAL_ORANGE_ABILITY_MAT");
+  assert.equal(t4.category,"ordinary-material");
+  assert.equal(t4.characterId,null);
+  assert.equal(t4.name,"T4 Ability Material");
+  assert.ok(report.materials.every(m=>!Object.hasOwn(m,"objectKey")));
+  assert.equal(f.calls.put.filter(k=>!k.includes("material-audit/v1/")).length,0);
+});
+
+test("does not manufacture icon URLs; preserves conflicting observed variants",async()=>{
+  const f=fixture();
+  const id="ABILITY_MATERIAL_UNIQUE_ABILITY_MAT_SCORPIONBREAKER_BASIC";
+  const icon="https://assets.marvelstrikeforce.com/imgs/ScorpionAwakened_12345678.png";
+  await f.add({data:{firstTimeRewards:{allOf:[
+    {item:{id,name:"Awakened ability",icon}},
+    {item:{id,name:"Awakened ability",icon}}
+  ]}}});
+  await f.add({data:{rewards:[{item:{id,name:"Different name",
+    icon:"https://untrusted.test/fake.png"}}]}});
+  await post(f);
+  await runGameMaterialAuditTick(f.env,NOW);
+  const item=(await (await get(f)).json()).materials[0];
+  assert.equal(item.fileCount,2);
+  assert.equal(item.metadataVariants.length,2);
+  assert.equal(item.metadataVariants.reduce((n,x)=>n+x.fileCount,0),2);
+  assert.equal(item.metadataVariants[0].icon,icon);
+  assert.equal(item.metadataVariants[1].icon,null);
+  assert.ok(item.metadataVariants.every(x=>!JSON.stringify(x).includes("untrusted.test")));
+  assert.equal(item.characterId,"SCORPIONBREAKER");
+  assert.equal(item.abilityType,"BASIC");
+});
+
+test("legacy v1 audit never masquerades as enriched; explicit restart for already-scanned data",async()=>{
+  const f=fixture();
+  const legacy={version:1,runId:RUN,status:"running",cursor:"20",
+    startedAt:new Date(NOW).toISOString(),
+    expiresAt:new Date(NOW+86400000).toISOString(),
+    stats:{listed:20},items:{"ABILITY_MATERIAL_GREEN_ABILITY_MAT":{fileCount:1}}};
+  f.objects.set(PROGRESS,{raw:JSON.stringify(legacy),uploaded:AT});
+  const old=(await (await get(f)).json());
+  assert.equal(old.status,"upgrade-required");
+  assert.equal(old.materials,undefined);
+  assert.equal((await runGameMaterialAuditTick(f.env,NOW)).status,"upgrade-required");
+  assert.equal(f.calls.list.length,0);
+  assert.equal((await (await post(f,"start")).json()).status,"upgrade-required");
+  assert.equal((await (await post(f,"restart")).json()).version,2);
+  assert.equal(f.progress().stats.listed,0);
+  assert.equal(f.progress().cursor,null);
+  assert.equal(f.calls.list.length,0);
+});
+
+test("unstarted v1 checkpoint upgrades safely without an extra scan",async()=>{
+  const f=fixture();
+  const legacy={version:1,runId:RUN,status:"running",cursor:null,
+    expiresAt:new Date(NOW+86400000).toISOString(),stats:{listed:0},items:{}};
+  f.objects.set(PROGRESS,{raw:JSON.stringify(legacy),uploaded:AT});
+  const report=await (await post(f,"start")).json();
+  assert.equal(report.version,2);
+  assert.equal(report.stats.listed,0);
+  assert.equal(f.calls.list.length,0);
+});
+
 test("expired and oversized blobs are reported but never read",async()=>{
   const f=fixture();
   const old=await f.add({data:{id:"ABILITY_MATERIAL_GREEN_ABILITY_MAT"}},{uploaded:OLD});
