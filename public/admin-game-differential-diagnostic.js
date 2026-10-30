@@ -38,6 +38,7 @@
     .sort((a,b)=>b.count-a.count||a.value.localeCompare(b.value,"fr"));
   const byPath=new Map();
   let report=null,cursor=null,rowsStarted=false,rowsComplete=false,busy=false;
+  let errorMessage=null;
   function group(parent,title,items,translated=false){
     const card=el("div",undefined,parent,"health-card");
     el("strong",title,card);
@@ -104,6 +105,7 @@
         " URL valides · "+num(stats?.pending)+" en attente · "+
         num(stats?.resolved)+" résolues.":
         "Statut : "+report.status;
+    if(errorMessage)status.textContent=errorMessage;
     chooseOptions(cause,freq(report?.byGroup).map(x=>({
       value:x.value,label:translate(x.value)+" ("+num(x.count)+")"
     })),"Toutes les causes");
@@ -152,7 +154,7 @@
     if(!response.ok)throw Error("HTTP "+response.status);
     const data=await response.json();
     if(typeof data?.status!=="string")throw Error("rapport invalide");
-    report=data;draw();
+    report=data;errorMessage=null;draw();
   }
   async function startAudit(){
     if(busy)return;
@@ -166,10 +168,10 @@
       });
       const data=await response.json();
       if(!response.ok)throw Error(data.error||"HTTP "+response.status);
-      report=data;
+      report=data;errorMessage=null;
       byPath.clear();cursor=null;rowsStarted=false;rowsComplete=false;
     }catch(error){
-      status.textContent="Impossible de lancer l'audit : "+
+      errorMessage="Impossible de lancer l'audit : "+
         (error instanceof Error?error.message:"erreur");
     }finally{busy=false;draw();}
   }
@@ -188,9 +190,9 @@
          (typeof data.nextCursor!=="string"||data.nextCursor===cursor))
         throw Error("pagination incohérente");
       cursor=data.nextCursor;
-      rowsStarted=true;rowsComplete=cursor===null;
+      rowsStarted=true;rowsComplete=cursor===null;errorMessage=null;
     }catch(error){
-      status.textContent="Pagination interrompue : "+
+      errorMessage="Pagination interrompue : "+
         (error instanceof Error?error.message:"erreur");
     }finally{busy=false;draw();}
   }
