@@ -127,7 +127,7 @@ export async function runGameDifferentialFailureAuditTick(env,now=Date.now()){
          list.truncated===true&&(!list.cursor||list.cursor===s.cursor)||
          list.objects.some(x=>typeof x?.key!=="string"||
            !x.key.startsWith(PREFIX)||
-           !/^[0-9a-f]{64}\\.json$/.test(x.key.slice(PREFIX.length)))
+           !/^[0-9a-f]{64}\.json$/.test(x.key.slice(PREFIX.length)))
         return {status:"invalid-r2-page"};
       // Persist the cursor only after every record and aggregate was read.
       for(const entry of list.objects){
