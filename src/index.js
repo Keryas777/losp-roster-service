@@ -157,6 +157,37 @@ async function startLogin(request, env, url) {
 
 export default {
   async scheduled(controller, env) {
+    // Reuse the existing every-minute Cloudflare trigger; no extra cron.
+    // Paris local 00:10, 03:10, ..., 21:10, including DST changes.
+    if(controller?.cron==="* * * * *"){
+      const scheduled=controller.scheduledTime;
+      const slot=new Date(scheduled);
+      const parts=Object.fromEntries(new Intl.DateTimeFormat("en-GB",{
+        timeZone:"Europe/Paris",hour:"2-digit",minute:"2-digit",hourCycle:"h23"
+      }).formatToParts(slot).filter(p=>p.type==="hour"||p.type==="minute")
+        .map(p=>[p.type,Number(p.value)]));
+      if(parts.minute===10&&parts.hour%3===0){
+        try{
+          const token=env?.ROSTER_GITHUB_DISPATCH_TOKEN;
+          if(typeof token!=="string"||!token)throw Error("token-not-configured");
+          const response=await fetch("https://api.github.com/repos/Keryas777/msf/actions/workflows/fetch-characters.yml/dispatches",{
+            method:"POST",
+            headers:{"Accept":"application/vnd.github+json",
+              "X-GitHub-Api-Version":"2022-11-28",
+              "User-Agent":"LoSP-Roster-Service",
+              "Authorization":"Bearer "+token,
+              "Content-Type":"application/json"},
+            body:JSON.stringify({ref:"main"})
+          });
+          console.info("msf-characters-dispatch",JSON.stringify({
+            status:response.status===204?"dispatched":"github-unavailable",
+            httpStatus:response.status
+          }));
+        }catch{
+          console.warn("msf-characters-dispatch",JSON.stringify({status:"unavailable"}));
+        }
+      }
+    }
     if(controller?.cron===GAME_ARCHIVE_CRON){
       const result=await runGameArchiveTick(env);
       console.info("game-archive-cron",JSON.stringify({
