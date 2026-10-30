@@ -24,6 +24,7 @@ import {handlePlayerR2Explorer} from "./player-r2-explorer.js";
 import {handleCollectionOverview} from "./collection-overview.js";
 import {gameDifferentialStatus} from "./game-differential-sync.js";
 import {handleGameDifferentialFailureDiagnostic} from "./game-differential-diagnostic.js";
+import {handleGameDifferentialFailureAudit} from "./game-differential-failure-audit.js";
 import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron,adminMemberCard} from "./admin-data-api.js";
 
 const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
@@ -143,7 +144,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<div id="game-gap-results" class="scroll"></div>'+
 '<div class="actions"><button id="game-gap-prev" type="button" disabled>Précédentes</button>'+
 '<button id="game-gap-next" type="button" disabled>Suivantes</button></div></section>'+
-"<section><h2>Diagnostic des échecs /game différentiels</h2><p>Registre privé des URL en échec : motifs, reprises et variantes récupérées. Lecture R2 à la demande, sans appel Scopely.</p><button type=\"button\" id=\"game-diff-diagnostic-refresh\">Analyser les échecs (R2)</button><p id=\"game-diff-diagnostic-status\" role=\"status\">Diagnostic disponible à la demande.</p><div id=\"game-diff-diagnostic-summary\" class=\"health-cards\"></div><div class=\"controls\"><label>Motif<select id=\"game-diff-diagnostic-cause\"><option value=\"\">Tous les motifs</option></select></label><label>État<select id=\"game-diff-diagnostic-state\"><option value=\"\">Tous les états</option></select></label></div><div id=\"game-diff-diagnostic-results\" class=\"scroll\"></div><button type=\"button\" id=\"game-diff-diagnostic-more\" hidden>Afficher davantage d’URL</button></section>"+
+"<section><h2>Diagnostic des échecs /game différentiels</h2><p>Audit R2 durable : lancement manuel, progression conservée et poursuite par le Cron existant, même page fermée. Aucun appel Scopely.</p><button type=\"button\" id=\"game-diff-diagnostic-refresh\">Analyser les échecs (R2)</button><p id=\"game-diff-diagnostic-status\" role=\"status\">Diagnostic disponible à la demande.</p><div id=\"game-diff-diagnostic-summary\" class=\"health-cards\"></div><div class=\"controls\"><label>Motif<select id=\"game-diff-diagnostic-cause\"><option value=\"\">Tous les motifs</option></select></label><label>État<select id=\"game-diff-diagnostic-state\"><option value=\"\">Tous les états</option></select></label></div><div id=\"game-diff-diagnostic-results\" class=\"scroll\"></div><button type=\"button\" id=\"game-diff-diagnostic-more\" hidden>Afficher davantage d’URL</button></section>"+
 '<section><h2>Inventaire physique des archives R2</h2>'+
 '<p>Compter les reçus, objets SHA-256 et réponses raw réellement présents, puis détecter les objets sans reçu et les références manquantes. Lecture seule, aucun appel Scopely.</p>'+
 '<button id="game-r2-inventory-start" type="button">Inventorier les fichiers R2</button>'+
@@ -263,6 +264,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
         "/admin/api/game-material-audit",
         "/admin/api/game-archive-orphan-audit",
         "/admin/api/game-provenance-reconcile",
+        "/admin/api/game-differential-failure-audit",
         "/admin/api/alliance-season-ranks","/admin/api/player-extras",
          "/admin/api/player-campaign"].includes(endpoint)))
     return new Response("Method Not Allowed",{status:405});
@@ -288,6 +290,8 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
       "Content-Security-Policy":"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src https://assets.marvelstrikeforce.com; base-uri 'none'; frame-ancestors 'none'"
     }});
   }
+  if(pathname==="/admin/api/game-differential-failure-audit")
+    return handleGameDifferentialFailureAudit(request,env);
   if(pathname==="/admin/api/game-differential-failures")
     return handleGameDifferentialFailureDiagnostic(request,env);
   if(pathname==="/admin/api/game-differential")return Response.json(
