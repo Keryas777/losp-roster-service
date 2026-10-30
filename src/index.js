@@ -17,6 +17,7 @@ import {runGameOrphanAuditTick} from "./game-archive-orphan-audit.js";
 import {runGameProvenanceReconcileTick} from "./game-archive-provenance-reconcile.js";
 import {runPlayerCampaignTick} from "./player-campaign.js";
 import {runGameDifferentialTick} from "./game-differential-sync.js";
+import {runGameDifferentialFailureAuditTick} from "./game-differential-failure-audit.js";
 import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
 
 const SCOPELY_AUTH_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/auth";
@@ -241,6 +242,11 @@ export default {
           status:provenance.status,phase:provenance.phase||null,
           matched:provenance.matched||0,unresolved:provenance.unresolved||0
         }));
+      // R2-only, manually initiated failure audit; independent of /admin tab lifecycle.
+      const failureAudit=await runGameDifferentialFailureAuditTick(env);
+      if(failureAudit.status==="running"||failureAudit.status==="snapshot-complete")
+        console.info("game-differential-failure-audit",JSON.stringify({
+          status:failureAudit.status,scanned:failureAudit.scanned||0}));
       return;
     }
     if(controller?.cron===ROSTER_CRON){
