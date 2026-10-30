@@ -31,7 +31,7 @@ function kind(value){
     return "validation-or-storage";
   return "other";
 }
-function clean(entry){
+export function cleanFailure(entry){
   if(!isPath(entry?.path))return null;
   if(!["pending","resolved"].includes(entry.status))return null;
   const recovered=Array.isArray(entry.recoveredParts)?
@@ -78,7 +78,7 @@ export async function handleGameDifferentialFailureDiagnostic(request,env){
          !/^[0-9a-f]{64}\.json$/.test(object.key.slice(PREFIX.length)))
         return reply({error:"invalid-recovery-key"},503);
       const item=await read(bucket,object.key);
-      const normalized=clean(item);
+      const normalized=cleanFailure(item);
       if(normalized)entries.push(normalized);
       else rejected++;
     }
