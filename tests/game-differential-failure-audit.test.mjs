@@ -10,7 +10,7 @@ const ROOT=GAME_ARCHIVE_ROOT+"diff/";
 const PREFIX=ROOT+"recovery/pending/";
 const KEY=ROOT+"failure-audit/v1/progress.json";
 const HOST="https://losp-roster-service.deliriousfan7.workers.dev";
-const URL=HOST+"/admin/api/game-differential-failure-audit";
+const ENDPOINT=HOST+"/admin/api/game-differential-failure-audit";
 const RUN="11111111-2222-4333-8444-555555555555";
 const now=Date.parse("2026-10-30T10:00:00Z");
 function fixture(rows,source={runId:RUN,status:"partial",failed:2159,checked:12086,
@@ -64,8 +64,8 @@ function fixture(rows,source={runId:RUN,status:"partial",failed:2159,checked:120
 const row=(id,reason,status="pending",options={})=>({
   version:1,path:"/game/v1/characters/"+id,reason,status,attempts:1,...options
 });
-const get=f=>handleGameDifferentialFailureAudit(new Request(URL),f.env,now);
-const post=(f,action="start")=>handleGameDifferentialFailureAudit(new Request(URL,{
+const get=f=>handleGameDifferentialFailureAudit(new Request(ENDPOINT),f.env,now);
+const post=(f,action="start")=>handleGameDifferentialFailureAudit(new Request(ENDPOINT,{
   method:"POST",headers:{Origin:HOST,"Content-Type":"application/json"},
   body:JSON.stringify({action})}),f.env,now);
 
@@ -142,18 +142,18 @@ test("Run changes are disclosed and invalid records counted, not silently omitte
 
 test("POST is Origin/JSON guarded, other methods are rejected, admin Access still required",async()=>{
   const f=fixture([row("One","http-472")]);
-  assert.equal((await handleGameDifferentialFailureAudit(new Request(URL,{
+  assert.equal((await handleGameDifferentialFailureAudit(new Request(ENDPOINT,{
     method:"POST",headers:{"Content-Type":"application/json"},
     body:'{"action":"start"}'}),f.env)).status,403);
-  assert.equal((await handleGameDifferentialFailureAudit(new Request(URL,{
+  assert.equal((await handleGameDifferentialFailureAudit(new Request(ENDPOINT,{
     method:"DELETE"}),f.env)).status,405);
-  assert.equal((await handleGameDifferentialFailureAudit(new Request(URL,{
+  assert.equal((await handleGameDifferentialFailureAudit(new Request(ENDPOINT,{
     method:"POST",headers:{Origin:HOST,"Content-Type":"text/plain"},
     body:'{"action":"start"}'}),f.env)).status,403);
   const env={...f.env,MSF_ADMIN_ENABLED:"true",
     CF_ACCESS_TEAM_DOMAIN:"example.cloudflareaccess.com",
     CF_ACCESS_AUD:"a".repeat(64),MSF_ADMIN_EMAILS:"admin@example.test"};
-  assert.equal((await handleAdmin(new Request(URL),env)).status,403);
+  assert.equal((await handleAdmin(new Request(ENDPOINT),env)).status,403);
   assert.equal(f.calls.filter(x=>x[0]==="put").length,0);
 });
 
