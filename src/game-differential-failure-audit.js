@@ -47,7 +47,7 @@ function initial(source,now){
     startedAt:stamp(now),updatedAt:stamp(now),finishedAt:null,
     sourceAtStart:sourceView(source),sourceAtEnd:null,sourceChanged:false,
     stats:{scanned:0,valid:0,rejected:0,pending:0,exhausted:0,
-      resolved:0,variants:0,pages:0},byGroup:{},byReason:{},byRoute:{},
+      resolved:0,variants:0,pages:0},byGroup:{},byReason:{},byRoute:{},routesByReason:{},
     itemAssociations:{total:0,indexedObjectPresent:0,
       noDifferentialIndex:0,integrityOrFreshnessUnknown:0},
     largeResponses:{total:0,withRecordedVariants:0,
@@ -79,6 +79,9 @@ async function record(s,item,b,now){
   if(s.version!==2)return;
   const route=failureRoute(row.path);
   s.byRoute[route.type]=(s.byRoute[route.type]||0)+1;
+  const byReason=s.routesByReason[row.reason]||{};
+  byReason[route.type]=(byReason[route.type]||0)+1;
+  s.routesByReason[row.reason]=byReason;
   const inspected=await reviewFailure(b,item,now);
   if(row.reason==="http-404"&&route.type==="item-character-association"){
     const a=s.itemAssociations;
