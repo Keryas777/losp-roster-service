@@ -145,6 +145,8 @@ test("A second audit preserves completed v1 until a deliberate restart creates v
     new Request(ENDPOINT),f.env,NOW+5000)).json();
   assert.equal(end.byRoute["item-character-association"],1);
   assert.equal(end.byRoute["character-expanded"],1);
+  assert.equal(end.routesByReason["http-404"]["item-character-association"],1);
+  assert.equal(end.routesByReason["http-472"]["character-expanded"],1);
   assert.equal(end.itemAssociations.indexedObjectPresent,1);
   assert.equal(end.largeResponses.total,1);
   assert.equal(end.largeResponses.withVerifiedVariant,1);
