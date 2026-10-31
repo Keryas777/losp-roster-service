@@ -9,6 +9,7 @@ import { buildPrivateCoverage } from "./alliance-coverage.js";
 import { handleAdmin } from "./admin-routes.js";
 import { prunePrivateRosterPilots } from "./private-roster-pilot.js";
 import { ROSTER_CRON, runRosterAutoTick } from "./automatic-roster-scheduler.js";
+import {runMemberInfoAutoTick} from "./member-info-scheduler.js";
 import {GAME_ARCHIVE_CRON,runGameArchiveTick} from "./game-catalog-archive.js";
 import {runGameArchiveSchemaAuditTick} from "./game-archive-schema-audit.js";
 import {runGameMaterialAuditTick} from "./game-material-audit.js";
@@ -161,6 +162,13 @@ export default {
     // Reuse the existing every-minute Cloudflare trigger; no extra cron.
     // Paris local 00:10, 03:10, ..., 21:10, including DST changes.
     if(controller?.cron==="* * * * *"){
+      // Independent member-card collection, not part of the roster's GET budget.
+      const info=await runMemberInfoAutoTick(env,controller.scheduledTime);
+      if(!["disabled","outside-window","complete"].includes(info.status))
+        console.info("member-info-cron",JSON.stringify({
+          status:info.status,requests:info.requests||0,
+          ...(info.members?{members:info.members}:{})
+        }));
       const scheduled=controller.scheduledTime;
       const slot=new Date(scheduled);
       const parts=Object.fromEntries(new Intl.DateTimeFormat("en-GB",{
