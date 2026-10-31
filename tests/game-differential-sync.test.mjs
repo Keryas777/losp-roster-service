@@ -428,3 +428,101 @@ test("recovery ledger feeds a later run and a successful check marks it resolved
   assert.equal(JSON.parse(f.store.get(k)).status,"resolved");
 });
 const WEEK_MS=7*86400000;
+
+
+async function seedItemAssociation(f,itemId="SHARD_TEST"){
+  const parent="/game/v1/items/"+itemId;
+  const doc={data:{id:itemId},meta:{}};
+  const bytes=JSON.stringify(doc);
+  const h=sha(bytes);
+  const key=RUN+"objects/"+h+".json";
+  f.store.set(key,bytes);
+  f.store.set(RUN+"receipts/0000000002-00002-s0.json",JSON.stringify({
+    version:1,path:parent,status:200,objectKey:key,sha256:h,
+    capturedAt:new Date(NOW-86400000).toISOString()
+  }));
+  const semanticHash=sha(bytes);
+  f.store.set(DIFF+"latest/"+sha(parent)+".json",JSON.stringify({
+    version:2,path:parent,semanticHash,objectKey:key,sha256:h,
+    storedAt:new Date(NOW-86400000).toISOString()
+  }));
+  return {parent,association:parent+"/characters?charInfo=full",semanticHash};
+}
+
+test("unchanged item 404 associations are suppressed without suppressing item updates",async()=>{
+  const api=changed=>url=>{
+    if(url.includes("/game/v1/items/SHARD_TEST/characters"))
+      return new Response("not found",{status:404});
+    if(url.endsWith("/game/v1/items/SHARD_TEST"))
+      return Response.json({data:{id:"SHARD_TEST",...(changed?{updated:1}:{})},meta:{}});
+    return Response.json({data:[],meta:{perTotal:0}});
+  };
+  const f=fixture({api:api(false)});await f.seed();
+  const {association,semanticHash}=await seedItemAssociation(f);
+  const ledger=DIFF+"recovery/pending/"+sha(association)+".json";
+  f.store.set(ledger,JSON.stringify({version:2,path:association,
+    status:"pending",reason:"http-404",attempts:1,
+    associationSourceHash:semanticHash,lastRun:"prior-run",
+    lastSeenAt:new Date(NOW-86400000).toISOString(),
+    nextAt:new Date(NOW+14*86400000).toISOString()}));
+  const first=await finish(f);
+  assert.equal(first.status.status,"completed");
+  assert.equal(f.calls.filter(x=>x.url.includes("/items/SHARD_TEST/characters")).length,0);
+  assert.ok(f.calls.some(x=>x.url.endsWith("/items/SHARD_TEST")),
+    "item itself must still be checked");
+
+  const g=fixture({api:api(true)});await g.seed();
+  await seedItemAssociation(g);
+  g.store.set(ledger,f.store.get(ledger));
+  const changed=await finish(g);
+  assert.equal(changed.status.status,"partial");
+  assert.ok(g.calls.some(x=>x.url.includes("/items/SHARD_TEST/characters")),
+    "updated source must immediately re-enable associated URL");
+  const updated=JSON.parse(g.store.get(ledger));
+  assert.equal(updated.reason,"http-404");
+  assert.notEqual(updated.associationSourceHash,semanticHash);
+  assert.ok(Date.parse(updated.nextAt)>=NOW+20*86400000,
+    "repeat 404 is postponed, never permanently forgotten");
+});
+
+test("new failure preserves 472 recovery provenance from preceding campaigns",async()=>{
+  const path="/game/v1/characters/LegacyLarge";
+  const oldPart=path+"?abilityKits=basic";
+  const f=fixture({api:url=>url.endsWith(path)?
+    new Response("too large",{status:472}):
+    Response.json({data:{id:"LegacyLarge"},meta:{perTotal:0}})});
+  await f.seed();
+  const ledger=DIFF+"recovery/pending/"+sha(path)+".json";
+  f.store.set(ledger,JSON.stringify({version:1,path,status:"pending",
+    reason:"http-472",attempts:1,lastRun:"older",
+    nextAt:new Date(NOW-60000).toISOString(),
+    recoveredParts:[oldPart],lastPartialAt:new Date(NOW-86400000).toISOString()}));
+  const result=await finish(f);
+  assert.equal(result.status.status,"partial");
+  const row=JSON.parse(f.store.get(ledger));
+  assert.equal(row.status,"pending");
+  assert.ok(row.recoveredParts.includes(oldPart),
+    "a fresh failure must not erase already archived split-part evidence");
+  assert.equal(row.attempts,2);
+  assert.ok(row.lastPartialAt);
+});
+
+test("a previously resolved association returns to pending on a later 404",async()=>{
+  const f=fixture({api:url=>url.includes("/items/SHARD_TEST/characters")?
+    new Response("not found",{status:404}):
+    url.endsWith("/game/v1/items/SHARD_TEST")?
+      Response.json({data:{id:"SHARD_TEST"},meta:{}}):
+      Response.json({data:[],meta:{perTotal:0}})});
+  await f.seed();
+  const {association}=await seedItemAssociation(f);
+  const ledger=DIFF+"recovery/pending/"+sha(association)+".json";
+  f.store.set(ledger,JSON.stringify({version:1,path:association,status:"resolved",
+    reason:"http-404",attempts:2,lastRun:"last-week",
+    resolvedAt:new Date(NOW-2*86400000).toISOString()}));
+  const result=await finish(f);
+  assert.equal(result.status.status,"partial");
+  const row=JSON.parse(f.store.get(ledger));
+  assert.equal(row.status,"pending");
+  assert.equal(row.attempts,1);
+  assert.ok(row.lastResolvedAt);
+});

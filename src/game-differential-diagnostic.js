@@ -2,6 +2,7 @@
 // Each HTTP request reads at most 40 recovery records, plus the diff checkpoint.
 // No provider GET, no R2 writes, no full legacy archive scan or Cron work.
 import {GAME_ARCHIVE_ROOT} from "./game-catalog-archive.js";
+import {failureRoute} from "./game-differential-evidence.js";
 
 const ROOT=GAME_ARCHIVE_ROOT+"diff/";
 const STATE=ROOT+"state.json",PREFIX=ROOT+"recovery/pending/";
@@ -36,7 +37,8 @@ export function cleanFailure(entry){
   if(!["pending","resolved"].includes(entry.status))return null;
   const recovered=Array.isArray(entry.recoveredParts)?
     [...new Set(entry.recoveredParts.filter(isPath))].slice(0,16):[];
-  return {path:entry.path,reason:reason(entry.reason),
+  return {path:entry.path,routeForm:failureRoute(entry.path).type,
+    reason:reason(entry.reason),
     group:kind(reason(entry.reason)),
     status:entry.status,
     attempts:count(entry.attempts),

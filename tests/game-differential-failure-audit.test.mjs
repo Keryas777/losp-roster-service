@@ -36,7 +36,7 @@ function fixture(rows,source={runId:RUN,status:"partial",failed:2159,checked:120
     },
     list:async({prefix,limit,cursor})=>{
       calls.push(["list",prefix,limit,cursor]);
-      assert.equal(prefix,PREFIX);assert.equal(limit,16);
+      assert.equal(prefix,PREFIX);assert.equal(limit,4);
       const keys=[...stored.keys()].filter(k=>k.startsWith(prefix)).sort();
       const from=cursor?Number(cursor):0;
       const end=Math.min(from+limit,keys.length);
@@ -82,15 +82,17 @@ test("Cron independently advances a persistent, deduplicated R2 snapshot across 
   assert.equal((await (await post(f)).json()).status,"running");
   const first=await runGameDifferentialFailureAuditTick(f.env,now+60000);
   assert.equal(first.status,"running");
-  assert.equal(first.scanned,16);
+  assert.equal(first.scanned,4);
   // Simulate a page refresh: a new GET has no local JS state or cursor.
   const resumed=await (await get(f)).json();
-  assert.equal(resumed.stats.scanned,16);
+  assert.equal(resumed.stats.scanned,4);
   assert.equal(resumed.stats.exhausted,1);
   assert.equal(resumed.cursor,undefined);
   assert.equal(resumed.sourceAtStart.failed,2159);
-  assert.equal((await (await post(f)).json()).stats.scanned,16);
-  const final=await runGameDifferentialFailureAuditTick(f.env,now+120000);
+  assert.equal((await (await post(f)).json()).stats.scanned,4);
+  let final;
+  for(let tick=2;tick<=5;tick++)
+    final=await runGameDifferentialFailureAuditTick(f.env,now+tick*60000);
   assert.equal(final.status,"snapshot-complete");
   const done=await (await get(f)).json();
   assert.equal(done.stats.scanned,20);
@@ -105,8 +107,8 @@ test("Cron independently advances a persistent, deduplicated R2 snapshot across 
   assert.equal(done.sourceChanged,false);
   assert.equal((await runGameDifferentialFailureAuditTick(f.env,now+180000)).status,
     "snapshot-complete");
-  assert.equal(f.calls.filter(x=>x[0]==="list").length,2);
-  assert.equal(f.calls.filter(x=>x[0]==="put"&&x[1]===KEY).length,3);
+  assert.equal(f.calls.filter(x=>x[0]==="list").length,5);
+  assert.equal(f.calls.filter(x=>x[0]==="put"&&x[1]===KEY).length,6);
   assert.equal(f.calls.filter(x=>x[0]==="get"&&x[1].includes("/player")).length,0);
   const restarted=await (await post(f,"restart")).json();
   assert.equal(restarted.status,"running");assert.equal(restarted.stats.scanned,0);

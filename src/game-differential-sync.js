@@ -21,6 +21,8 @@ const BACKFILL_PER_TICK=8,MAX_RECOVERY_RUNS=3;
 // extending a pointer to an old R2 object. Actual R2 deletion requires a
 // separately verified lifecycle policy.
 const RENEW_AFTER=21*24*HOUR;
+const ASSOCIATION_RETRY=21*24*HOUR; // Recheck even unchanged sources periodically.
+const ITEM_ASSOC=/^\/game\/v1\/items\/([A-Za-z0-9:_-]{1,200})\/characters(?:\?.*)?$/;
 const PATH=/^\/game\/v1\/[A-Za-z0-9/_:?.=%&,+-]{1,800}$/;
 const SHA=/^[0-9a-f]{64}$/;
 const UID=/^[0-9a-f-]{36}$/;
@@ -86,13 +88,33 @@ async function lock(env,holder,action){
   return r.ok&&(await r.json()).status===
     (action==="acquire"?"acquired":"released");
 }
-async function queue(b,s,candidates){
+async function associationSource(b,path){
+  const match=ITEM_ASSOC.exec(path);
+  if(!match)return null;
+  const parent="/game/v1/items/"+match[1];
+  const latest=await read(b,latestKey(await hash(parent)));
+  return latest?.path===parent&&SHA.test(latest.semanticHash||"")?
+    latest.semanticHash:null;
+}
+// Suppress only a previously proven 404 for a specific unchanged item source.
+// New or modified item data re-enables discovery immediately; expiry rechecks.
+async function suppressedAssociation(b,path,now){
+  if(!ITEM_ASSOC.test(path))return false;
+  const previous=await read(b,pendingKey(await hash(path)));
+  if(previous?.status!=="pending"||previous.reason!=="http-404"||
+     !SHA.test(previous.associationSourceHash||"")||
+     !(Date.parse(previous.nextAt||"")>now))return false;
+  const current=await associationSource(b,path);
+  return current!==null&&current===previous.associationSourceHash;
+}
+async function queue(b,s,candidates,now=Date.now()){
   // One compact seen-set per SHA nibble, not two R2 requests PER endpoint.
   // Max 16 reads + 16 writes regardless of candidate count. This keeps
   // Cloudflare subrequests bounded for hundreds of discovered IDs.
   const groups=new Map(),fresh=[];
   for(const candidate of candidates){
     if(!valid(candidate?.path))continue;
+    if(await suppressedAssociation(b,candidate.path,now))continue;
     const h=await hash(candidate.path),shard=h[0];
     if(!groups.has(shard)){
       const v=await read(b,seenKey(s.runId,shard));
@@ -140,7 +162,7 @@ async function scan(b,s,now){
     const phase=phase2RootTasks().map(t=>({
       path:t.path+(t.mode==="list"?"?page=1&perPage=100":"")
     }));
-    await queue(b,s,[...roots,...phase]);
+    await queue(b,s,[...roots,...phase],now);
     s.scanPhase="done";s.status="checking";s.cursor=null;
     s.lastOutcome="baseline-indexed";
     await write(b,STATE,s);
@@ -175,7 +197,7 @@ async function scan(b,s,now){
       }
     }catch{s.failed++;s.lastOutcome="unreadable-source-receipt";}
   }
-  await queue(b,s,candidates);
+  await queue(b,s,candidates,now);
   if(listed.truncated){s.cursor=listed.cursor;}
   else{s.scanPhase=s.scanPhase==="base"?"latest":
     s.scanPhase==="latest"?"pending":"roots";s.cursor=null;}
@@ -192,7 +214,7 @@ async function priorSemantic(bucket,reference){
   try{return semantic(JSON.parse(await obj.text()));}
   catch{return null;}
 }
-async function discover(bucket,s,path,payload){
+async function discover(bucket,s,path,payload,now){
   const candidates=[];
   const root=GAME_ROOTS.find(x=>path.split("?")[0]===x.path);
   const data=payload?.data;
@@ -227,7 +249,7 @@ async function discover(bucket,s,path,payload){
   // Existing conservative discovery: only official linked IDs/paths.
   try{candidates.push(...discoverGamePhase2(path,payload));}
   catch{s.failed++;s.lastOutcome="linked-discovery-failed";}
-  await queue(bucket,s,candidates);
+  await queue(bucket,s,candidates,now);
 }
 // Reuse the finite 472 escape hatches of the original collector. An HTTP 472
 // is a data-size/refusal signal, NOT a rate limit: do not pause 15 minutes
@@ -263,17 +285,28 @@ async function recordPending(b,s,task,reason,now){
   if(!valid(task.path))return;
   const h=await hash(task.path),key=pendingKey(h);
   const previous=await read(b,key);
-  if(previous?.status==="resolved")return;
+  // A resolved URL can fail again in a later run: do not keep a false success.
+  const again=previous?.status==="resolved";
   const anotherRun=previous?.lastRun!==s.runId;
-  const attempts=(previous?.attempts||0)+(anotherRun?1:0);
-  await write(b,key,{version:1,path:task.path,status:"pending",
+  const attempts=(again?0:previous?.attempts||0)+(anotherRun?1:0);
+  const associationSourceHash=reason==="http-404"?
+    await associationSource(b,task.path):null;
+  const nextAt=now+(associationSourceHash?ASSOCIATION_RETRY:WEEK);
+  await write(b,key,{version:2,path:task.path,status:"pending",
     reason,attempts,lastRun:s.runId,
     firstSeenAt:previous?.firstSeenAt||new Date(now).toISOString(),
     lastSeenAt:new Date(now).toISOString(),
-    nextAt:new Date(now+WEEK).toISOString(),
-    ...(valid(task.recoveryOf)?{recoveryOf:task.recoveryOf}:{}),
-    ...(typeof task.recoveryPart==="string"?
-      {recoveryPart:task.recoveryPart}:{})});
+    nextAt:new Date(nextAt).toISOString(),
+    // Do not destroy provenance of previously verified recovery variants.
+    ...(Array.isArray(previous?.recoveredParts)?
+      {recoveredParts:[...new Set(previous.recoveredParts.filter(valid))].slice(0,16)}:{}),
+    ...(previous?.lastPartialAt?{lastPartialAt:previous.lastPartialAt}:{}),
+    ...(again?{lastResolvedAt:previous.resolvedAt||null}:{lastResolvedAt:previous?.lastResolvedAt||null}),
+    ...(associationSourceHash?{associationSourceHash}:{}),
+    ...(valid(task.recoveryOf||previous?.recoveryOf)?
+      {recoveryOf:task.recoveryOf||previous.recoveryOf}:{}),
+    ...(typeof (task.recoveryPart||previous?.recoveryPart)==="string"?
+      {recoveryPart:task.recoveryPart||previous.recoveryPart}:{})});
   if(!previous)s.recoveryRecorded=(s.recoveryRecorded||0)+1;
 }
 async function resolvePending(b,s,task,now){
@@ -292,11 +325,11 @@ async function resolvePending(b,s,task,now){
     }
   }
 }
-async function scheduleAlternatives(b,s,task){
+async function scheduleAlternatives(b,s,task,now){
   const proposed=alternatives(task);
   if(!proposed.length)return;
   const before=s.queued;
-  await queue(b,s,proposed);
+  await queue(b,s,proposed,now);
   s.recoveryQueued=(s.recoveryQueued||0)+(s.queued-before);
 }
 // A running legacy campaign already has failed checks under /checks/
@@ -314,7 +347,7 @@ async function backfillFailures(b,s,now){
     if(entry?.status==="failed"&&valid(entry.path)){
       const task={path:entry.path},reason=entry.reason||"historical-failure";
       await recordPending(b,s,task,reason,now);
-      if(reason==="http-472")await scheduleAlternatives(b,s,task);
+      if(reason==="http-472")await scheduleAlternatives(b,s,task,now);
     }
     p.cursor++;n++;
   }
@@ -387,7 +420,7 @@ async function finishCommitted(b,s,task,receipt,now){
   if(!current||current.receiptKey!==pointer.receiptKey||
      current.sha256!==pointer.sha256||current.objectKey!==pointer.objectKey)
     await write(b,latestKey(pathHash),pointer);
-  await discover(b,s,task.path,doc);
+  await discover(b,s,task.path,doc,now);
   // Derive icons from the same verified response; failure must never
   // block or repeat an otherwise successful official differential GET.
   if(/ability_material_/i.test(rawSource)){

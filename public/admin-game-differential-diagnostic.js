@@ -74,6 +74,37 @@
       ]);
       group(cards,"Par famille d'erreur",freq(report.byGroup),true);
       group(cards,"Par motif exact",freq(report.byReason));
+      if(report.version>=2){
+        group(cards,"404 · par forme de route",
+          freq(report.routesByReason?.["http-404"]));
+        group(cards,"472 · par forme de route",
+          freq(report.routesByReason?.["http-472"]));
+        const a=report.itemAssociations||{},v=report.largeResponses||{};
+        group(cards,"404 · associations objet / personnage",[
+          {value:"Associations HTTP 404",count:a.total},
+          {value:"Fiche objet attestée par le différentiel R2",count:a.indexedObjectPresent},
+          {value:"Sans index différentiel (archive initiale non exclue)",count:a.noDifferentialIndex},
+          {value:"Intégrité / fraîcheur non certifiée",count:a.integrityOrFreshnessUnknown}
+        ]);
+        group(cards,"472 · preuves de récupération",[
+          {value:"Réponses refusées",count:v.total},
+          {value:"Avec variantes déclarées",count:v.withRecordedVariants},
+          {value:"Sans variante déclarée",count:v.withoutRecordedVariants},
+          {value:"Avec au moins une variante attestée R2",count:v.withVerifiedVariant},
+          {value:"Cinq sections de personnage attestées",count:v.allFiveSectionsVerified},
+          {value:"Couverture non entièrement attestée",count:v.notFullyVerified},
+          {value:"Variantes physiquement attestées",count:v.verifiedVariants},
+          {value:"Variantes sans preuve différentielle",count:v.unverifiedVariants}
+        ]);
+        group(cards,"472 · sections attestées",freq(v.byVerifiedSection));
+        el("p","Preuve : pointeur différentiel, reçu concordant, HEAD objet "+
+          "et date de stockage valide. Une fiche sans index différentiel "+
+          "peut exister dans l'archive initiale. "+
+          "Les cinq sections ne reconstruisent pas un JSON full.",summary,"muted");
+      }else{
+        el("p","Ancien diagnostic : relancer manuellement un nouvel audit "+
+          "pour qualifier les 404 et la couverture des 472.",summary,"muted");
+      }
       const info=el("div",undefined,summary,"health-card");
       el("strong","Périmètre et progression persistante",info);
       el("p","Départ : "+when(report.startedAt)+
@@ -93,7 +124,8 @@
     const running=report?.status==="running";
     run.disabled=busy||running;
     run.textContent=running?"Analyse en cours via Cron…":
-      report?.status==="snapshot-complete"?"Recommencer un nouvel audit R2":
+      report?.status==="snapshot-complete"?(report.version<2?
+        "Analyser les 404 et les 472 (R2)":"Recommencer un nouvel audit R2"):
         "Analyser les échecs (R2)";
     status.textContent=!report||report.status==="not-started"?
       "Audit non démarré. Le lancement est manuel.":
@@ -131,6 +163,7 @@
       for(const row of rows){
         const card=el("div",undefined,results,"member-card");
         el("strong",row.path,card);
+        if(row.routeForm)el("p","Forme de route : "+row.routeForm,card);
         el("p",translate(row.group)+" · "+row.reason,card);
         el("p",row.status==="resolved"?"URL d'origine résolue":
           row.exhausted?"Tentatives automatiques épuisées":
