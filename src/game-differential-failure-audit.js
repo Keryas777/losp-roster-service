@@ -3,13 +3,14 @@
 // never cancels the audit. Only this audit checkpoint is written.
 import {GAME_ARCHIVE_ROOT} from "./game-catalog-archive.js";
 import {cleanFailure} from "./game-differential-diagnostic.js";
+import {reviewFailure,failureRoute} from "./game-differential-evidence.js";
 
 const ROOT=GAME_ARCHIVE_ROOT+"diff/";
 const SOURCE=ROOT+"state.json",PREFIX=ROOT+"recovery/pending/";
 const CHECKPOINT=ROOT+"failure-audit/v1/progress.json";
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const LOCK="8".repeat(64); // Separate DO from all provider and audit locks.
-const PAGE=16,MAX_RECORD_BYTES=32_000,MAX_STATE_BYTES=64_000;
+const PAGE=4,MAX_RECORD_BYTES=32_000,MAX_STATE_BYTES=64_000;
 const HEADERS={"Cache-Control":"private, no-store",
   "X-Content-Type-Options":"nosniff","X-Robots-Tag":"noindex"};
 const answer=(body,status=200)=>Response.json(body,{status,headers:HEADERS});
@@ -42,11 +43,19 @@ function sourceView(s){
     backfillTotal:positive(s?.recoveryBackfill?.end)};
 }
 function initial(source,now){
-  return {version:1,status:"running",cursor:null,
+  return {version:2,status:"running",cursor:null,
     startedAt:stamp(now),updatedAt:stamp(now),finishedAt:null,
     sourceAtStart:sourceView(source),sourceAtEnd:null,sourceChanged:false,
     stats:{scanned:0,valid:0,rejected:0,pending:0,exhausted:0,
-      resolved:0,variants:0,pages:0},byGroup:{},byReason:{}};
+      resolved:0,variants:0,pages:0},byGroup:{},byReason:{},byRoute:{},
+    itemAssociations:{total:0,indexedObjectPresent:0,
+      noDifferentialIndex:0,integrityOrFreshnessUnknown:0},
+    largeResponses:{total:0,withRecordedVariants:0,
+      withoutRecordedVariants:0,withVerifiedVariant:0,
+      allFiveSectionsVerified:0,notFullyVerified:0,
+      verifiedVariants:0,unverifiedVariants:0,
+      byVerifiedSection:{}},
+    noteOnProof:"Only fresh differential pointer + matching receipt + physical HEAD; an absent pointer does not prove an absent original archive."};
 }
 function publicReport(report){
   if(!report)return {status:"not-started",
@@ -56,7 +65,7 @@ function publicReport(report){
     "Lecture R2 en cours, indépendante du navigateur. Les comptes sont provisoires.":
     "Registre R2 parcouru. Une entrée représente une URL, pas un événement d'échec."};
 }
-function record(s,item){
+async function record(s,item,b,now){
   s.stats.scanned++;
   const row=cleanFailure(item);
   if(!row){s.stats.rejected++;return;}
@@ -67,6 +76,32 @@ function record(s,item){
   if(row.recoveredVariants>0)s.stats.variants++;
   s.byGroup[row.group]=(s.byGroup[row.group]||0)+1;
   s.byReason[row.reason]=(s.byReason[row.reason]||0)+1;
+  if(s.version!==2)return;
+  const route=failureRoute(row.path);
+  s.byRoute[route.type]=(s.byRoute[route.type]||0)+1;
+  const inspected=await reviewFailure(b,item,now);
+  if(row.reason==="http-404"&&route.type==="item-character-association"){
+    const a=s.itemAssociations;
+    a.total++;
+    if(inspected.itemEvidence==="indexed-object-present")
+      a.indexedObjectPresent++;
+    else if(inspected.itemEvidence==="not-indexed")
+      a.noDifferentialIndex++;
+    else a.integrityOrFreshnessUnknown++;
+  }
+  if(row.reason==="http-472"){
+    const large=s.largeResponses,proof=inspected.variants;
+    large.total++;
+    if(proof.recorded>0)large.withRecordedVariants++;
+    else large.withoutRecordedVariants++;
+    if(proof.verified>0)large.withVerifiedVariant++;
+    if(proof.completeFive)large.allFiveSectionsVerified++;
+    else large.notFullyVerified++;
+    large.verifiedVariants+=proof.verified;
+    large.unverifiedVariants+=proof.notVerified;
+    for(const part of proof.completeSegments)
+      large.byVerifiedSection[part]=(large.byVerifiedSection[part]||0)+1;
+  }
 }
 export async function handleGameDifferentialFailureAudit(request,env,now=Date.now()){
   if(!["GET","POST"].includes(request.method))return answer({error:"method-not-allowed"},405);
@@ -114,13 +149,13 @@ export async function runGameDifferentialFailureAuditTick(env,now=Date.now()){
   try{
     const state=await read(b,CHECKPOINT);
     if(!state)return {status:"not-started"};
-    if(state.version!==1)return {status:"invalid-state"};
+    if(![1,2].includes(state.version))return {status:"invalid-state"};
     if(state.status!=="running")return {status:state.status};
     const holder=crypto.randomUUID();
     if(!await lease(env,holder,"acquire"))return {status:"busy"};
     try{
       const s=await read(b,CHECKPOINT);
-      if(s?.status!=="running"||s?.version!==1)return {status:s?.status||"not-started"};
+      if(s?.status!=="running"||![1,2].includes(s?.version))return {status:s?.status||"not-started"};
       const list=await b.list({prefix:PREFIX,limit:PAGE,
         ...(s.cursor?{cursor:s.cursor}:{})});
       if(!Array.isArray(list?.objects)||list.objects.length>PAGE||
@@ -132,7 +167,7 @@ export async function runGameDifferentialFailureAuditTick(env,now=Date.now()){
       // Persist the cursor only after every record and aggregate was read.
       for(const entry of list.objects){
         const item=await read(b,entry.key,MAX_RECORD_BYTES);
-        record(s,item);
+        await record(s,item,b,now);
       }
       s.cursor=list.truncated?list.cursor:null;
       s.stats.pages++;
