@@ -75,7 +75,10 @@
       group(cards,"Par famille d'erreur",freq(report.byGroup),true);
       group(cards,"Par motif exact",freq(report.byReason));
       if(report.version>=2){
-        group(cards,"Par forme de route",freq(report.byRoute));
+        group(cards,"404 · par forme de route",
+          freq(report.routesByReason?.["http-404"]));
+        group(cards,"472 · par forme de route",
+          freq(report.routesByReason?.["http-472"]));
         const a=report.itemAssociations||{},v=report.largeResponses||{};
         group(cards,"404 · associations objet / personnage",[
           {value:"Associations HTTP 404",count:a.total},
