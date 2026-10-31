@@ -48,10 +48,12 @@ function fixture(rows=[]){
     }
     return Response.json({status:"busy"});
   }})};
+  let receiptOrdinal=0;
   function evidence(path,{ageDays=1}={}){
     const h=sha('{"data":{"id":"sample"}}');
     const key=ROOT+"runs/"+RUN+"/objects/"+h+".json";
-    const r=ROOT+"runs/"+RUN+"/checks/00000001.json";
+    const r=ROOT+"runs/"+RUN+"/checks/"+
+      String(++receiptOrdinal).padStart(8,"0")+".json";
     const checkedAt=new Date(NOW-1000).toISOString();
     const storedAt=new Date(NOW-ageDays*86400000).toISOString();
     const pointer={path,sha256:h,objectKey:key,receiptKey:r,storedAt,
