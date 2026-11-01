@@ -379,6 +379,24 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
   if(env?.GAME_ARCHIVE_AUTO_ENABLED!=="true")return {status:"disabled"};
   if(!env?.CAPTAIN_BUCKET?.get||!env?.ROSTER_BATCH_LOCK?.get)
     return {status:"storage-unavailable"};
+  // Idle fast path: avoid acquiring a Durable Object every minute when the
+  // archive has no active run or has reached a terminal checkpoint. Read the
+  // CURRENT R2 pointer on each tick: an admin start is noticed immediately,
+  // including when it happens in another Worker isolate.
+  // Active runs still revalidate all state under the original exclusive lock.
+  try{
+    const bucket=env.CAPTAIN_BUCKET,active=await read(bucket,ACTIVE);
+    if(!active?.runId)return {status:"not-started"};
+    const state=await read(bucket,runKey(active.runId));
+    if(state?.version===1&&state.runId===active.runId&&
+       ["completed","completed-with-gaps"].includes(state.status)&&
+       (env.GAME_ARCHIVE_PHASE2_ENABLED!=="true"||Boolean(state.phase2))&&
+       (env.GAME_ARCHIVE_RECOVERY_ENABLED!=="true"||Boolean(state.recovery)))
+      return {status:state.status};
+  }catch{
+    // Unreadable R2 checkpoints must not hide a recoverable campaign.
+    // Fall back to the existing locked validation path.
+  }
   const holder=crypto.randomUUID();
   if(!await withLock(env,"acquire",holder))return {status:"busy"};
   try{

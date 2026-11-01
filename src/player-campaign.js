@@ -294,6 +294,27 @@ export async function runPlayerCampaignTick(env,fetchImpl=fetch,now=Date.now()){
   if(current?.status!=="running"&&!autoEnabled)return {status:"idle"};
   if(current?.status==="running"&&current.nextAttemptAt&&
      Date.parse(current.nextAttemptAt)>now)return {status:"cooldown"};
+  // Read the R2 checkpoint on every tick, including after an admin start.
+  // A finished daily campaign should not acquire a Durable Object lease.
+  if(autoEnabled&&["complete","partial"].includes(current?.status)){
+    const completed=Date.parse(current.completedAt||"");
+    if(Number.isFinite(completed)&&now>=completed&&now-completed<AUTO_INTERVAL)
+      return {status:"up-to-date",
+        nextRunAt:new Date(completed+AUTO_INTERVAL).toISOString()};
+  }
+  // Empty OAuth vaults are already throttled by a persisted daily checkpoint.
+  // Keep it R2-backed, never cache in memory across manual launches.
+  if(autoEnabled&&!current){
+    try{
+      const auto=await readAuto(bucket);
+      const last=Date.parse(auto?.lastAttemptAt||"");
+      if(Number.isFinite(last)&&now>=last&&now-last<AUTO_INTERVAL)
+        return {status:"awaiting-oauth",
+          nextRunAt:new Date(last+AUTO_INTERVAL).toISOString()};
+    }catch{
+      // Let the original locked path validate an unreadable checkpoint.
+    }
+  }
   const holder=crypto.randomUUID();
   if(!(await gate(env,"acquire",holder)))return {status:"busy"};
   try{

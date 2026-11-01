@@ -287,3 +287,43 @@ test("player daily campaign reuses the existing minute Cron without adding a fif
   assert.match(frontend,/void work\("GET"\)/);
   assert.doesNotMatch(frontend,/setInterval|\/admin\/api\/sessions|\/player\/v1/);
 });
+
+test("completed daily /player run avoids DO locks but a manual restart resumes",async()=>{
+  const f=await fixture();
+  f.env.PLAYER_AUTO_ENABLED="true";
+  const one=await loop(f);
+  assert.equal(one.state.status,"complete");
+  const completed=Date.parse(one.state.completedAt);
+  const original=f.env.ROSTER_BATCH_LOCK.get;
+  let leases=0;
+  f.env.ROSTER_BATCH_LOCK.get=id=>{leases++;return original(id);};
+  const calls=f.calls.length;
+  for(let i=1;i<=40;i++){
+    const r=await runPlayerCampaignTick(f.env,f.provider,completed+i*60_000);
+    assert.equal(r.status,"up-to-date");
+  }
+  assert.equal(leases,0,"24-hour idle time needs no DO lock");
+  assert.equal(f.calls.length,calls);
+  const forced=await (await startPlayerCampaign(f.env,completed+41*60_000)).json();
+  assert.equal(forced.status,"running");
+  const previous=leases;
+  const tick=await runPlayerCampaignTick(f.env,f.provider,completed+42*60_000);
+  assert.notEqual(tick.status,"up-to-date");
+  assert.ok(leases>previous,"manual campaign resumes without waiting 24 hours");
+});
+
+test("missing OAuth grants reuse the daily R2 retry without a DO lease",async()=>{
+  const f=await fixture();
+  f.env.PLAYER_AUTO_ENABLED="true";
+  f.db.delete(CAPTAIN_PREFIX+f.id);
+  assert.equal((await runPlayerCampaignTick(f.env,f.provider,f.now)).status,
+    "awaiting-oauth");
+  const original=f.env.ROSTER_BATCH_LOCK.get;
+  let leases=0;
+  f.env.ROSTER_BATCH_LOCK.get=id=>{leases++;return original(id);};
+  for(let i=1;i<=25;i++)
+    assert.equal((await runPlayerCampaignTick(f.env,f.provider,f.now+i*60_000)).status,
+      "awaiting-oauth");
+  assert.equal(leases,0);
+  assert.equal(f.calls.length,0);
+});

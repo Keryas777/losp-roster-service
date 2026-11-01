@@ -526,3 +526,40 @@ test("a previously resolved association returns to pending on a later 404",async
   assert.equal(row.attempts,1);
   assert.ok(row.lastResolvedAt);
 });
+
+test("completed weekly /game differential skips DO locks until renewal",async()=>{
+  const f=fixture();
+  await f.seed();
+  const first=await finish(f);
+  assert.equal(first.status.status,"completed");
+  const original=f.env.ROSTER_BATCH_LOCK.get;
+  let leases=0;
+  f.env.ROSTER_BATCH_LOCK.get=id=>{leases++;return original(id);};
+  const calls=f.calls.length;
+  for(let i=1;i<=30;i++){
+    const r=await runGameDifferentialTick(f.env,f.provider,first.ts+i*60_000);
+    assert.equal(r.status,"completed");
+  }
+  assert.equal(leases,0,"idle weekly status must not open a DO lock");
+  assert.equal(f.calls.length,calls);
+  const renew=await runGameDifferentialTick(f.env,f.provider,
+    first.ts+7*86400000+60_000);
+  assert.notEqual(renew.status,"unavailable");
+  assert.ok(leases>0,"weekly renewal immediately resumes locked work");
+});
+
+test("a newly selected /game baseline invalidates the weekly idle shortcut",async()=>{
+  const f=fixture();
+  await f.seed();
+  const first=await finish(f);
+  assert.equal(first.status.status,"completed");
+  const original=f.env.ROSTER_BATCH_LOCK.get;
+  let leases=0;
+  f.env.ROSTER_BATCH_LOCK.get=id=>{leases++;return original(id);};
+  f.store.set(ACTIVE,JSON.stringify({
+    version:1,runId:"bbbbbbbb-1234-4122-8333-aabbccddeeff"
+  }));
+  const r=await runGameDifferentialTick(f.env,f.provider,first.ts+60_000);
+  assert.equal(r.status,"awaiting-initial-completion");
+  assert.ok(leases>0,"a new baseline cannot remain hidden until next week");
+});
