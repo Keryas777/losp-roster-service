@@ -140,3 +140,66 @@ test("untrusted requester cannot start the admin action without Cloudflare Acces
   assert.equal(response.status,403);
   assert.ok(f.calls.every(c=>c.action!=="put"));
 });
+
+
+test("manual burst requires active same-day intent and invokes only the indexed approved alliance",async()=>{
+  const f=fixture(),now=at("2026-11-01T17:42:00Z");
+  const collectCalls=[];
+  const collect=async(_env,fp,slot)=>{
+    collectCalls.push({fp,slot});
+    return {status:"complete",requests:27,members:24};
+  };
+  const burst=post(JSON.stringify({action:"collect",index:1}));
+  const withoutIntent=await handleRewardInfoManual(burst,f.env,now,fetch,collect);
+  assert.equal(withoutIntent.status,409);
+  assert.equal((await withoutIntent.json()).status,"no-active-manual-intent");
+  assert.equal(collectCalls.length,0);
+  await handleRewardInfoManual(post(),f.env,now);
+  const result=await handleRewardInfoManual(
+    post(JSON.stringify({action:"collect",index:1})),f.env,now+1000,fetch,collect
+  );
+  assert.equal(result.status,200);
+  assert.deepEqual(await result.json(),{
+    status:"complete",index:1,requests:27,members:24
+  });
+  assert.deepEqual(collectCalls.map(x=>x.fp),[fp2]);
+  assert.equal(collectCalls[0].slot.day,"2026-11-01");
+  assert.doesNotMatch(JSON.stringify(collectCalls[0].slot),/1{64}|2{64}|3{64}/);
+});
+
+test("manual burst rejects invalid index, unauthorized dates and requests before cutoff",async()=>{
+  const f=fixture(),now=at("2026-11-01T17:42:00Z");
+  await handleRewardInfoManual(post(),f.env,now);
+  const badBodies=[
+    {action:"collect",index:-1},{action:"collect",index:1.4},
+    {action:"collect",index:100},{action:"collect",index:"1"},
+    {action:"collect",index:1,day:"2026-10-31"},
+    {action:"collect",index:1,alliance:"Zeus"}
+  ];
+  for(const payload of badBodies){
+    const result=await handleRewardInfoManual(post(JSON.stringify(payload)),f.env,now);
+    assert.equal(result.status,400);
+  }
+  const outOfBounds=await handleRewardInfoManual(post(
+    JSON.stringify({action:"collect",index:9})),f.env,now);
+  assert.equal(outOfBounds.status,400);
+  const tooEarly=await handleRewardInfoManual(post(
+    JSON.stringify({action:"collect",index:1})),f.env,
+    at("2026-11-01T15:59:00Z"));
+  assert.equal(tooEarly.status,409);
+  assert.ok(f.calls.every(x=>x.action!=="delete"));
+});
+
+test("manual burst cannot run after 45 minute expiry",async()=>{
+  const f=fixture(),now=at("2026-11-01T17:42:15Z");
+  await handleRewardInfoManual(post(),f.env,now);
+  let calls=0;
+  const response=await handleRewardInfoManual(
+    post(JSON.stringify({action:"collect",index:0})),f.env,
+    at("2026-11-01T18:28:00Z"),fetch,async()=>{
+      calls++;return {status:"complete"};
+    }
+  );
+  assert.equal(response.status,409);
+  assert.equal(calls,0);
+});
