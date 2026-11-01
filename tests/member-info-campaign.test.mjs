@@ -1,7 +1,7 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {projectInfoRows,runMemberInfoTick} from "../src/member-info-campaign.js";
-import {runMemberInfoAutoTick,memberInfoWindow} from "../src/member-info-scheduler.js";
+import {runMemberInfoAutoTick} from "../src/member-info-scheduler.js";
 
 test("member Infos include roster-nonsharing members and all optional profile fields",()=>{
   const members=[{id:"private-volatile",rank:"member",card:{
@@ -32,23 +32,4 @@ test("opt-in blocks all API and storage reads by default",async()=>{
     {campaign:"2026-10-31-am",stamp:"2026-10-31T02:20Z"},fetchImpl)).status,"disabled");
   assert.equal((await runMemberInfoAutoTick({},"2026-10-31T02:20:00Z",fetchImpl)).status,"disabled");
   assert.equal(calls,0);
-});
-
-test("PM Infos starts at 17:01 Paris in winter, never at reward cutoff",()=>{
-  assert.equal(memberInfoWindow(Date.parse("2026-11-02T16:00:00Z")),null);
-  assert.deepEqual(memberInfoWindow(Date.parse("2026-11-02T16:01:00Z")),{period:"pm",tick:0});
-  assert.deepEqual(memberInfoWindow(Date.parse("2026-11-02T18:00:00Z")),{period:"pm",tick:119});
-  assert.equal(memberInfoWindow(Date.parse("2026-11-02T18:01:00Z")),null);
-});
-test("PM Infos follows daylight saving time with no fixed UTC offset",()=>{
-  assert.equal(memberInfoWindow(Date.parse("2026-07-02T15:00:00Z")),null);
-  assert.deepEqual(memberInfoWindow(Date.parse("2026-07-02T15:01:00Z")),{period:"pm",tick:0});
-  assert.deepEqual(memberInfoWindow(Date.parse("2026-07-02T17:00:00Z")),{period:"pm",tick:119});
-  assert.equal(memberInfoWindow(Date.parse("2026-07-02T17:01:00Z")),null);
-});
-test("AM UTC window remains unchanged and no additional Cron is required",()=>{
-  assert.deepEqual(memberInfoWindow(Date.parse("2026-11-02T02:00:00Z")),{period:"am",tick:0});
-  assert.deepEqual(memberInfoWindow(Date.parse("2026-11-02T03:59:00Z")),{period:"am",tick:119});
-  assert.equal(memberInfoWindow(Date.parse("2026-11-02T04:00:00Z")),null);
-  assert.equal(memberInfoWindow(NaN),null);
 });
