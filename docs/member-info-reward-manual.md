@@ -26,7 +26,7 @@ L'API privée est `/admin/api/reward-infos-manual` :
 
 ## Architecture et contraintes
 
-Le POST initial `{} ` crée ou réutilise une intention temporaire dans
+Le POST initial `{}` crée ou réutilise une intention temporaire dans
 `roster-batches/v1/reward-manual/YYYY-MM-DD.json`.
 
 **Mode rapide :** l'interface enchaîne immédiatement les requêtes POST
