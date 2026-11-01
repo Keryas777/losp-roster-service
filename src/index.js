@@ -11,6 +11,7 @@ import { prunePrivateRosterPilots } from "./private-roster-pilot.js";
 import { ROSTER_CRON, runRosterAutoTick } from "./automatic-roster-scheduler.js";
 import {runMemberInfoAutoTick} from "./member-info-scheduler.js";
 import {runRewardInfoAutoTick} from "./member-info-reward.js";
+import {publicArenaHistory,archiveArenaHistory} from "./public-arena-history.js";
 import {GAME_ARCHIVE_CRON,runGameArchiveTick} from "./game-catalog-archive.js";
 import {runGameArchiveSchemaAuditTick} from "./game-archive-schema-audit.js";
 import {runGameMaterialAuditTick} from "./game-material-audit.js";
@@ -204,6 +205,11 @@ export default {
           console.warn("msf-characters-dispatch",JSON.stringify({status:"unavailable"}));
         }
       }
+      // R2-only rolling arena history, at 20:17/22:17 Paris.
+      // No new cron, no provider calls, no roster pipeline changes.
+      const arenaHistory=await archiveArenaHistory(env,controller.scheduledTime);
+      if(!["outside-window","unchanged"].includes(arenaHistory.status))
+        console.info("arena-history-cron",JSON.stringify(arenaHistory));
     }
     if(controller?.cron===GAME_ARCHIVE_CRON){
       const result=await runGameArchiveTick(env);
@@ -326,6 +332,8 @@ export default {
     const url = new URL(request.url);
     if(url.pathname==="/api/public/awakened-materials")
       return publicAwakenedMaterials(request,env);
+    if(url.pathname==="/api/public/arena-history")
+      return publicArenaHistory(request,env);
 
     if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
       return handleAdmin(request, env);
