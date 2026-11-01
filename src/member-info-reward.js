@@ -265,8 +265,10 @@ async function manualTickSlot(env,scheduledTime){
   };
 }
 
-// Authorized GET reads private R2 only. Neither GET nor POST makes a Scopely
-// request: the scheduled handler will perform the actual bounded work.
+// GET and POST {} access R2 only. A second explicit, admin-authenticated
+// POST action can collect one approved alliance immediately in its OWN
+// Worker invocation (under its own subrequest limit), without minute delays.
+// The existing minute cron remains the fallback when the tab closes.
 export async function rewardManualStatus(env,now=Date.now()){
   if(env?.MEMBER_INFO_REWARD_ENABLED!=="true")return {status:"disabled"};
   if(env?.ROSTER_RETENTION_CONFIRMED!=="true")
@@ -299,28 +301,71 @@ export async function rewardManualStatus(env,now=Date.now()){
   };
 }
 
-export async function handleRewardInfoManual(request,env,now=Date.now()){
+// One authorized HTTP invocation collects at most ONE alliance.
+// Different requests can execute concurrently without sharing the 50-external-
+// subrequest budget of Workers Free. The client supplies only an index into
+// the server-side current approved list, not an alliance ID or a date.
+export async function collectManualRewardIndex(env,index,now=Date.now(),
+  fetchImpl=fetch,collectImpl=collectRewardAlliance){
+  if(!Number.isSafeInteger(index)||index<0)return {status:"invalid-index"};
+  if(env?.MEMBER_INFO_REWARD_ENABLED!=="true")return {status:"disabled"};
+  if(env?.ROSTER_RETENTION_CONFIRMED!=="true")
+    return {status:"retention-not-confirmed"};
+  if(!captainConfigReady(env))return {status:"storage-unavailable"};
+  const local=parisRewardDay(now);
+  if(!local?.afterReward)return {status:"before-reward-cutoff"};
+  const intent=await read(env.CAPTAIN_BUCKET,manualKey(local.day),3000);
+  const started=Date.parse(intent?.startedAt),until=Date.parse(intent?.expiresAt);
+  if(intent?.version!==1||intent.day!==local.day||
+     !Number.isFinite(started)||!Number.isFinite(until)||
+     started>now||now>=until||until-started>MANUAL_TTL_MS)
+    return {status:"no-active-manual-intent"};
+  const fps=await approvedRewardFingerprints(env);
+  if(!fps||index>=fps.length)return {status:"invalid-index"};
+  const slot={day:local.day,tick:index,
+    stamp:new Date(now).toISOString().slice(0,16)+"Z"};
+  const result=await collectImpl(env,fps[index],slot,fetchImpl);
+  // No member names, fingerprints, identities or source records in HTTP.
+  return {status:result.status||"unavailable",index,
+    requests:Number.isSafeInteger(result.requests)?result.requests:0,
+    ...(Number.isSafeInteger(result.members)?{members:result.members}:{})};
+}
+
+export async function handleRewardInfoManual(request,env,now=Date.now(),
+  fetchImpl=fetch,collectImpl=collectRewardAlliance){
   if(!["GET","POST"].includes(request.method))
     return Response.json({status:"method-not-allowed"},{status:405,headers:privateHeaders});
+  let body=null;
   if(request.method==="POST"){
-    // Cloudflare Access JWT is checked BEFORE routing here in handleAdmin.
-    // Enforce same-origin and an exact empty JSON object to prevent CSRF,
-    // caller-supplied dates, and unauthorized alliance selection.
+    // Verified Cloudflare Access admin JWT before routing here. Require
+    // same-origin JSON and a very small, strictly whitelisted payload.
     const origin=new URL(request.url).origin;
     if(request.headers.get("Origin")!==origin||
        !/^application\/json(?:\s*;.*)?$/i.test(request.headers.get("Content-Type")||""))
       return Response.json({status:"forbidden"},{status:403,headers:privateHeaders});
-    let body;
     try{
       const raw=await request.text();
-      if(raw.length>16)throw Error("oversized");
+      if(raw.length>60)throw Error("oversized");
       body=JSON.parse(raw);
-      if(!isObject(body)||Object.keys(body).length)throw Error("unexpected");
+      if(!isObject(body))throw Error("invalid");
+      const keys=Object.keys(body);
+      if(keys.length!==0&&!(keys.length===2&&
+         keys.includes("action")&&keys.includes("index")&&
+         body.action==="collect"&&Number.isSafeInteger(body.index)&&
+         body.index>=0&&body.index<100))throw Error("unexpected");
     }catch{
       return Response.json({status:"invalid-payload"},{status:400,headers:privateHeaders});
     }
   }
   try{
+    if(body?.action==="collect"){
+      const result=await collectManualRewardIndex(env,body.index,now,
+        fetchImpl,collectImpl);
+      const code=["invalid-index"].includes(result.status)?400:
+        ["disabled","retention-not-confirmed","storage-unavailable"].includes(result.status)?503:
+        ["before-reward-cutoff","no-active-manual-intent"].includes(result.status)?409:200;
+      return Response.json(result,{status:code,headers:privateHeaders});
+    }
     const state=await rewardManualStatus(env,now);
     if(request.method==="GET")
       return Response.json(state,{headers:privateHeaders});
