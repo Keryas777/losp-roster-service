@@ -74,7 +74,7 @@ test("archives on existing cron at 20:17 Paris; endpoint is read-only",async()=>
   assert.equal(result.snapshots,2);
   assert.equal(f.puts.length,1);
   assert.equal(f.puts[0],"roster-batches/v1/arena-history/rolling.json");
-  const response=await publicArenaHistory(new Request("https://service.test/api/public/arena-history"),f.env);
+  const response=await publicArenaHistory(new Request("https://service.test/api/public/arena-history"),f.env,now);
   assert.equal(response.status,200);
   assert.equal(response.headers.get("Access-Control-Allow-Origin"),"*");
   assert.equal(f.puts.length,1);
