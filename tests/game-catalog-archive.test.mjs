@@ -344,3 +344,39 @@ test("documented non-pageable game roots do not receive unsupported pagination",
   for(let i=0;i<3;i++)await runGameArchiveTick(f.env,f.provider,now+i*60_000);
   assert.equal((await gameArchiveStatus(f.env,now)).status,"completed");
 });
+
+test("idle completed /game archive never acquires a Durable Object lease",async()=>{
+  const f=fixture();
+  await startGameArchive(f.env,now);
+  for(let i=0;i<4;i++)await runGameArchiveTick(f.env,f.provider,now+i*60_000);
+  assert.equal((await gameArchiveStatus(f.env,now)).status,"completed");
+  const original=f.env.ROSTER_BATCH_LOCK.get;
+  let leaseCount=0;
+  f.env.ROSTER_BATCH_LOCK.get=(id)=>{leaseCount++;return original(id);};
+  const calls=f.calls.length;
+  for(let i=0;i<30;i++)
+    assert.equal((await runGameArchiveTick(f.env,f.provider,now+(i+6)*60_000)).status,
+      "completed");
+  assert.equal(leaseCount,0,"no lock is needed while terminal");
+  assert.equal(f.calls.length,calls,"no OAuth or Scopely requests while terminal");
+  const started=await startGameArchive(f.env,now+40*60_000);
+  assert.equal(started.status,"started");
+  const leasesAfterManualStart=leaseCount;
+  const resumed=await runGameArchiveTick(f.env,f.provider,now+41*60_000);
+  assert.notEqual(resumed.status,"not-started");
+  assert.ok(leaseCount>leasesAfterManualStart,
+    "admin-created active campaign resumes on next tick under lock");
+});
+
+test("enabling a missing /game phase 2 bypasses the idle shortcut",async()=>{
+  const f=fixture();
+  await startGameArchive(f.env,now);
+  for(let i=0;i<4;i++)await runGameArchiveTick(f.env,f.provider,now+i*60_000);
+  assert.equal((await gameArchiveStatus(f.env,now)).status,"completed");
+  f.env.GAME_ARCHIVE_PHASE2_ENABLED="true";
+  const original=f.env.ROSTER_BATCH_LOCK.get;
+  let leaseCount=0;
+  f.env.ROSTER_BATCH_LOCK.get=id=>{leaseCount++;return original(id);};
+  await runGameArchiveTick(f.env,f.provider,now+10*60_000);
+  assert.ok(leaseCount>0,"phase 2 must retain the original locked resume path");
+});
