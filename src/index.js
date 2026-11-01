@@ -10,6 +10,7 @@ import { handleAdmin } from "./admin-routes.js";
 import { prunePrivateRosterPilots } from "./private-roster-pilot.js";
 import { ROSTER_CRON, runRosterAutoTick } from "./automatic-roster-scheduler.js";
 import {runMemberInfoAutoTick} from "./member-info-scheduler.js";
+import {runRewardInfoAutoTick} from "./member-info-reward.js";
 import {GAME_ARCHIVE_CRON,runGameArchiveTick} from "./game-catalog-archive.js";
 import {runGameArchiveSchemaAuditTick} from "./game-archive-schema-audit.js";
 import {runGameMaterialAuditTick} from "./game-material-audit.js";
@@ -168,6 +169,13 @@ export default {
         console.info("member-info-cron",JSON.stringify({
           status:info.status,requests:info.requests||0,
           ...(info.members?{members:info.members}:{})
+        }));
+      // Separate, reward-time only: existing AM/PM Info runs unchanged.
+      const reward=await runRewardInfoAutoTick(env,controller.scheduledTime);
+      if(!["disabled","outside-window","complete"].includes(reward.status))
+        console.info("member-info-reward-cron",JSON.stringify({
+          status:reward.status,requests:reward.requests||0,
+          ...(reward.members?{members:reward.members}:{})
         }));
       const scheduled=controller.scheduledTime;
       const slot=new Date(scheduled);
