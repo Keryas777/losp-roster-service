@@ -4,7 +4,7 @@ Complément indépendant à la collecte automatique existante de **17:01 Europe/
 
 ## Depuis l'administration
 
-Sur la page sécurisée \`/admin\`, rubrique **Relevé Arène — Infos après 17 h** :
+Sur la page sécurisée `/admin`, rubrique **Relevé Arène — Infos après 17 h** :
 
 1. **Collecter les Infos maintenant** : enregistre dans R2 privé une demande
    portant exclusivement sur la journée française courante.
@@ -12,25 +12,25 @@ Sur la page sécurisée \`/admin\`, rubrique **Relevé Arène — Infos après 1
    disposant d'un reçu complet pour la journée, sans appel Scopely.
 
 La demande est autorisée **à partir de 17:01 heure française**.
-Avant ce seuil, le service répond \`409 before-reward-cutoff\`.
+Avant ce seuil, le service répond `409 before-reward-cutoff`.
 Les dates/alliance ne peuvent pas être choisies dans l'appel.
 
-L'API privée est \`/admin/api/reward-infos-manual\` :
-- \`GET\` : statut agrégé privé (aucun appel Scopely).
-- \`POST\`, en provenance de \`/admin\`, contenu JSON exactement \`{}\` :
+L'API privée est `/admin/api/reward-infos-manual` :
+- `GET` : statut agrégé privé (aucun appel Scopely).
+- `POST`, en provenance de `/admin`, contenu JSON exactement `{}` :
   lance ou reprend la campagne. Exige Cloudflare Access et une origine valide.
 - Le jeton Cloudflare Access est vérifié **avant** d'atteindre ces routes
-  via \`handleAdmin\` ; aucune route publique ne permet le lancement.
+  via `handleAdmin` ; aucune route publique ne permet le lancement.
 
 ## Architecture et contraintes
 
 Le POST **ne collecte pas 120 profils dans la requête HTTP**. Il crée
 une intention temporaire dans
-\`roster-batches/v1/reward-manual/YYYY-MM-DD.json\`.
+`roster-batches/v1/reward-manual/YYYY-MM-DD.json`.
 
-Le déclencheur Cloudflare **déjà existant** \`* * * * *\` exécute un
+Le déclencheur Cloudflare **déjà existant** `* * * * *` exécute un
 micro-lot par minute. Les reçus et checkpoints proviennent du
-\`member-info-reward.js\` existant, avec mêmes contrôles OAuth/approbations,
+`member-info-reward.js` existant, avec mêmes contrôles OAuth/approbations,
 même verrou Durable Object, horodatage individuel des fiches, protection 429
 et absence de publication publique de jetons.
 
@@ -52,12 +52,12 @@ de conservation déjà prévue pour les fichiers Infos.
 
 ## Vérification
 
-\`\`\`sh
+```sh
 node --check src/member-info-reward.js
 node --check src/admin-routes.js
 node --check public/admin-reward-info-manual.js
 node --test tests/member-info-reward.test.mjs tests/member-info-reward-manual.test.mjs
-\`\`\`
+```
 
 La fusion de la PR n'est **pas** un déploiement Cloudflare automatique
 dans ce dépôt. Après revue, déployer le Worker, puis accéder à
