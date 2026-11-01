@@ -506,6 +506,23 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
   if(!env?.CAPTAIN_BUCKET?.get||!env.CAPTAIN_BUCKET?.put||
      !env.CAPTAIN_BUCKET?.head||!env.CAPTAIN_BUCKET?.list||
      !env.ROSTER_BATCH_LOCK?.get)return {status:"storage-unavailable"};
+  // A completed weekly pass does not need two Durable Object lock calls on
+  // every minute tick. Always check the current archive pointer first: if
+  // an admin starts a new baseline, the very next tick uses the locked path.
+  try{
+    const b=env.CAPTAIN_BUCKET,active=await read(b,ACTIVE);
+    if(!UID.test(active?.runId||""))
+      return {status:"awaiting-initial-archive"};
+    const s=await read(b,STATE);
+    const last=Date.parse(s?.completedAt||"");
+    if(s&&["completed","partial"].includes(s.status)&&
+       s.sourceRun===active.runId&&Number.isFinite(last)&&
+       now>=last&&now-last<WEEK)
+      return {status:"up-to-date",nextAt:new Date(last+WEEK).toISOString(),
+        ...visible(s,true)};
+  }catch{
+    // On an uncertain R2 read, continue with the original locked checks.
+  }
   const holder=crypto.randomUUID();
   let acquired=false;
   try{
