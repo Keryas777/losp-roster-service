@@ -137,11 +137,11 @@ export async function buildArenaHistory(env,now=Date.now()){
   }
   return mergeArenaHistory(previous,incoming,today);
 }
-export async function publicArenaHistory(request,env){
+export async function publicArenaHistory(request,env,now=Date.now()){
   if(request.method!=="GET")return Response.json({status:"method-not-allowed"},
     {status:405,headers:HEADERS});
   try{
-    const data=await buildArenaHistory(env);
+    const data=await buildArenaHistory(env,now);
     return Response.json(data,{headers:HEADERS});
   }catch{
     return Response.json({status:"unavailable",snapshots:[]},
