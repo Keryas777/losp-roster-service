@@ -17,22 +17,35 @@ Les dates/alliance ne peuvent pas être choisies dans l'appel.
 
 L'API privée est `/admin/api/reward-infos-manual` :
 - `GET` : statut agrégé privé (aucun appel Scopely).
-- `POST`, en provenance de `/admin`, contenu JSON exactement `{}` :
-  lance ou reprend la campagne. Exige Cloudflare Access et une origine valide.
+- `POST` `{}` : lance ou reprend la campagne.
+- `POST` `{"action":"collect","index":n}` : exécute immédiatement
+  une alliance approuvée après vérification du jour, de l'intention
+  et de l'authentification Cloudflare Access.
 - Le jeton Cloudflare Access est vérifié **avant** d'atteindre ces routes
   via `handleAdmin` ; aucune route publique ne permet le lancement.
 
 ## Architecture et contraintes
 
-Le POST **ne collecte pas 120 profils dans la requête HTTP**. Il crée
-une intention temporaire dans
+Le POST initial `{}` crée ou réutilise une intention temporaire dans
 `roster-batches/v1/reward-manual/YYYY-MM-DD.json`.
 
-Le déclencheur Cloudflare **déjà existant** `* * * * *` exécute un
-micro-lot par minute. Les reçus et checkpoints proviennent du
-`member-info-reward.js` existant, avec mêmes contrôles OAuth/approbations,
-même verrou Durable Object, horodatage individuel des fiches, protection 429
-et absence de publication publique de jetons.
+**Mode rapide :** l'interface enchaîne immédiatement les requêtes POST
+`{"action":"collect","index":0}`, puis `index:1`, etc. Elle lance
+**deux alliances en parallèle**, sans attendre une minute entre elles.
+Chaque requête indépendante possède son propre plafond Cloudflare Free
+de 50 requêtes externes. L'index désigne uniquement une entrée dans
+la liste d'alliances approuvées résolue côté serveur. Le client ne peut
+pas choisir une date ou un identifiant d'alliance arbitraire.
+
+Les micro-lots partiels peuvent être poursuivis immédiatement.
+Chaque alliance conserve son verrou Durable Object et ses checkpoints.
+
+Si l'onglet est fermé ou qu'une requête échoue, le cron Cloudflare
+**déjà existant** `* * * * *` continue les reprises une fois par minute.
+Pas de nouveau cron ni de modification des campagnes AM/PM.
+
+Cette protection est une contrainte du plan Cloudflare, **pas** une
+obligation de temporisation imposée par Scopely.
 
 La fenêtre de reprise manuelle dure **45 minutes** après le lancement.
 Cliquer à nouveau pendant une campagne en cours ne la redémarre pas ;
