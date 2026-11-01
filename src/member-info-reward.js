@@ -217,22 +217,148 @@ export async function collectRewardAlliance(env,fp,slot,fetchImpl=fetch){
     if(acquired)try{await lock(env,fp,"release",holder);}catch{}
   }
 }
+// A manual request is a private, single-day intent, NOT a second cron. It is
+// resumed by the existing every-minute tick, with the same alliance lease and
+// per-invocation request bounds as the 17:01 automatic reward campaign.
+const MANUAL_TTL_MS=45*60000;
+const manualKey=day=>PREFIX+"reward-manual/"+day+".json";
+const privateHeaders={"Cache-Control":"private, no-store",
+  "X-Content-Type-Options":"nosniff"};
+
+export function parisRewardDay(timestamp){
+  if(!Number.isFinite(timestamp))return null;
+  const parts=Object.fromEntries(new Intl.DateTimeFormat("en-GB",{
+    timeZone:"Europe/Paris",year:"numeric",month:"2-digit",day:"2-digit",
+    hour:"2-digit",minute:"2-digit",hourCycle:"h23"
+  }).formatToParts(new Date(timestamp)).filter(p=>
+    ["year","month","day","hour","minute"].includes(p.type)
+  ).map(p=>[p.type,p.value]));
+  const minutes=Number(parts.hour)*60+Number(parts.minute);
+  return {day:parts.year+"-"+parts.month+"-"+parts.day,
+    afterReward:minutes>=17*60+1};
+}
+
+async function approvedRewardFingerprints(env){
+  const approval=await readApproval(env);
+  if(approval.status!=="configured"||!approval.alliances.length)
+    return null;
+  const fps=approval.alliances.map(a=>a.fingerprint).sort();
+  if(fps.some(fp=>!APPROVED.test(fp))||new Set(fps).size!==fps.length)
+    return null;
+  return fps;
+}
+
+async function manualTickSlot(env,scheduledTime){
+  const local=parisRewardDay(scheduledTime);
+  if(!local?.afterReward)return null;
+  const intent=await read(env.CAPTAIN_BUCKET,manualKey(local.day),3000);
+  const started=Date.parse(intent?.startedAt);
+  const until=Date.parse(intent?.expiresAt);
+  if(intent?.version!==1||intent.day!==local.day||
+     !Number.isFinite(started)||!Number.isFinite(until)||
+     started>scheduledTime||scheduledTime>=until||
+     until-started>MANUAL_TTL_MS)return null;
+  return {
+    day:local.day,
+    tick:Math.max(0,Math.floor((scheduledTime-started)/60000)),
+    stamp:new Date(scheduledTime).toISOString().slice(0,16)+"Z"
+  };
+}
+
+// Authorized GET reads private R2 only. Neither GET nor POST makes a Scopely
+// request: the scheduled handler will perform the actual bounded work.
+export async function rewardManualStatus(env,now=Date.now()){
+  if(env?.MEMBER_INFO_REWARD_ENABLED!=="true")return {status:"disabled"};
+  if(env?.ROSTER_RETENTION_CONFIRMED!=="true")
+    return {status:"retention-not-confirmed"};
+  if(!captainConfigReady(env))return {status:"storage-unavailable"};
+  const today=parisRewardDay(now);
+  if(!today)return {status:"invalid-time"};
+  const fps=await approvedRewardFingerprints(env);
+  if(!fps)return {status:"no-approved-alliances",day:today.day};
+  const intent=await read(env.CAPTAIN_BUCKET,manualKey(today.day),3000);
+  let complete=0;
+  for(const fp of fps){
+    const receipt=await read(env.CAPTAIN_BUCKET,receiptKey(fp,today.day),240000);
+    if(receipt?.version===1&&receipt.kind==="alliance-infos-reward"&&
+       receipt.campaign===today.day+"-reward"&&
+       receipt.allianceFingerprint===fp&&Array.isArray(receipt.rows)&&
+       Date.parse(receipt.expiresAt)>now)complete++;
+  }
+  const active=intent?.version===1&&intent.day===today.day&&
+    Date.parse(intent.expiresAt)>now;
+  return {
+    status:complete===fps.length?"complete":
+      active?"running":intent?"expired":
+        complete>0?"partial":"not-started",
+    day:today.day,eligible:today.afterReward,
+    alliancesTotal:fps.length,alliancesComplete:complete,
+    ...(intent?.startedAt?{startedAt:intent.startedAt}:{}),
+    ...(intent?.expiresAt?{expiresAt:intent.expiresAt}:{}),
+    mode:"reward-info-manual",storage:"private-r2"
+  };
+}
+
+export async function handleRewardInfoManual(request,env,now=Date.now()){
+  if(!["GET","POST"].includes(request.method))
+    return Response.json({status:"method-not-allowed"},{status:405,headers:privateHeaders});
+  if(request.method==="POST"){
+    // Cloudflare Access JWT is checked BEFORE routing here in handleAdmin.
+    // Enforce same-origin and an exact empty JSON object to prevent CSRF,
+    // caller-supplied dates, and unauthorized alliance selection.
+    const origin=new URL(request.url).origin;
+    if(request.headers.get("Origin")!==origin||
+       !/^application\/json(?:\s*;.*)?$/i.test(request.headers.get("Content-Type")||""))
+      return Response.json({status:"forbidden"},{status:403,headers:privateHeaders});
+    let body;
+    try{
+      const raw=await request.text();
+      if(raw.length>16)throw Error("oversized");
+      body=JSON.parse(raw);
+      if(!isObject(body)||Object.keys(body).length)throw Error("unexpected");
+    }catch{
+      return Response.json({status:"invalid-payload"},{status:400,headers:privateHeaders});
+    }
+  }
+  try{
+    const state=await rewardManualStatus(env,now);
+    if(request.method==="GET")
+      return Response.json(state,{headers:privateHeaders});
+    if(["disabled","retention-not-confirmed","storage-unavailable",
+         "no-approved-alliances"].includes(state.status))
+      return Response.json(state,{status:503,headers:privateHeaders});
+    if(!state.eligible)
+      return Response.json({...state,status:"before-reward-cutoff"},
+        {status:409,headers:privateHeaders});
+    if(state.status==="running"||state.status==="complete")
+      return Response.json(state,{headers:privateHeaders});
+    const startedAt=new Date(now).toISOString();
+    await write(env.CAPTAIN_BUCKET,manualKey(state.day),{
+      version:1,day:state.day,startedAt,
+      expiresAt:new Date(now+MANUAL_TTL_MS).toISOString()
+    });
+    return Response.json(await rewardManualStatus(env,now),{
+      status:202,headers:privateHeaders});
+  }catch{
+    return Response.json({status:"unavailable"},{status:503,headers:privateHeaders});
+  }
+}
+
 export async function runRewardInfoAutoTick(env,scheduledTime,fetchImpl=fetch,
   collectImpl=collectRewardAlliance){
   if(env?.MEMBER_INFO_REWARD_ENABLED!=="true")return {status:"disabled"};
   if(env?.ROSTER_RETENTION_CONFIRMED!=="true")
     return {status:"retention-not-confirmed"};
   if(!captainConfigReady(env))return {status:"storage-unavailable"};
-  const slot=rewardWindow(scheduledTime);
-  if(!slot)return {status:"outside-window"};
   try{
-    const approval=await readApproval(env);
-    if(approval.status!=="configured"||!approval.alliances.length)
-      return {status:"no-approved-alliances"};
-    const fps=approval.alliances.map(a=>a.fingerprint).sort();
-    if(fps.some(fp=>!APPROVED.test(fp))||
-       new Set(fps).size!==fps.length)return {status:"invalid-approvals"};
-    const selected=fps[slot.tick%fps.length];
-    return await collectImpl(env,selected,slot,fetchImpl);
+    // The official 17:01–17:30 automatic window always keeps priority.
+    // Outside it, only a short-lived, explicitly authorized manual intent
+    // can wake this same collector. No extra scheduler or daily campaign.
+    const slot=rewardWindow(scheduledTime)||
+      await manualTickSlot(env,scheduledTime);
+    if(!slot)return {status:"outside-window"};
+    const fps=await approvedRewardFingerprints(env);
+    if(!fps)return {status:"no-approved-alliances"};
+    return await collectImpl(env,fps[slot.tick%fps.length],slot,fetchImpl);
   }catch{return {status:"unavailable"};}
 }
