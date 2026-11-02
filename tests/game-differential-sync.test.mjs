@@ -563,3 +563,123 @@ test("a newly selected /game baseline invalidates the weekly idle shortcut",asyn
   assert.equal(r.status,"awaiting-initial-completion");
   assert.ok(leases>0,"a new baseline cannot remain hidden until next week");
 });
+
+
+function fullCharacterPath(id){
+  return "/game/v1/characters/"+id+
+    "?abilityKits=full&costumes=full&gearTiers=full"+
+    "&pieceInfo=full&pieceDirectCost=full&pieceFlatCost=full";
+}
+function characterScenario({missingSection=false}={}){
+  let revision=1;
+  const id="RECOVERY_HERO",full=fullCharacterPath(id);
+  const api=url=>{
+    if(url.includes("/game/v1/characters?page=1"))
+      return Response.json({data:[{id}],meta:{page:1,perTotal:1}});
+    if(url.endsWith("/game/v1/characters/"+id))
+      return Response.json({data:{id,revision},meta:{}});
+    if(url.endsWith(full))return new Response("large",{status:472});
+    if(missingSection&&url.includes("/game/v1/characters/"+id+"?")&&
+       url.includes("pieceFlatCost=full")&&url.includes("pieceInfo=none"))
+      return new Response("large",{status:472});
+    return Response.json({data:{id,revision},meta:{perTotal:0}});
+  };
+  return {api,id,full,setRevision:x=>{revision=x;}};
+}
+
+test("verified five-section 472 recovery defers redundant full GET in the following weekly run",async()=>{
+  const scenario=characterScenario();
+  const f=fixture({api:scenario.api});await f.seed();
+  const first=await finish(f);
+  assert.equal(first.status.status,"partial",
+    "full response is still refused, never labelled successful");
+  const key=DIFF+"recovery/pending/"+sha(scenario.full)+".json";
+  const before=JSON.parse(f.store.get(key));
+  assert.equal(before.status,"pending");
+  assert.equal(Object.keys(before.verifiedParts||{}).length,5);
+  assert.ok(before.expandedSourceHash);
+  assert.ok(Date.parse(before.nextAt)-first.ts>=20*86400000);
+  const calls=f.calls.length;
+  const second=await finish(f,first.ts+7*86400000+60000);
+  const newCalls=f.calls.slice(calls);
+  assert.equal(newCalls.some(x=>x.url.endsWith(scenario.full)),false,
+    "fresh five sections and unchanged character source defer known bad full");
+  assert.ok(newCalls.some(x=>x.url.endsWith("/game/v1/characters/"+scenario.id)),
+    "the source character is still synchronized");
+  assert.equal(second.status.status,"completed");
+  assert.equal(JSON.parse(f.store.get(key)).status,"pending",
+    "deferred full is not artificially marked as resolved");
+});
+
+test("a changed character base immediately re-enables full URL and resets exhausted attempts",async()=>{
+  const scenario=characterScenario();
+  const f=fixture({api:scenario.api});await f.seed();
+  const first=await finish(f);
+  const key=DIFF+"recovery/pending/"+sha(scenario.full)+".json";
+  const previous=JSON.parse(f.store.get(key));
+  f.store.set(key,JSON.stringify({...previous,attempts:3}));
+  scenario.setRevision(2);
+  const priorCalls=f.calls.length;
+  const second=await finish(f,first.ts+7*86400000+60000);
+  assert.equal(second.status.status,"partial");
+  assert.ok(f.calls.slice(priorCalls).some(x=>x.url.endsWith(scenario.full)),
+    "changed parent must override prior defer and attempt exhaustion");
+  const newer=JSON.parse(f.store.get(key));
+  assert.notEqual(newer.expandedSourceHash,previous.expandedSourceHash);
+  assert.equal(newer.attempts,1,"changed source starts a new attempt horizon");
+});
+
+test("partial 472 alternatives cannot suppress full retrieval on the next pass",async()=>{
+  const scenario=characterScenario({missingSection:true});
+  const f=fixture({api:scenario.api});await f.seed();
+  const first=await finish(f);
+  assert.equal(first.status.status,"partial");
+  const key=DIFF+"recovery/pending/"+sha(scenario.full)+".json";
+  const pending=JSON.parse(f.store.get(key));
+  assert.ok(Object.keys(pending.verifiedParts||{}).length<5);
+  const before=f.calls.length;
+  await finish(f,first.ts+7*86400000+60000);
+  assert.ok(f.calls.slice(before).some(x=>x.url.endsWith(scenario.full)),
+    "missing section requires an honest recheck of the original route");
+});
+
+test("an expired item source is not sufficient evidence to suppress an association 404",async()=>{
+  const f=fixture({api:url=>url.includes("/items/AGE_TEST/characters")?
+    new Response("not found",{status:404}):
+    Response.json({data:[],meta:{perTotal:0}})});
+  await f.seed();
+  const {association,semanticHash}=await seedItemAssociation(f,"AGE_TEST");
+  const parent="/game/v1/items/AGE_TEST",k=DIFF+"latest/"+sha(parent)+".json";
+  const old=JSON.parse(f.store.get(k));
+  f.store.set(k,JSON.stringify({...old,
+    storedAt:new Date(NOW-40*86400000).toISOString()}));
+  f.store.set(DIFF+"recovery/pending/"+sha(association)+".json",
+    JSON.stringify({version:2,path:association,reason:"http-404",
+      status:"pending",attempts:1,lastRun:"prior-run",
+      associationSourceHash:semanticHash,
+      nextAt:new Date(NOW+14*86400000).toISOString()}));
+  const result=await finish(f);
+  assert.equal(result.status.status,"partial");
+  assert.ok(f.calls.some(x=>x.url.endsWith(association)),
+    "stale metadata cannot hide 404s on their next scheduled check");
+});
+
+test("a changed item parent resets attempts without hiding the original association 404",async()=>{
+  const f=fixture({api:url=>{
+    if(url.includes("/items/SHARD_TEST/characters"))
+      return new Response("not found",{status:404});
+    if(url.endsWith("/game/v1/items/SHARD_TEST"))
+      return Response.json({data:{id:"SHARD_TEST",revision:2},meta:{}});
+    return Response.json({data:[],meta:{perTotal:0}});
+  }});
+  await f.seed();
+  const {association,semanticHash}=await seedItemAssociation(f);
+  const key=DIFF+"recovery/pending/"+sha(association)+".json";
+  f.store.set(key,JSON.stringify({path:association,status:"pending",
+    reason:"http-404",associationSourceHash:semanticHash,
+    nextAt:new Date(NOW+14*86400000).toISOString(),
+    attempts:3,lastRun:"prior-run"}));
+  const result=await finish(f);
+  assert.equal(result.status.status,"partial");
+  assert.equal(JSON.parse(f.store.get(key)).attempts,1);
+});
