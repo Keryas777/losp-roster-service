@@ -653,6 +653,10 @@ test("an expired item source is not sufficient evidence to suppress an associati
   const old=JSON.parse(f.store.get(k));
   f.store.set(k,JSON.stringify({...old,
     storedAt:new Date(NOW-40*86400000).toISOString()}));
+  // Simulate an association from a historical receipt, scanned BEFORE the
+  // parent item can be refreshed by the current differential.
+  f.store.set(RUN+"receipts/0000000000-00000-s0.json",
+    JSON.stringify({version:1,path:association,status:200}));
   f.store.set(DIFF+"recovery/pending/"+sha(association)+".json",
     JSON.stringify({version:2,path:association,reason:"http-404",
       status:"pending",attempts:1,lastRun:"prior-run",
