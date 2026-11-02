@@ -7,6 +7,7 @@ import {GAME_ROOTS,GAME_ARCHIVE_ROOT,GAME_ARCHIVE_DAILY_LIMIT,
   appToken,readGameBody} from "./game-catalog-archive.js";
 import {discoverGamePhase2,phase2RootTasks} from "./game-phase2-discovery.js";
 import {characterRecoveryTasks,splitFailedAbilities} from "./game-archive-recovery.js";
+import {characterSegment} from "./game-differential-evidence.js";
 import {noteAwakenedMaterials} from "./awakened-material-catalog.js";
 
 const ROOT=GAME_ARCHIVE_ROOT+"diff/";
@@ -23,6 +24,8 @@ const BACKFILL_PER_TICK=8,MAX_RECOVERY_RUNS=3;
 const RENEW_AFTER=21*24*HOUR;
 const ASSOCIATION_RETRY=21*24*HOUR; // Recheck even unchanged sources periodically.
 const ITEM_ASSOC=/^\/game\/v1\/items\/([A-Za-z0-9:_-]{1,200})\/characters(?:\?.*)?$/;
+const EXPANDED=/^\/game\/v1\/characters\/([A-Za-z0-9:_-]{1,200})\?/;
+const FULL_SECTIONS=["abilities","costumes","gear","direct-cost","flat-cost"];
 const PATH=/^\/game\/v1\/[A-Za-z0-9/_:?.=%&,+-]{1,800}$/;
 const SHA=/^[0-9a-f]{64}$/;
 const UID=/^[0-9a-f-]{36}$/;
@@ -88,24 +91,73 @@ async function lock(env,holder,action){
   return r.ok&&(await r.json()).status===
     (action==="acquire"?"acquired":"released");
 }
-async function associationSource(b,path){
-  const match=ITEM_ASSOC.exec(path);
-  if(!match)return null;
-  const parent="/game/v1/items/"+match[1];
+// A source fingerprint is usable for traffic suppression only when its
+// storage date is still in the 21-day renewal window. This is NOT a physical
+// integrity certificate; the diagnostic separately verifies receipts and HEAD.
+async function sourceSemantic(b,parent,now){
   const latest=await read(b,latestKey(await hash(parent)));
-  return latest?.path===parent&&SHA.test(latest.semanticHash||"")?
-    latest.semanticHash:null;
+  const age=now-Date.parse(latest?.storedAt||"");
+  return latest?.path===parent&&SHA.test(latest.semanticHash||"")&&
+    SHA.test(latest.sha256||"")&&
+    typeof latest.objectKey==="string"&&
+    latest.objectKey.endsWith("/objects/"+latest.sha256+".json")&&
+    Number.isFinite(age)&&age>=0&&age<RENEW_AFTER?
+      latest.semanticHash:null;
 }
-// Suppress only a previously proven 404 for a specific unchanged item source.
-// New or modified item data re-enables discovery immediately; expiry rechecks.
+async function associationSource(b,path,now){
+  const match=ITEM_ASSOC.exec(path);
+  return match?sourceSemantic(b,"/game/v1/items/"+match[1],now):null;
+}
+function expandedParent(path){
+  const match=EXPANDED.exec(path);
+  if(!match)return null;
+  const options=new URL("https://msf.invalid"+path).searchParams;
+  return ["abilityKits","costumes","gearTiers","pieceInfo",
+    "pieceDirectCost","pieceFlatCost"].every(k=>options.get(k)==="full")?
+      "/game/v1/characters/"+match[1]:null;
+}
+function freshFiveParts(entry,now){
+  if(!entry||typeof entry.verifiedParts!=="object"||
+      entry.verifiedParts===null||Array.isArray(entry.verifiedParts))
+    return false;
+  const original=expandedParent(entry.path);
+  if(!original)return false;
+  const found=new Set();
+  for(const [path,at] of Object.entries(entry.verifiedParts)){
+    if(!path.startsWith(original+"?"))continue;
+    const age=now-Date.parse(at||"");
+    if(Number.isFinite(age)&&age>=0&&age<RENEW_AFTER){
+      const section=characterSegment(path);
+      if(section)found.add(section);
+    }
+  }
+  return FULL_SECTIONS.every(x=>found.has(x));
+}
+// Never suppress the first 404, or a 404 after an item has changed.
+// The item itself is still checked normally each weekly campaign.
 async function suppressedAssociation(b,path,now){
   if(!ITEM_ASSOC.test(path))return false;
   const previous=await read(b,pendingKey(await hash(path)));
   if(previous?.status!=="pending"||previous.reason!=="http-404"||
      !SHA.test(previous.associationSourceHash||"")||
      !(Date.parse(previous.nextAt||"")>now))return false;
-  const current=await associationSource(b,path);
+  const current=await associationSource(b,path,now);
   return current!==null&&current===previous.associationSourceHash;
+}
+// A known 472 "full" can be postponed ONLY if all five individual sections
+// were actually stored (HEAD-confirmed at their own successful check), their
+// timestamps are recent and the base character fingerprint has not changed.
+// No synthetic full JSON is produced and the original 472 remains pending.
+async function suppressedExpanded(b,path,now){
+  const parent=expandedParent(path);
+  if(!parent)return false;
+  const previous=await read(b,pendingKey(await hash(path)));
+  if(previous?.status!=="pending"||previous.reason!=="http-472"||
+     !SHA.test(previous.expandedSourceHash||"")||
+     !(Date.parse(previous.nextAt||"")>now)||
+     !freshFiveParts(previous,now))return false;
+  const current=await sourceSemantic(b,parent,now);
+  return current!==null&&current===previous.expandedSourceHash;
 }
 async function queue(b,s,candidates,now=Date.now()){
   // One compact seen-set per SHA nibble, not two R2 requests PER endpoint.
@@ -114,7 +166,8 @@ async function queue(b,s,candidates,now=Date.now()){
   const groups=new Map(),fresh=[];
   for(const candidate of candidates){
     if(!valid(candidate?.path))continue;
-    if(await suppressedAssociation(b,candidate.path,now))continue;
+    if(await suppressedAssociation(b,candidate.path,now)||
+       await suppressedExpanded(b,candidate.path,now))continue;
     const h=await hash(candidate.path),shard=h[0];
     if(!groups.has(shard)){
       const v=await read(b,seenKey(s.runId,shard));
@@ -288,11 +341,21 @@ async function recordPending(b,s,task,reason,now){
   // A resolved URL can fail again in a later run: do not keep a false success.
   const again=previous?.status==="resolved";
   const anotherRun=previous?.lastRun!==s.runId;
-  const attempts=(again?0:previous?.attempts||0)+(anotherRun?1:0);
   const associationSourceHash=reason==="http-404"?
-    await associationSource(b,task.path):null;
+    await associationSource(b,task.path,now):null;
+  const expandedSourceHash=reason==="http-472"&&expandedParent(task.path)?
+    await sourceSemantic(b,expandedParent(task.path),now):null;
+  // A changed parent starts a fresh recovery attempt horizon. Do not let
+  // old exhausted retries hide a genuinely new item/character revision.
+  const changedParent=Boolean(previous&&(
+    associationSourceHash&&SHA.test(previous.associationSourceHash||"")&&
+      associationSourceHash!==previous.associationSourceHash||
+    expandedSourceHash&&SHA.test(previous.expandedSourceHash||"")&&
+      expandedSourceHash!==previous.expandedSourceHash));
+  const attempts=(again||changedParent?0:previous?.attempts||0)+
+    (anotherRun||changedParent?1:0);
   const nextAt=now+(associationSourceHash?ASSOCIATION_RETRY:WEEK);
-  await write(b,key,{version:2,path:task.path,status:"pending",
+  await write(b,key,{version:3,path:task.path,status:"pending",
     reason,attempts,lastRun:s.runId,
     firstSeenAt:previous?.firstSeenAt||new Date(now).toISOString(),
     lastSeenAt:new Date(now).toISOString(),
@@ -303,6 +366,10 @@ async function recordPending(b,s,task,reason,now){
     ...(previous?.lastPartialAt?{lastPartialAt:previous.lastPartialAt}:{}),
     ...(again?{lastResolvedAt:previous.resolvedAt||null}:{lastResolvedAt:previous?.lastResolvedAt||null}),
     ...(associationSourceHash?{associationSourceHash}:{}),
+    ...(expandedSourceHash?{expandedSourceHash}:{}),
+    ...(!changedParent&&previous?.verifiedParts&&
+      typeof previous.verifiedParts==="object"?
+      {verifiedParts:previous.verifiedParts}:{}),
     ...(valid(task.recoveryOf||previous?.recoveryOf)?
       {recoveryOf:task.recoveryOf||previous.recoveryOf}:{}),
     ...(typeof (task.recoveryPart||previous?.recoveryPart)==="string"?
@@ -320,8 +387,17 @@ async function resolvePending(b,s,task,now){
     if(parent?.status==="pending"){
       const parts=new Set(parent.recoveredParts||[]);
       parts.add(task.path);
-      await write(b,pk,{...parent,recoveredParts:[...parts].slice(0,16),
-        lastPartialAt:new Date(now).toISOString()});
+      // Each timestamp is recorded only AFTER that specific receipt + blob
+      // passed finishCommitted(). Historic unverified parts are not promoted.
+      const verifiedParts={...(parent.verifiedParts||{})};
+      if(expandedParent(parent.path)&&FULL_SECTIONS.includes(characterSegment(task.path)))
+        verifiedParts[task.path]=new Date(now).toISOString();
+      const update={...parent,recoveredParts:[...parts].slice(0,16),
+        lastPartialAt:new Date(now).toISOString(),
+        verifiedParts};
+      if(SHA.test(parent.expandedSourceHash||"")&&freshFiveParts(update,now))
+        update.nextAt=new Date(now+RENEW_AFTER).toISOString();
+      await write(b,pk,update);
     }
   }
 }
