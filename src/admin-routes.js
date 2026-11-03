@@ -26,6 +26,7 @@ import {handleCollectionOverview} from "./collection-overview.js";
 import {gameDifferentialStatus} from "./game-differential-sync.js";
 import {handleGameDifferentialFailureDiagnostic} from "./game-differential-diagnostic.js";
 import {handleGameDifferentialFailureAudit} from "./game-differential-failure-audit.js";
+import {handleGameDifferentialComparisonAudit} from "./game-differential-comparison-audit.js";
 import {adminSessionList,adminResource,adminCatalog,adminCoverage,adminRefreshCron,adminMemberCard} from "./admin-data-api.js";
 
 const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
@@ -152,6 +153,13 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<div class="actions"><button id="game-gap-prev" type="button" disabled>Précédentes</button>'+
 '<button id="game-gap-next" type="button" disabled>Suivantes</button></div></section>'+
 "<section><h2>Diagnostic des échecs /game différentiels</h2><p>Audit R2 durable : lancement manuel, progression conservée et poursuite par le Cron existant, même page fermée. Aucun appel Scopely.</p><button type=\"button\" id=\"game-diff-diagnostic-refresh\">Analyser les échecs (R2)</button><p id=\"game-diff-diagnostic-status\" role=\"status\">Diagnostic disponible à la demande.</p><div id=\"game-diff-diagnostic-summary\" class=\"health-cards\"></div><div class=\"controls\"><label>Motif<select id=\"game-diff-diagnostic-cause\"><option value=\"\">Tous les motifs</option></select></label><label>État<select id=\"game-diff-diagnostic-state\"><option value=\"\">Tous les états</option></select></label></div><div id=\"game-diff-diagnostic-results\" class=\"scroll\"></div><button type=\"button\" id=\"game-diff-diagnostic-more\" hidden>Afficher davantage d’URL</button></section>"+
+'<section><h2>Comparer les versions différentielles · échantillon R2</h2>'+
+'<p>Contrôle manuel d’environ 24 URL déjà archivées : reçus liés, empreintes SHA-256 et champs différents. Le Cron existant poursuit l’audit si la page est fermée. Aucun appel Scopely.</p>'+
+'<button id="game-diff-comparison-start" type="button">Démarrer / consulter le diagnostic R2</button>'+
+'<button id="game-diff-comparison-copy" type="button" disabled>Copier le rapport JSON</button>'+
+'<p id="game-diff-comparison-status" role="status">Diagnostic non lancé. Aucune lecture R2 automatique.</p>'+
+'<div id="game-diff-comparison-summary" class="health-cards"></div>'+
+'<div id="game-diff-comparison-results" class="scroll"></div></section>'+
 '<section><h2>Inventaire physique des archives R2</h2>'+
 '<p>Compter les reçus, objets SHA-256 et réponses raw réellement présents, puis détecter les objets sans reçu et les références manquantes. Lecture seule, aucun appel Scopely.</p>'+
 '<button id="game-r2-inventory-start" type="button">Inventorier les fichiers R2</button>'+
@@ -260,7 +268,8 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-game-provenance.js" defer></script>'+
 '<script src="/admin-game-schema-audit.js" defer></script>'+
 '<script src="/admin-game-archive-gaps.js" defer></script>'+
-'<script src="/admin-game-differential-diagnostic.js" defer></script></body></html>';
+'<script src="/admin-game-differential-diagnostic.js" defer></script>'+
+'<script src="/admin-game-differential-comparison.js" defer></script></body></html>';
 
 export async function handleAdmin(request,env,fetchImpl=fetch){
   const endpoint=new URL(request.url).pathname;
@@ -273,6 +282,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
         "/admin/api/game-archive-orphan-audit",
         "/admin/api/game-provenance-reconcile",
         "/admin/api/game-differential-failure-audit",
+        "/admin/api/game-differential-comparison-audit",
         "/admin/api/alliance-season-ranks","/admin/api/player-extras",
          "/admin/api/player-campaign", "/admin/api/reward-infos-manual"].includes(endpoint)))
     return new Response("Method Not Allowed",{status:405});
@@ -298,6 +308,8 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
       "Content-Security-Policy":"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src https://assets.marvelstrikeforce.com; base-uri 'none'; frame-ancestors 'none'"
     }});
   }
+  if(pathname==="/admin/api/game-differential-comparison-audit")
+    return handleGameDifferentialComparisonAudit(request,env);
   if(pathname==="/admin/api/game-differential-failure-audit")
     return handleGameDifferentialFailureAudit(request,env);
   if(pathname==="/admin/api/game-differential-failures")
