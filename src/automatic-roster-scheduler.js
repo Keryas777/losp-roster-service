@@ -64,7 +64,8 @@ export function rosterWindow(cron,scheduledTime){
 // A deliberate, admin-authenticated diagnostic invocation may run outside
 // the normal cron windows. It shares the normal global lock, measured request counts,
 // 1-minute idempotency key and R2 campaign checkpoints with the scheduler.
-// The requester never controls the clock, campaign or alliance selection.
+// The requester never controls the clock or campaign; the authenticated
+// targeted-resume handler alone may choose an approved alliance.
 export function manualRosterWindow(now){
   if(!Number.isFinite(now))return null;
   const slotMs=Math.floor(now/MINUTE)*MINUTE;
