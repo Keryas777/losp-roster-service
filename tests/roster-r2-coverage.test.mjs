@@ -274,3 +274,57 @@ test("admin UI is vanilla, safely renders private aggregates and has no storage 
   assert.match(js,/Reprendre un micro-lot automatique/);
   assert.match(admin,/roster-auto-resume/);
 });
+
+test("R2 admin keeps targeted resume buttons enabled after initial load and re-render",async()=>{
+ const js=await readFile(new URL("../public/admin-roster-r2-coverage.js",import.meta.url),"utf8");
+ class FakeElement{
+   constructor(tag){this.tag=tag;this.children=[];this.style={};
+     this.disabled=false;this.isConnected=true;this.handlers={};this.textContent="";}
+   append(...children){this.children.push(...children);}
+   replaceChildren(...children){this.children=children;}
+   addEventListener(type,callback){this.handlers[type]=callback;}
+ }
+ const nodes=new Map(["roster-r2-refresh","roster-r2-copy","roster-r2-status",
+   "roster-r2-report"].map(key=>[key,new FakeElement("div")]));
+ const alliance={fingerprint:"a".repeat(64),name:"LoSP Kronos",
+   progress:{status:"in-progress",campaign:"2026-11-03-pm",
+     completed:20,eligibleCoMembers:23,remaining:3,observedMembers:24,
+     noShareCount:0,personalRosterCollected:false},
+   manifest:{status:"missing"},automation:{status:"missing"}};
+ const report={status:"ok",alliances:[alliance]};
+ const requests=[];
+ const fetch=async(url,options={})=>{
+   requests.push({url,options});
+   const recovery=url==="/admin/api/roster-auto-resume";
+   return {ok:true,status:200,json:async()=>recovery?
+     {status:"in-progress",campaign:"2026-11-03-pm",requestsThisTick:7}:
+     report};
+ };
+ const context={fetch,document:{
+   getElementById:id=>nodes.get(id),
+   createElement:tag=>new FakeElement(tag),
+   createTextNode:value=>({textContent:value})
+ }};
+ new Script(js).runInNewContext(context);
+ const buttons=()=>{
+   const found=[];
+   const walk=el=>{
+     if(el?.tag==="button")found.push(el);
+     for(const child of el?.children||[])walk(child);
+   };
+   walk(nodes.get("roster-r2-report"));
+   return found;
+ };
+ // The original defect disabled new buttons when render() ran with busy=true.
+ nodes.get("roster-r2-refresh").handlers.click();
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(buttons().length,1);
+ assert.equal(buttons()[0].disabled,false);
+ buttons()[0].handlers.click();
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(requests.filter(x=>x.url==="/admin/api/roster-auto-resume").length,1);
+ assert.equal(buttons().length,1);
+ assert.equal(buttons()[0].disabled,false,
+   "Rerender after a successful microbatch must not strand its new button");
+ assert.equal(nodes.get("roster-r2-refresh").disabled,false);
+});
