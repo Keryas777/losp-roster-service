@@ -270,4 +270,7 @@ test("admin UI is vanilla, safely renders private aggregates and has no storage 
   assert.match(js,/Dernier micro-lot réellement tenté/);
   assert.match(js,/Dernier échec/);
   assert.match(js,/Collecte temporairement suspendue/);
+  assert.match(js,/roster-auto-resume/);
+  assert.match(js,/Reprendre un micro-lot automatique/);
+  assert.match(admin,/roster-auto-resume/);
 });

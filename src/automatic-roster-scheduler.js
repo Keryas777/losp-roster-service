@@ -16,6 +16,7 @@ const ROOT="roster-auto/v1/";
 const GLOBAL_LOCK="f".repeat(64); // A separate Durable Object from the alliance locks.
 const BASE_URL="https://losp-roster-service.deliriousfan7.workers.dev";
 const MINUTE=60000;
+const FP=/^[a-f0-9]{64}$/;
 const dayKey=d=>ROOT+"days/"+d+".json";
 const pauseKey=rosterCooldownKey;
 const dateOf=ms=>new Date(ms).toISOString().slice(0,10);
@@ -63,7 +64,8 @@ export function rosterWindow(cron,scheduledTime){
 // A deliberate, admin-authenticated diagnostic invocation may run outside
 // the normal cron windows. It shares the normal global lock, measured request counts,
 // 1-minute idempotency key and R2 campaign checkpoints with the scheduler.
-// The requester never controls the clock, campaign or alliance selection.
+// The requester never controls the clock or campaign; the authenticated
+// targeted-resume handler alone may choose an approved alliance.
 export function manualRosterWindow(now){
   if(!Number.isFinite(now))return null;
   const slotMs=Math.floor(now/MINUTE)*MINUTE;
@@ -119,6 +121,35 @@ export async function handleAdminRosterAutoTest(request,env,fetchImpl=fetch,now=
   return Response.json(result,{headers});
 }
 
+// A specifically approved alliance can be resumed with the very same bounded
+// scheduler path. Authentication happens in handleAdmin before this handler.
+export async function handleAdminRosterAutoResume(request,env,fetchImpl=fetch,now=Date.now()){
+  const headers={"Cache-Control":"private, no-store",
+    "X-Content-Type-Options":"nosniff","X-Robots-Tag":"noindex"};
+  if(request.method!=="POST")
+    return Response.json({status:"method-not-allowed"},{status:405,headers});
+  const origin=new URL(request.url).origin;
+  if(origin!==BASE_URL||request.headers.get("Origin")!==origin||
+     !(request.headers.get("Content-Type")||"").toLowerCase().startsWith("application/json"))
+    return Response.json({status:"forbidden"},{status:403,headers});
+  let fingerprint;
+  try{
+    const raw=await request.text();
+    if(raw.length>160||!raw.trim())throw Error("invalid");
+    const body=JSON.parse(raw);
+    if(!body||typeof body!=="object"||Array.isArray(body)||
+       Object.keys(body).length!==1||!FP.test(body.fingerprint))
+      throw Error("invalid");
+    fingerprint=body.fingerprint;
+  }catch{
+    return Response.json({status:"invalid-selection"},{status:400,headers});
+  }
+  const result=await runRosterAutoTick(env,{scheduledTime:now,cron:ROSTER_CRON},
+    fetchImpl,{manual:true,targetFingerprint:fingerprint});
+  return Response.json(result,{status:result.status==="alliance-not-approved"?403:200,
+    headers});
+}
+
 export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={}){
   if(env?.ROSTER_AUTO_ENABLED!=="true")return {status:"disabled"};
   if(env?.ROSTER_RETENTION_CONFIRMED!=="true")
@@ -127,9 +158,19 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
     return {status:"storage-unavailable"};
   const timestamp=controller?.scheduledTime;
   const manual=options?.manual===true;
+  const target=options?.targetFingerprint;
+  if(target!==undefined&&(!manual||!FP.test(target)))
+    return {status:"invalid-selection"};
   const slot=manual?manualRosterWindow(timestamp):
     rosterWindow(controller?.cron,timestamp);
   if(!slot)return {status:"outside-window"};
+  const hour=new Date(timestamp).getUTCHours();
+  // A targeted action may resume the *current UTC day*, never a future or
+  // previous campaign. AM starts at 02:00 UTC, PM at 14:00 UTC.
+  if(target&&slot.campaign.endsWith("-am")&&hour<2)
+    return {status:"campaign-not-open"};
+  const manualRecovery=Boolean(target&&
+    (slot.campaign.endsWith("-am")?hour>=4:hour>=16));
   const holder=crypto.randomUUID();
   let acquired=false;
   try{
@@ -143,7 +184,6 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
        !Number.isSafeInteger(raw.ticks)||raw.ticks<0))
       return {status:"invalid-budget-state"};
     const d=raw||{date:slot.date,used:0,ticks:0,lastTick:null};
-    if(d.lastTick===slot.stamp)return {status:"already-processed"};
     // Daily request counts are telemetry, not an undocumented Scopely quota.
     const approval=await readApproval(env);
     if(approval.status!=="configured"||!approval.alliances.length)
@@ -151,13 +191,17 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
     const alliances=approval.alliances.map(a=>a.fingerprint).sort();
     if(new Set(alliances).size!==alliances.length||
        alliances.includes(GLOBAL_LOCK))return {status:"invalid-approvals"};
+    // Invalid/unapproved selections must never consume a slot or query Scopely.
+    if(target&&!alliances.includes(target))return {status:"alliance-not-approved"};
+    if(d.lastTick===slot.stamp)return {status:"already-processed"};
     // Idempotency checkpoint. Per-day counts are telemetry, not a daily limit.
     await write(bucket,dayKey(slot.date),{
       date:slot.date,used:d.used,ticks:d.ticks+1,
       lastTick:slot.stamp,lastOutcome:"reserved"
     });
     const selected=[];
-    for(let i=0;i<Math.min(manual?1:ALLIANCES_PER_TICK,alliances.length);i++)
+    if(target)selected.push(target);
+    else for(let i=0;i<Math.min(manual?1:ALLIANCES_PER_TICK,alliances.length);i++)
       selected.push(alliances[(slot.tick*(manual?1:ALLIANCES_PER_TICK)+i)%alliances.length]);
     let used=0;
     const outcomes=[];
@@ -179,7 +223,8 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
         });
         try{
           const res=await handleRosterMicrobatch(req,env,limitedFetch,timestamp,{
-            campaign:slot.campaign,tick:slot.stamp
+            campaign:slot.campaign,tick:slot.stamp,
+            ...(manualRecovery?{manualRecovery:true}:{})
           });
           statusCode=res.status;
           const result=await res.json();
@@ -210,7 +255,7 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
     await write(bucket,dayKey(slot.date),{
       date:slot.date,used:d.used+used,ticks:d.ticks+1,
       lastTick:slot.stamp,lastOutcome:outcome,
-      lastMode:manual?"admin-test":"cron",
+      lastMode:target?"admin-resume":manual?"admin-test":"cron",
       outcomes:outcomes.map(o=>({status:o.status,requests:o.requests}))
     });
     // Wake GitHub as soon as every private R2 receipt is complete. Checking
@@ -235,7 +280,7 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
       catch{trophyDispatch="unavailable";}
     }
     return {status:outcome,requestsThisTick:used,
-      requestsToday:d.used+used,
+      requestsToday:d.used+used,campaign:slot.campaign,
       ...(githubDispatch!=="disabled"?{githubDispatch}:{}),
       ...(trophyDispatch!=="disabled"?{trophyDispatch}:{}),
       ...(outcomes.length===1?{httpStatus:outcomes[0].httpStatus}:{}),

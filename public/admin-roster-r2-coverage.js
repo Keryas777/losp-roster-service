@@ -18,6 +18,9 @@
     "request-budget":"Budget de micro-lot atteint",
     "batch-unavailable":"Échec technique du micro-lot",
     "membership-changed-restart-required":"Effectif ou partage modifié",
+    "membership-restart-scheduled":"Effectif modifié : reprise à zéro prévue au prochain passage",
+    "already-processed":"Créneau déjà traité (réessayer la minute suivante)",
+    "campaign-not-open":"Campagne non encore ouverte",
     "changed-during-read":"Effectif modifié pendant la lecture",
     "current-membership-unverified":"Compte OAuth non reconnu dans l'alliance",
     "unauthorized":"Session OAuth non autorisée",
@@ -114,6 +117,15 @@
       if(p.files&&(!m.files||m.matchesCurrentProgress===false))
         line(card,"Fichiers de la campagne en cours : "+p.files.checked+
           " contrôlés, "+p.files.missing+" manquant(s).");
+      const resume=document.createElement("button");
+      resume.type="button";
+      resume.textContent="Reprendre un micro-lot automatique — "+
+        String(alliance.name).replace(/<#[0-9a-f]{6}>/gi,"").trim();
+      resume.title="Collecte ciblée : un roster maximum, un passage par minute. "+
+        "Respecte le verrou, les pauses et le budget API existants.";
+      resume.disabled=busy;
+      resume.addEventListener("click",()=>void resumeOne(alliance,resume));
+      card.append(resume);
       cards.append(card);
     }
     container.append(cards);
@@ -125,6 +137,45 @@
     if(!result.ok||payload.status!=="ok")
       throw Error(payload.error||"HTTP "+result.status);
     return payload;
+  }
+  async function resumeOne(alliance,control){
+    if(busy)return;
+    busy=true;control.disabled=true;button.disabled=true;copy.disabled=true;
+    const name=String(alliance.name).replace(/<#[0-9a-f]{6}>/gi,"").trim();
+    status.textContent="Reprise du prochain micro-lot automatique de "+name+"…";
+    try{
+      const response=await fetch("/admin/api/roster-auto-resume",{
+        method:"POST",credentials:"same-origin",cache:"no-store",
+        headers:{"Content-Type":"application/json",Accept:"application/json"},
+        body:JSON.stringify({fingerprint:alliance.fingerprint})
+      });
+      const result=await response.json();
+      if(!response.ok)throw Error(result.status||"HTTP "+response.status);
+      const message=label[result.status]||result.status||"indisponible";
+      // Refresh only the requested alliance; the other cards remain untouched.
+      const detail=await fetchJSON(endpoint+"?fingerprint="+
+        encodeURIComponent(alliance.fingerprint));
+      if(latest&&detail.alliances.length===1){
+        const index=latest.alliances.findIndex(a=>a.fingerprint===alliance.fingerprint);
+        if(index>=0)latest.alliances[index]=detail.alliances[0];
+      }
+      if(latest)render(latest);
+      status.textContent=name+" · "+(result.campaign||"Campagne actuelle")+
+        " : "+message+" · "+(result.requestsThisTick??0)+" appel(s) API Scopely."+
+        (result.githubDispatch==="dispatched"?
+          " Publication GitHub déclenchée.":
+          result.githubDispatch==="awaiting-all"?
+            " Publication en attente des autres alliances.":"")+
+        " Un clic = un micro-lot ; prochain passage possible à la minute suivante.";
+    }catch(error){
+      status.textContent="Reprise de "+name+" non effectuée : "+
+        (error instanceof Error?error.message:"indisponible")+
+        ". Vérifier la session administrateur et les états R2.";
+    }finally{
+      busy=false;button.disabled=false;copy.disabled=!latest;
+      // On failure there is no rerender: re-enable the existing button.
+      if(control.isConnected)control.disabled=false;
+    }
   }
   async function readAll(){
     if(busy)return;

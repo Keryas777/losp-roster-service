@@ -2,7 +2,7 @@ import {diagnoseAdminAuth,adminReady} from "./admin-auth.js";
 import {rosterSyncPreflight,saveRosterSyncApprovals,approveOneRosterAlliance} from "./roster-sync-preflight.js";
 import {handlePrivateRosterPilot} from "./private-roster-pilot.js";
 import {handleRosterMicrobatch,getRosterBatchStatus} from "./private-roster-batches.js";
-import {rosterAutoStatus,handleAdminRosterAutoTest} from "./automatic-roster-scheduler.js";
+import {rosterAutoStatus,handleAdminRosterAutoTest,handleAdminRosterAutoResume} from "./automatic-roster-scheduler.js";
 import {handleConnectedAlliances} from "./connected-alliance-index.js";
 import {handleRosterR2Coverage} from "./roster-r2-coverage.js";
 import {PUBLIC_SOURCE_ROUTES,handlePublicSourceProbe} from "./public-msf-source-probe.js";
@@ -66,14 +66,14 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<p>Collecte privée des alliances approuvées, par lots avec reprise. Planification automatique conditionnée à la règle R2 de rétention et au paramètre d’activation. Aucune publication vers la WebApp.</p>'+
 '<p id="roster-auto-status" role="status">État de l’automatisation : à consulter sur demande (R2 uniquement).</p>'+
 '<button id="roster-auto-refresh" type="button">Actualiser l’état automatique (R2)</button>'+
-'<button id="roster-auto-test" type="button">Tester un micro-lot automatique maintenant (2 joueurs maximum)</button>'+
+'<button id="roster-auto-test" type="button">Tester un micro-lot automatique maintenant (1 joueur maximum)</button>'+
 '<p id="roster-auto-test-status" role="status"></p>'+
 '<button id="roster-preflight" type="button">Vérifier les alliances connectées</button>'+
 '<p id="roster-preflight-status" role="status"></p><div id="roster-preflight-list"></div>'+
 '<button id="roster-approve" type="button" disabled>Enregistrer les alliances approuvées</button>'+
 '<p id="roster-approve-status" role="status"></p></section>'+
 '<section><h2>Couverture réelle des rosters privés R2</h2>'+
-'<p>Vérification des alliances déjà approuvées, de leurs progrès et des fichiers R2. Aucun appel Scopely ni lancement de collecte.</p>'+
+'<p>Vérification des alliances déjà approuvées, de leurs progrès et des fichiers R2. Le diagnostic est en lecture seule. Chaque bouton de reprise exécute un seul micro-lot Scopely ciblé, sans lancer de collecte globale.</p>'+
 '<button id="roster-r2-refresh" type="button">Vérifier les alliances en R2</button>'+
 '<button id="roster-r2-copy" type="button" disabled>Copier le diagnostic JSON</button>'+
 '<p id="roster-r2-status" role="status"></p><div id="roster-r2-report" class="scroll"></div></section>'+
@@ -276,6 +276,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   if(request.method!=="GET"&&!(request.method==="POST"&&
        ["/admin/api/roster-approvals","/admin/api/roster-approve-one","/admin/api/roster-pilot",
         "/admin/api/roster-batch","/admin/api/roster-auto-test",
+        "/admin/api/roster-auto-resume",
         "/admin/api/msf-secondary-probe","/admin/api/game-archive",
         "/admin/api/game-archive-schema-audit",
         "/admin/api/game-material-audit",
@@ -335,6 +336,8 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     await rosterAutoStatus(env),{headers:{"Cache-Control":"private, no-store"}});
   if(pathname==="/admin/api/roster-auto-test")
     return handleAdminRosterAutoTest(request,env,fetchImpl);
+  if(pathname==="/admin/api/roster-auto-resume")
+    return handleAdminRosterAutoResume(request,env,fetchImpl);
   if(pathname==="/admin/api/msf-secondary-probe")
     return handlePublicSourceProbe(request,env,fetchImpl);
   if(pathname==="/admin/api/game-archive")
