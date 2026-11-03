@@ -21,6 +21,7 @@ import {runGameProvenanceReconcileTick} from "./game-archive-provenance-reconcil
 import {runPlayerCampaignTick} from "./player-campaign.js";
 import {runGameDifferentialTick} from "./game-differential-sync.js";
 import {runGameDifferentialFailureAuditTick} from "./game-differential-failure-audit.js";
+import {runGameDifferentialComparisonAuditTick} from "./game-differential-comparison-audit.js";
 import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
 
 const SCOPELY_AUTH_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/auth";
@@ -269,6 +270,13 @@ export default {
       if(failureAudit.status==="running"||failureAudit.status==="snapshot-complete")
         console.info("game-differential-failure-audit",JSON.stringify({
           status:failureAudit.status,scanned:failureAudit.scanned||0}));
+      // Opt-in R2-only comparison sample; bounded, never calls Scopely.
+      const comparison=await runGameDifferentialComparisonAuditTick(env);
+      if(comparison.status==="running"||comparison.status==="snapshot-complete")
+        console.info("game-diff-comparison-audit",JSON.stringify({
+          status:comparison.status,scanned:comparison.scanned||0,
+          sampled:comparison.sampled||0
+        }));
       return;
     }
     if(controller?.cron===ROSTER_CRON){
