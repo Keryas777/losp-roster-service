@@ -15,6 +15,7 @@
     "byte-identical":"Octets strictement identiques",
     "only-asof-or-order":"Contenu sémantique identique",
     "metadata-other-change":"Autres métadonnées modifiées",
+    "serialization-order-change":"Ordre des propriétés JSON modifié, valeurs identiques",
     "data-change":"Données métier modifiées",
     "no-linked-previous-version":"Version précédente non liée",
     "previous-receipt-missing":"Ancien reçu manquant",
