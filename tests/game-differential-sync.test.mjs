@@ -687,3 +687,98 @@ test("a changed item parent resets attempts without hiding the original associat
   assert.equal(result.status.status,"partial");
   assert.equal(JSON.parse(f.store.get(key)).attempts,1);
 });
+
+test("global meta.hashes changes do not create new per-route game-data versions",async()=>{
+  let globalRevision=1;
+  const payload=()=>({data:{id:"STABLE",power:100},meta:{
+    asOf:"2026-11-04T04:00:00Z",perTotal:1,
+    hashes:{events:"events-"+globalRevision,
+      drops:"drops-"+globalRevision,locs:"locs-"+globalRevision,
+      nodes:"nodes-"+globalRevision,chars:"chars-"+globalRevision,
+      other:"other-"+globalRevision,all:"all-"+globalRevision}
+  }});
+  const f=fixture({api:()=>Response.json(payload())});
+  await f.seed();
+  const first=await finish(f);
+  assert.equal(first.status.status,"completed");
+  const path="/game/v1/languages?page=1&perPage=100";
+  const latestKey=DIFF+"latest/"+sha(path)+".json";
+  const prior=JSON.parse(f.store.get(latestKey));
+  assert.ok(prior?.objectKey);
+  assert.equal(prior.semanticVersion,2);
+  const stored=JSON.parse(f.store.get(prior.objectKey));
+  assert.equal(stored.meta.hashes.events,"events-1",
+    "the original official JSON must remain intact");
+  const initialObjects=[...f.store.keys()].filter(x=>
+    x.includes("/diff/runs/")&&x.includes("/objects/")).length;
+  globalRevision=2;
+  const second=await finish(f,first.ts+7*86400000+60000);
+  const updated=JSON.parse(f.store.get(latestKey));
+  const receipt=JSON.parse(f.store.get(updated.receiptKey));
+  assert.equal(receipt.status,"unchanged");
+  assert.equal(updated.semanticVersion,2);
+  assert.equal(updated.semanticHash,prior.semanticHash);
+  assert.equal(updated.objectKey,prior.objectKey,
+    "global hash churn alone should not create a new R2 object");
+  assert.notEqual(updated.observedSha256,updated.sha256,
+    "observed raw SHA still records different official response bytes");
+  assert.ok(second.status.unchanged>=1);
+  assert.equal([...f.store.keys()].filter(x=>
+    x.includes("/diff/runs/")&&x.includes("/objects/")).length,initialObjects);
+  assert.equal(JSON.parse(f.store.get(updated.objectKey)).meta.hashes.all,"all-1");
+});
+
+test("legacy semantic V1 pointer is migrated without rewriting old R2 files",async()=>{
+  let currentHashes="A";
+  const f=fixture({api:()=>Response.json({
+    data:{id:"UNCHANGED_CHARACTER",traits:["MSF"]},
+    meta:{asOf:"2026-11-04T04:00:00Z",
+      hashes:{chars:currentHashes,all:currentHashes}}
+  })});
+  await f.seed();
+  const first=await finish(f);
+  const path="/game/v1/languages?page=1&perPage=100";
+  const key=DIFF+"latest/"+sha(path)+".json";
+  const pointer=JSON.parse(f.store.get(key));
+  const raw=JSON.parse(f.store.get(pointer.objectKey));
+  const legacy={...raw,meta:{...raw.meta}};
+  delete legacy.meta.asOf; // V1 included meta.hashes.
+  const legacyHash=sha(JSON.stringify(legacy));
+  f.store.set(key,JSON.stringify({...pointer,semanticHash:legacyHash,
+    semanticVersion:undefined}));
+  const beforeStored=f.store.get(pointer.objectKey);
+  currentHashes="B";
+  const second=await finish(f,first.ts+7*86400000+60000);
+  const next=JSON.parse(f.store.get(key));
+  const receipt=JSON.parse(f.store.get(next.receiptKey));
+  assert.equal(receipt.status,"unchanged",
+    "V1 vs V2 hashes must not cause a false changed");
+  assert.equal(next.semanticVersion,2);
+  assert.equal(next.objectKey,pointer.objectKey);
+  assert.equal(f.store.get(pointer.objectKey),beforeStored,
+    "migration does not rewrite prior immutable archives");
+  assert.ok(second.status.unchanged>=1);
+});
+
+test("unknown metadata and actual data modifications remain detectable",async()=>{
+  let power=20,perTotal=1;
+  const f=fixture({api:()=>Response.json({data:{id:"MSF",power},
+    meta:{asOf:"2026-11-04T00:00:00Z",perTotal,hashes:{all:"global"}}})});
+  await f.seed();
+  const first=await finish(f);
+  const path="/game/v1/languages?page=1&perPage=100";
+  const key=DIFF+"latest/"+sha(path)+".json";
+  const previous=JSON.parse(f.store.get(key));
+  perTotal=2;
+  const second=await finish(f,first.ts+7*86400000+60000);
+  const withMeta=JSON.parse(f.store.get(key));
+  assert.notEqual(withMeta.objectKey,previous.objectKey);
+  assert.equal(JSON.parse(f.store.get(withMeta.receiptKey)).status,"changed",
+    "perTotal is route-specific metadata, unlike global hashes");
+  power=21;
+  const third=await finish(f,second.ts+7*86400000+60000);
+  const withData=JSON.parse(f.store.get(key));
+  assert.notEqual(withData.objectKey,withMeta.objectKey);
+  assert.equal(JSON.parse(f.store.get(withData.receiptKey)).status,"changed");
+  assert.ok(third.status.changed>=1);
+});
