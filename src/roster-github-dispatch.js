@@ -25,6 +25,10 @@ export async function dispatchCompleteRosterCampaign(env,slot,allianceFingerprin
   const from=Date.parse(slot.date+(period==="am"?"T02:00:00Z":"T14:00:00Z"));
   const until=Date.parse(slot.date+(period==="am"?"T04:00:00Z":"T16:00:00Z"));
   if(!Number.isFinite(from)||!Number.isFinite(until))return "invalid-campaign";
+  // Explicit administrator recovery may finish later on the same UTC day.
+  // AM must finish before PM starts; PM before the following UTC day.
+  const recoveryUntil=period==="am"?Date.parse(slot.date+"T14:00:00Z"):
+    Date.parse(slot.date+"T00:00:00Z")+86400000;
   const marker=markerKey(slot.campaign);
   if(await bucket.get(marker))return "already-dispatched";
   // A receipt is written only AFTER authorized member + personal snapshots.
@@ -37,6 +41,8 @@ export async function dispatchCompleteRosterCampaign(env,slot,allianceFingerprin
     let receipt;
     try{receipt=JSON.parse(raw);}catch{return "invalid-receipt";}
     const p=receipt?.progress,m=receipt?.manifest;
+    const recovered=receipt?.manualRecovery===true&&p?.manualRecovery===true;
+    if(receipt?.manualRecovery===true&&!recovered)return "invalid-receipt";
     if(receipt?.version!==1||receipt.campaign!==slot.campaign||
        !isObject(p)||!isObject(m)||p.fingerprint!==fp||
        m.fingerprint!==fp||p.campaign!==slot.campaign||
@@ -45,7 +51,8 @@ export async function dispatchCompleteRosterCampaign(env,slot,allianceFingerprin
        m.membershipDigest!==p.membershipDigest||
        m.total!==p.completed+1||m.includesPersonal!==true||
        !Number.isFinite(stamp(m.capturedAt))||
-       stamp(m.capturedAt)<from||stamp(m.capturedAt)>=until||
+       stamp(m.capturedAt)<from||
+       stamp(m.capturedAt)>=(recovered?recoveryUntil:until)||
        !Number.isFinite(stamp(m.expiresAt))||stamp(m.expiresAt)<=Date.now())
       return "invalid-receipt";
   }
