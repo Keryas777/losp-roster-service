@@ -476,6 +476,34 @@ test("targeted late PM recovery produces marked receipt and dispatches only afte
  assert.equal(retry.status,"already-processed");
  assert.equal(f.calls.length,before);
 });
+test("PM captured in normal window can finish with one late targeted personal roster",async()=>{
+ const f=fixture();
+ assert.equal((await runRosterAutoTick(f.env,controller("2026-10-19T15:56:00Z"),
+   f.fetchImpl)).status,"in-progress");
+ assert.equal((await runRosterAutoTick(f.env,controller("2026-10-19T15:58:00Z"),
+   f.fetchImpl)).status,"complete-co-members");
+ const final=await runRosterAutoTick(f.env,controller("2026-10-19T16:02:00Z"),
+   f.fetchImpl,{manual:true,targetFingerprint:fp});
+ assert.equal(final.status,"complete");
+ const receipt=JSON.parse(f.store.get(BATCH_PREFIX+fp+
+   "/campaigns/2026-10-19-pm.json"));
+ assert.equal(receipt.manualRecovery,true);
+ assert.equal(receipt.progress.manualRecovery,true);
+ assert.equal(receipt.progress.completed,2);
+ assert.equal(receipt.manifest.capturedAt,"2026-10-19T16:02:00.000Z");
+});
+test("targeted recovery observes the existing 429 cooldown and performs no extra GET",async()=>{
+ const f=fixture();f.flags.limit=true;
+ const first=await runRosterAutoTick(f.env,controller("2026-10-19T17:10:00Z"),
+   f.fetchImpl,{manual:true,targetFingerprint:fp});
+ assert.equal(first.status,"rate-limited");
+ const calls=f.calls.length;
+ const next=await runRosterAutoTick(f.env,controller("2026-10-19T17:12:00Z"),
+   f.fetchImpl,{manual:true,targetFingerprint:fp});
+ assert.equal(next.status,"cooldown");
+ assert.equal(next.requestsThisTick,0);
+ assert.equal(f.calls.length,calls);
+});
 test("targeted resume fails closed for unknown alliance, forbidden methods and premature AM",async()=>{
  const f=fixture(),base="https://losp-roster-service.deliriousfan7.workers.dev",
    endpoint=base+"/admin/api/roster-auto-resume",now=d("2026-10-19T17:10:10Z");
