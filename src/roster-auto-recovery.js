@@ -8,14 +8,14 @@ import {manualRosterWindow,runRosterAutoTick,ROSTER_CRON}
   from "./automatic-roster-scheduler.js";
 import {rosterCooldownKey} from "./roster-auto-diagnostics.js";
 
-const ROOT="roster-auto/v1/recovery/";
+// Existing roster-batches lifecycle purges queue metadata after seven days.
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const FP=/^[a-f0-9]{64}$/;
 const ACTIVE=new Set(["queued","running"]);
 const QUEUE_LOCK="d".repeat(64);
 const HEADERS={"Cache-Control":"private, no-store",
   "X-Content-Type-Options":"nosniff","X-Robots-Tag":"noindex"};
-export const rosterRecoveryKey=fp=>ROOT+fp+".json";
+export const rosterRecoveryKey=fp=>BATCH_PREFIX+fp+"/automatic-recovery.json";
 const progressKey=fp=>BATCH_PREFIX+fp+"/progress.json";
 const clock=ms=>new Date(ms).toISOString();
 const answer=(data,status=200)=>Response.json(data,{status,headers:HEADERS});
