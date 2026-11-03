@@ -267,6 +267,114 @@ test("a change in roster membership blocks resume and preserves old progress",as
  assert.equal(f.store.get(BATCH_PREFIX+fingerprint+"/progress.json"),progressBefore);
  assert.equal([...f.store.keys()].filter(k=>k.includes("/member-")).length,2);
 });
+test("automatic PM campaign restarts cleanly on changed membership and keeps old receipts",async()=>{
+ const f=fixture({members:["A","B","C"],noOptout:true});
+ const stateKey=BATCH_PREFIX+fingerprint+"/progress.json";
+ const completeKey=BATCH_PREFIX+fingerprint+"/latest-complete.json";
+ const am="2026-10-25-am",pm="2026-10-25-pm";
+ const run=async(campaign,minute)=>{
+   const hour=campaign===am?"02":"14";
+   const stamp="2026-10-25T"+hour+":"+String(minute).padStart(2,"0")+"Z";
+   return handleRosterMicrobatch(request(),f.env,f.api,Date.parse(stamp),{
+     campaign,tick:stamp
+   });
+ };
+ // Preserve the last successfully published AM generation while repairing PM.
+ for(const minute of [0,2,4,6])
+   assert.equal((await run(am,minute)).status,200);
+ const morningReceipt=f.store.get(campaignCompleteKey(fingerprint,am));
+ assert.ok(morningReceipt);
+ const originalManifest=f.store.get(completeKey);
+ assert.equal((await run(pm,0)).status,200);
+ const partial=JSON.parse(f.store.get(stateKey));
+ assert.equal(partial.completed,1);
+ const oldSnapshot=BATCH_PREFIX+fingerprint+"/"+partial.runId+"/member-0.json";
+ assert.ok(f.store.has(oldSnapshot));
+ f.counters.revision=1; // An alliance member changes during the PM campaign.
+ const before=f.counters.calls;
+ const blocked=await run(pm,2);
+ assert.equal(blocked.status,200);
+ assert.equal((await blocked.json()).status,"membership-restart-scheduled");
+ assert.ok(f.counters.calls-before<=24,"The changed tick must not retry a second full batch");
+ const scheduled=JSON.parse(f.store.get(stateKey));
+ assert.equal(scheduled.runId,partial.runId);
+ assert.equal(scheduled.completed,1);
+ assert.equal(scheduled.autoRestartCount,1);
+ assert.equal(scheduled.autoRestartPending,true);
+ assert.equal(f.store.get(completeKey),originalManifest);
+ assert.equal(f.store.get(campaignCompleteKey(fingerprint,am)),morningReceipt);
+ assert.equal(f.store.has(campaignCompleteKey(fingerprint,pm)),false);
+ const resumed=await run(pm,4);
+ assert.equal(resumed.status,200);
+ const fresh=JSON.parse(f.store.get(stateKey));
+ assert.notEqual(fresh.runId,partial.runId);
+ assert.notEqual(fresh.membershipDigest,partial.membershipDigest);
+ assert.equal(fresh.completed,1);
+ assert.equal(fresh.autoRestartCount,1);
+ assert.equal(fresh.autoRestartPending,undefined);
+ assert.equal(fresh.baseline,undefined,"A changed member must never reuse the AM baseline");
+ assert.ok(f.store.has(oldSnapshot),"Previous snapshot remains isolated for R2 retention");
+ for(const minute of [6,8,10])assert.equal((await run(pm,minute)).status,200);
+ const pmReceipt=JSON.parse(f.store.get(campaignCompleteKey(fingerprint,pm)));
+ assert.equal(pmReceipt.progress.runId,fresh.runId);
+ assert.equal(pmReceipt.progress.selfCompleted,true);
+ assert.equal(pmReceipt.manifest.total,4);
+ assert.equal(pmReceipt.manifest.includesPersonal,true);
+ assert.equal(f.store.get(campaignCompleteKey(fingerprint,am)),morningReceipt);
+ assert.equal(JSON.parse(f.store.get(completeKey)).runId,fresh.runId);
+});
+test("membership change at personal-roster finalization also schedules a fresh automatic run",async()=>{
+ const f=fixture({members:["A","B","C"],noOptout:true});
+ const campaign="2026-10-25-pm",stateKey=BATCH_PREFIX+fingerprint+"/progress.json";
+ const run=minute=>{
+   const stamp="2026-10-25T14:"+String(minute).padStart(2,"0")+"Z";
+   return handleRosterMicrobatch(request(),f.env,f.api,Date.parse(stamp),{
+     campaign,tick:stamp
+   });
+ };
+ for(const minute of [0,2,4])assert.equal((await run(minute)).status,200);
+ const completedCoMembers=JSON.parse(f.store.get(stateKey));
+ assert.equal(completedCoMembers.completed,3);
+ assert.equal(completedCoMembers.selfCompleted,false);
+ f.counters.revision=1;
+ const res=await run(6);
+ assert.equal(res.status,200);
+ assert.equal((await res.json()).status,"membership-restart-scheduled");
+ assert.equal(f.store.has(campaignCompleteKey(fingerprint,campaign)),false);
+ assert.equal(JSON.parse(f.store.get(stateKey)).autoRestartPending,true);
+ const fresh=await run(8);
+ assert.equal(fresh.status,200);
+ const newState=JSON.parse(f.store.get(stateKey));
+ assert.notEqual(newState.runId,completedCoMembers.runId);
+ assert.equal(newState.completed,1);
+ assert.equal(newState.autoRestartCount,1);
+});
+test("automatic membership restart is capped and a third revision fails closed",async()=>{
+ const f=fixture({members:["A","B","C"],noOptout:true});
+ const campaign="2026-10-25-pm",stateKey=BATCH_PREFIX+fingerprint+"/progress.json";
+ const run=minute=>{
+   const stamp="2026-10-25T14:"+String(minute).padStart(2,"0")+"Z";
+   return handleRosterMicrobatch(request(),f.env,f.api,Date.parse(stamp),{
+     campaign,tick:stamp
+   });
+ };
+ assert.equal((await run(0)).status,200);
+ f.counters.revision=1;
+ assert.equal((await (await run(2)).json()).status,"membership-restart-scheduled");
+ assert.equal((await run(4)).status,200);
+ f.counters.revision=0;
+ assert.equal((await (await run(6)).json()).status,"membership-restart-scheduled");
+ assert.equal((await run(8)).status,200);
+ f.counters.revision=1;
+ const failed=await run(10);
+ assert.equal(failed.status,409);
+ assert.equal((await failed.json()).status,"membership-changed-restart-required");
+ const state=JSON.parse(f.store.get(stateKey));
+ assert.equal(state.autoRestartCount,2);
+ assert.equal(state.autoRestartPending,undefined);
+ assert.equal(state.completed,1);
+ assert.equal(f.store.has(campaignCompleteKey(fingerprint,campaign)),false);
+});
 test("explicit restart after a membership revision creates an isolated run",async()=>{
  const f=fixture();
  const first=await handleRosterMicrobatch(request(),f.env,f.api);

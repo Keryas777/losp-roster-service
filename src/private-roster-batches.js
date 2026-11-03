@@ -15,6 +15,8 @@ const BATCH_SIZE=2;
 // Large /player rosters can need up to 10 pages each. Keep each Cron
 // microbatch inside its existing 24-GET bound, even without a usable cache.
 const AUTOMATIC_BATCH_SIZE=1;
+// A changing membership must not cause endless automatic full-roster restarts.
+const MAX_AUTOMATIC_RESTARTS=2;
 const answer=(v,status=200)=>Response.json(v,{status,headers:{
   "Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff",
   "X-Robots-Tag":"noindex","Referrer-Policy":"no-referrer"
@@ -131,6 +133,10 @@ async function readState(env,fp){
      (s.selfCompleted!==undefined&&typeof s.selfCompleted!=="boolean")||
      (s.observedMembers!==undefined&&(!Number.isInteger(s.observedMembers)||
        s.observedMembers<1||s.observedMembers>100))||
+     (s.autoRestartCount!==undefined&&(!Number.isInteger(s.autoRestartCount)||
+       s.autoRestartCount<0||s.autoRestartCount>MAX_AUTOMATIC_RESTARTS))||
+     (s.autoRestartPending!==undefined&&typeof s.autoRestartPending!=="boolean")||
+     (s.autoRestartPending===true&&!(s.autoRestartCount>0))||
      (s.baseline!==undefined&&(!s.baseline||!RUN.test(s.baseline.runId)||
         !/^[0-9a-f]{64}$/.test(s.baseline.membershipDigest)||
         !Number.isFinite(Date.parse(s.baseline.expiresAt)))))
@@ -191,6 +197,21 @@ async function oldSelf(env,fp,base,now){
       return null;
     return {asOf:value.asOf,chars:value.characters,memberId:value.volatileMemberId};
   }catch{return null;}
+}
+// Mark a partially collected automatic campaign for a clean restart on its NEXT
+// Cron tick. Do not spend a second provider batch in the failing invocation.
+// Keep the old snapshots and completed receipts immutable; the new runId will
+// prevent mixing member indexes or sharing permissions across two rosters.
+async function scheduleAutomaticRestart(env,fp,previous,campaign,status){
+  if(!campaign||!previous||
+     !["membership-changed-restart-required","changed-during-read"].includes(status)||
+     (previous.autoRestartCount||0)>=MAX_AUTOMATIC_RESTARTS)return null;
+  const state={...previous,autoRestartCount:(previous.autoRestartCount||0)+1,
+    autoRestartPending:true};
+  await env.CAPTAIN_BUCKET.put(stateKey(fp),JSON.stringify(state),{
+    httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
+  });
+  return answer({status:"membership-restart-scheduled"},200);
 }
 async function finishSelf(env,fp,previous,selected,baseline,now,fetchImpl,tick){
   const old=await oldSelf(env,fp,baseline,now);
@@ -302,10 +323,16 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
       return answer({status:"refresh-requires-complete-run"},409);
     if(campaign&&previous?.lastAutoTick===internal.tick)
       return answer({status:"already-processed-tick"},200);
+    const restarting=Boolean(campaign&&previous?.autoRestartPending);
+    const autoRestartCount=campaign?(previous?.autoRestartCount||0):0;
+    // Only a scheduled tick consumes the pending restart. Deliberate manual
+    // operations remain governed by their existing explicit restart option.
+    if(restarting)previous=null;
     if(previous&&previous.completed===previous.totalEligible&&!refresh&&
        (!campaign||previous.selfCompleted===true))
       return answer(publicState(previous,now));
-    const pointer=campaign?await latestComplete(env,fp,now):null;
+    // Never reuse a pre-change baseline when starting the replacement run.
+    const pointer=campaign&&!restarting?await latestComplete(env,fp,now):null;
     let baseline=campaign?(previous?.baseline||
       (pointer?{runId:pointer.runId,membershipDigest:pointer.membershipDigest,
         expiresAt:pointer.expiresAt}:null)):
@@ -318,8 +345,12 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     // Failure of this auxiliary archive must not compromise roster collection.
     try{await storeEarlyTrophyCard(env,fp,campaign,selected.sourcePayload,now);}
     catch{/* The next scheduled tick may try again. */}
-    if(campaign&&previous&&previous.completed===previous.totalEligible)
-      return await finishSelf(env,fp,previous,selected,baseline,now,fetchImpl,internal.tick);
+    if(campaign&&previous&&previous.completed===previous.totalEligible){
+      const response=await finishSelf(env,fp,previous,selected,baseline,now,fetchImpl,internal.tick);
+      if(response.status!==409)return response;
+      const {status}=await response.clone().json();
+      return await scheduleAutomaticRestart(env,fp,previous,campaign,status)||response;
+    }
     const startIndex=previous?.completed||0;
     const cachedForMember=async(member,index)=>{
       if(!baseline||Date.parse(baseline.expiresAt)<=now)return null;
@@ -358,10 +389,14 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
         ...options,cachedForMember:undefined,expectedMembershipDigest:undefined
       });
     }
-    if(result.status!=="complete")return answer({status:result.status},409);
+    if(result.status!=="complete")
+      return await scheduleAutomaticRestart(env,fp,previous,campaign,result.status)||
+        answer({status:result.status},409);
     if(previous&&(previous.membershipDigest!==result.membershipDigest||
        previous.totalEligible!==result.sharedCount))
-      return answer({status:"membership-changed-restart-required"},409);
+      return await scheduleAutomaticRestart(env,fp,previous,campaign,
+        "membership-changed-restart-required")||
+        answer({status:"membership-changed-restart-required"},409);
     if(!result.sharedCount){
       if(!campaign)return answer({status:"no-shared-co-members"},409);
       // No co-member permits roster sharing: the captain's OWN authorized
@@ -374,7 +409,8 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
         startedAt:new Date(now).toISOString(),
         expiresAt:new Date(now+BATCH_MAX_AGE_MS).toISOString(),
         totalEligible:0,completed:0,observedMembers:result.memberCount,
-        campaign,selfCompleted:false,lastAutoTick:internal.tick
+        campaign,selfCompleted:false,lastAutoTick:internal.tick,
+        autoRestartCount
       };
       return await finishSelf(env,fp,selfOnly,selected,baseline,now,fetchImpl,internal.tick);
     }
@@ -421,7 +457,8 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
       startedAt,expiresAt,totalEligible:result.sharedCount,
       completed:startIndex+result.selectedCount,
       observedMembers:result.memberCount,
-      ...(campaign?{campaign,selfCompleted:false,lastAutoTick:internal.tick}:{}),
+      ...(campaign?{campaign,selfCompleted:false,lastAutoTick:internal.tick,
+        autoRestartCount}:{}),
       ...(baseline?{baseline}:{})
     };
     await env.CAPTAIN_BUCKET.put(stateKey(fp),JSON.stringify(updated),{
