@@ -6,7 +6,7 @@ import {CAPTAIN_PREFIX} from "../src/captain-vault.js";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 import {completeKey,trophyCardKey,BATCH_PREFIX} from "../src/private-roster-batches.js";
 import {rosterAttemptKey,rosterCooldownKey} from "../src/roster-auto-diagnostics.js";
-import {ROSTER_CRON,TICK_API_BUDGET,rosterWindow,manualRosterWindow,runRosterAutoTick,rosterAutoStatus,handleAdminRosterAutoTest} from "../src/automatic-roster-scheduler.js";
+import {ROSTER_CRON,TICK_API_BUDGET,rosterWindow,manualRosterWindow,runRosterAutoTick,rosterAutoStatus,handleAdminRosterAutoTest,handleAdminRosterAutoResume} from "../src/automatic-roster-scheduler.js";
 import worker from "../src/index.js";
 import {handleAdmin} from "../src/admin-routes.js";
 
@@ -417,6 +417,109 @@ test("private one-shot endpoint cannot be invoked without a Cloudflare Access ad
  assert.equal(f.store.has("roster-auto/v1/days/2026-10-19.json"),false);
 });
 
+
+test("admin can target one approved alliance with the actual one-roster scheduler",async()=>{
+ const f=fixture(),at=d("2026-10-19T14:40:30Z");
+ const base="https://losp-roster-service.deliriousfan7.workers.dev";
+ const endpoint=base+"/admin/api/roster-auto-resume";
+ const req=fpVal=>new Request(endpoint,{method:"POST",headers:{
+   Origin:base,"Content-Type":"application/json"},body:JSON.stringify({fingerprint:fpVal})});
+ // Another approved fingerprint with no matching OAuth account: never
+ // silently substitute Zeus or write its progress to R2.
+ const other="0".repeat(64);
+ f.store.set(ROSTER_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
+   {fingerprint:fp,name:"Zeus"},{fingerprint:other,name:"Other"}]}));
+ const wrong=await handleAdminRosterAutoResume(req(other),f.env,f.fetchImpl,at);
+ assert.equal((await wrong.json()).status,"approved-alliance-unavailable");
+ assert.equal(f.store.has(BATCH_PREFIX+fp+"/progress.json"),false);
+ const done=await handleAdminRosterAutoResume(req(fp),f.env,f.fetchImpl,at+60000);
+ const body=await done.json();
+ assert.equal(body.status,"in-progress");
+ assert.equal(body.alliance,"Zeus");
+ assert.equal(body.campaign,"2026-10-19-pm");
+ assert.ok(body.requestsThisTick>0&&body.requestsThisTick<=TICK_API_BUDGET);
+ assert.equal(f.calls.filter(url=>url.includes("/roster/member/")).length,1);
+ const state=JSON.parse(f.store.get(BATCH_PREFIX+fp+"/progress.json"));
+ assert.equal(state.completed,1);
+ assert.equal(state.manualRecovery,undefined,"Normal PM window has no late marker");
+ const day=JSON.parse(f.store.get("roster-auto/v1/days/2026-10-19.json"));
+ assert.equal(day.lastMode,"admin-resume");
+});
+test("targeted late PM recovery produces marked receipt and dispatches only after all rosters",async()=>{
+ const f=fixture(),base="https://losp-roster-service.deliriousfan7.workers.dev";
+ f.env.ROSTER_GITHUB_DISPATCH_ENABLED="true";
+ f.env.ROSTER_GITHUB_DISPATCH_TOKEN="TEST_GITHUB_ONLY";
+ // One approved alliance, three post-window clicks (one co-member each, self).
+ const sent=[];
+ const run=(at)=>runRosterAutoTick(f.env,controller(at),f.fetchImpl,{
+   manual:true,targetFingerprint:fp,
+   githubFetch:async(url,opts)=>{sent.push({url,opts});return {status:204};}
+ });
+ const first=await run("2026-10-19T17:00:10Z");
+ assert.equal(first.status,"in-progress");
+ const second=await run("2026-10-19T17:02:10Z");
+ assert.equal(second.status,"complete-co-members");
+ assert.equal(sent.length,0);
+ const final=await run("2026-10-19T17:04:10Z");
+ assert.equal(final.status,"complete");
+ assert.equal(final.githubDispatch,"dispatched");
+ assert.equal(sent.length,1);
+ const key=BATCH_PREFIX+fp+"/campaigns/2026-10-19-pm.json";
+ const receipt=JSON.parse(f.store.get(key));
+ assert.equal(receipt.manualRecovery,true);
+ assert.equal(receipt.progress.manualRecovery,true);
+ assert.equal(receipt.manifest.coMembers,2);
+ assert.equal(receipt.manifest.capturedAt,"2026-10-19T17:04:10.000Z");
+ assert.equal(JSON.parse(sent[0].opts.body).inputs.period,"pm");
+ const before=f.calls.length;
+ const retry=await run("2026-10-19T17:04:40Z");
+ assert.equal(retry.status,"already-processed");
+ assert.equal(f.calls.length,before);
+});
+test("targeted resume fails closed for unknown alliance, forbidden methods and premature AM",async()=>{
+ const f=fixture(),base="https://losp-roster-service.deliriousfan7.workers.dev",
+   endpoint=base+"/admin/api/roster-auto-resume",now=d("2026-10-19T17:10:10Z");
+ const req=(body,origin=base,type="application/json")=>new Request(endpoint,{
+   method:"POST",headers:{Origin:origin,"Content-Type":type},body});
+ for(const [request,code] of [
+   [new Request(endpoint),405],
+   [req(JSON.stringify({fingerprint:fp}),"https://evil.invalid"),403],
+   [req(JSON.stringify({fingerprint:fp,period:"am"})),400],
+   [req(JSON.stringify({fingerprint:"invalid"})),400],
+   [req(JSON.stringify({fingerprint:fp}),base,"text/plain"),403]
+ ]){
+   assert.equal((await handleAdminRosterAutoResume(request,f.env,f.fetchImpl,now)).status,code);
+ }
+ const no=new Request(endpoint,{method:"POST",headers:{
+   Origin:base,"Content-Type":"application/json"},
+   body:JSON.stringify({fingerprint:"0".repeat(64)})});
+ assert.equal((await handleAdminRosterAutoResume(no,f.env,f.fetchImpl,now)).status,403);
+ assert.equal(f.calls.length,0);
+ assert.equal(f.store.has("roster-auto/v1/days/2026-10-19.json"),false);
+ const early=await runRosterAutoTick(f.env,controller("2026-10-19T00:40:00Z"),
+   f.fetchImpl,{manual:true,targetFingerprint:fp});
+ assert.equal(early.status,"campaign-not-open");
+ assert.equal(f.calls.length,0);
+ f.env.ROSTER_AUTO_ENABLED="false";
+ const disabled=await runRosterAutoTick(f.env,controller("2026-10-19T17:12:00Z"),
+   f.fetchImpl,{manual:true,targetFingerprint:fp});
+ assert.equal(disabled.status,"disabled");
+ assert.equal(f.calls.length,0);
+});
+test("targeted route is unavailable without Cloudflare Access admin authentication",async()=>{
+ const f=fixture(),base="https://losp-roster-service.deliriousfan7.workers.dev";
+ const env={...f.env,MSF_ADMIN_ENABLED:"true",
+   CF_ACCESS_TEAM_DOMAIN:"private-losp.cloudflareaccess.com",
+   CF_ACCESS_AUD:"a".repeat(64),
+   MSF_ADMIN_EMAILS:"admin@example.test"};
+ const req=new Request(base+"/admin/api/roster-auto-resume",{
+   method:"POST",headers:{Origin:base,"Content-Type":"application/json"},
+   body:JSON.stringify({fingerprint:fp})});
+ const result=await handleAdmin(req,env,f.fetchImpl);
+ assert.equal(result.status,403);
+ assert.equal(f.calls.length,0);
+ assert.equal(f.store.has("roster-auto/v1/days/2026-10-19.json"),false);
+});
 test("Thursday morning writes a private trophy marker and wakes GitHub on the first card",async()=>{
  const f=fixture(),triggered=[];
  f.env.TROPHY_GITHUB_DISPATCH_ENABLED="true";
