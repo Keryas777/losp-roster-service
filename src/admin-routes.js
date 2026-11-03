@@ -65,7 +65,7 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<p>Collecte privée des alliances approuvées, par lots avec reprise. Planification automatique conditionnée à la règle R2 de rétention et au paramètre d’activation. Aucune publication vers la WebApp.</p>'+
 '<p id="roster-auto-status" role="status">État de l’automatisation : à consulter sur demande (R2 uniquement).</p>'+
 '<button id="roster-auto-refresh" type="button">Actualiser l’état automatique (R2)</button>'+
-'<button id="roster-auto-test" type="button">Tester un micro-lot automatique maintenant (2 joueurs maximum)</button>'+
+'<button id="roster-auto-test" type="button">Tester un micro-lot automatique maintenant (1 joueur maximum)</button>'+
 '<p id="roster-auto-test-status" role="status"></p>'+
 '<button id="roster-preflight" type="button">Vérifier les alliances connectées</button>'+
 '<p id="roster-preflight-status" role="status"></p><div id="roster-preflight-list"></div>'+
