@@ -4,6 +4,7 @@ import {readApproval} from "./roster-sync-preflight.js";
 import {BATCH_PREFIX,BATCH_MAX_AGE_MS,completeKey} from "./private-roster-batches.js";
 import {rosterAttemptKey,rosterCooldownKey,verifiedRosterAttempt}
   from "./roster-auto-diagnostics.js";
+import {readRosterRecoveryStatus} from "./roster-auto-recovery.js";
 
 const FP=/^[a-f0-9]{64}$/;
 const RUN=/^[a-f0-9-]{36}$/;
@@ -129,8 +130,11 @@ async function allianceState(bucket,entry,now,full){
     // A null value means that not all backing member files were checked.
     if(!full)manifest.verified=null;
   }
-  const automation=await automationState(bucket,fp,now);
-  return {name:entry.name,fingerprint:fp,approved:true,progress,manifest,automation};
+  const [automation,recovery]=await Promise.all([
+    automationState(bucket,fp,now),readRosterRecoveryStatus(bucket,fp,now)
+  ]);
+  return {name:entry.name,fingerprint:fp,approved:true,
+    progress,manifest,automation,recovery};
 }
 export async function handleRosterR2Coverage(request,env,now=Date.now()){
   if(request.method!=="GET")return respond({error:"method-not-allowed"},405);
