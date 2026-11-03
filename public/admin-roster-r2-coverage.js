@@ -123,7 +123,8 @@
         String(alliance.name).replace(/<#[0-9a-f]{6}>/gi,"").trim();
       resume.title="Collecte ciblée : un roster maximum, un passage par minute. "+
         "Respecte le verrou, les pauses et le budget API existants.";
-      resume.disabled=busy;
+      // Buttons are rendered while the read is still marked busy.
+      // resumeOne() already guards re-entry and disables the clicked button.
       resume.addEventListener("click",()=>void resumeOne(alliance,resume));
       card.append(resume);
       cards.append(card);
