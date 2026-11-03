@@ -271,8 +271,11 @@ test("admin UI is vanilla, safely renders private aggregates and has no storage 
   assert.match(js,/Dernier échec/);
   assert.match(js,/Collecte temporairement suspendue/);
   assert.match(js,/roster-auto-resume/);
-  assert.match(js,/Reprendre un micro-lot automatique/);
+  assert.match(js,/Lancer le rattrapage automatique/);
+  assert.match(js,/Micro-lot manuel/);
+  assert.match(js,/roster-auto-recovery/);
   assert.match(admin,/roster-auto-resume/);
+  assert.match(admin,/roster-auto-recovery/);
 });
 
 test("R2 admin keeps targeted resume buttons enabled after initial load and re-render",async()=>{
@@ -295,10 +298,16 @@ test("R2 admin keeps targeted resume buttons enabled after initial load and re-r
  const requests=[];
  const fetch=async(url,options={})=>{
    requests.push({url,options});
-   const recovery=url==="/admin/api/roster-auto-resume";
-   return {ok:true,status:200,json:async()=>recovery?
+   const manual=url==="/admin/api/roster-auto-resume";
+   const queue=url==="/admin/api/roster-auto-recovery";
+   if(queue){
+     const action=JSON.parse(options.body).action;
+     alliance.recovery={status:action==="start"?"queued":"stopped",
+       campaign:"2026-11-03-pm",attempts:0};
+   }
+   return {ok:true,status:200,json:async()=>manual?
      {status:"in-progress",campaign:"2026-11-03-pm",requestsThisTick:7}:
-     report};
+     queue?{status:alliance.recovery.status}:report};
  };
  const context={fetch,document:{
    getElementById:id=>nodes.get(id),
@@ -318,13 +327,23 @@ test("R2 admin keeps targeted resume buttons enabled after initial load and re-r
  // The original defect disabled new buttons when render() ran with busy=true.
  nodes.get("roster-r2-refresh").handlers.click();
  await new Promise(resolve=>setImmediate(resolve));
- assert.equal(buttons().length,1);
- assert.equal(buttons()[0].disabled,false);
- buttons()[0].handlers.click();
+ assert.equal(buttons().length,2);
+ assert.ok(buttons().every(x=>x.disabled===false));
+ buttons().find(x=>x.textContent.startsWith("Micro-lot manuel")).handlers.click();
  await new Promise(resolve=>setImmediate(resolve));
  assert.equal(requests.filter(x=>x.url==="/admin/api/roster-auto-resume").length,1);
- assert.equal(buttons().length,1);
- assert.equal(buttons()[0].disabled,false,
-   "Rerender after a successful microbatch must not strand its new button");
+ assert.equal(buttons().length,2);
+ assert.ok(buttons().every(x=>x.disabled===false),
+   "Rerender after a successful microbatch must not strand any button");
+ buttons().find(x=>x.textContent.startsWith("Lancer le rattrapage")).handlers.click();
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(requests.filter(x=>x.url==="/admin/api/roster-auto-recovery").length,1);
+ assert.ok(buttons().some(x=>x.textContent.startsWith("Arrêter le rattrapage")));
+ assert.equal(buttons().find(x=>x.textContent.startsWith("Micro-lot manuel")).disabled,true,
+   "Manual microbatch must remain disabled while queued recovery is active");
+ buttons().find(x=>x.textContent.startsWith("Arrêter le rattrapage")).handlers.click();
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(requests.filter(x=>x.url==="/admin/api/roster-auto-recovery").length,2);
+ assert.equal(buttons().find(x=>x.textContent.startsWith("Micro-lot manuel")).disabled,false);
  assert.equal(nodes.get("roster-r2-refresh").disabled,false);
 });
