@@ -77,6 +77,25 @@ async function object(b,ref){
      !Object.hasOwn(body,"data"))return {error:"invalid-envelope"};
   return {body,digest,semantic:await gameSemanticHash(body)};
 }
+// This is a SECOND, diagnostic-only check. Production intentionally uses
+// JSON.stringify ordering. Stable ordering tells us whether that detail alone
+// made an otherwise identical response look changed; it never changes a GET.
+function sorted(value){
+  if(Array.isArray(value))return value.map(sorted);
+  if(value&&typeof value==="object"){
+    const ordered={};
+    for(const key of Object.keys(value).sort())ordered[key]=sorted(value[key]);
+    return ordered;
+  }
+  return value;
+}
+function normalizedStable(doc){
+  const value={...doc};
+  if(value.meta&&typeof value.meta==="object"&&!Array.isArray(value.meta)){
+    value.meta={...value.meta};delete value.meta.asOf;
+  }
+  return JSON.stringify(sorted(value));
+}
 function changedFields(before,after){
   const found=[],max=12;
   let examined=0;
@@ -154,7 +173,10 @@ async function evaluate(b,pointer,key){
     return result(path,group,"missed-change",base);
   if(exactSame||semanticSame)
     return result(path,group,exactSame?"byte-identical":"only-asof-or-order",base);
-  const dataSame=JSON.stringify(old.body.data)===JSON.stringify(current.body.data);
+  if(normalizedStable(old.body)===normalizedStable(current.body))
+    return result(path,group,"serialization-order-change",base);
+  const dataSame=JSON.stringify(sorted(old.body.data))===
+    JSON.stringify(sorted(current.body.data));
   return result(path,group,dataSame?"metadata-other-change":"data-change",base);
 }
 function initial(source,now){
