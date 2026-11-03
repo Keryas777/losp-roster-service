@@ -136,6 +136,7 @@ async function readState(env,fp){
      (s.autoRestartCount!==undefined&&(!Number.isInteger(s.autoRestartCount)||
        s.autoRestartCount<0||s.autoRestartCount>MAX_AUTOMATIC_RESTARTS))||
      (s.autoRestartPending!==undefined&&typeof s.autoRestartPending!=="boolean")||
+     (s.manualRecovery!==undefined&&s.manualRecovery!==true)||
      (s.autoRestartPending===true&&!(s.autoRestartCount>0))||
      (s.baseline!==undefined&&(!s.baseline||!RUN.test(s.baseline.runId)||
         !/^[0-9a-f]{64}$/.test(s.baseline.membershipDigest)||
@@ -272,6 +273,7 @@ async function finishSelf(env,fp,previous,selected,baseline,now,fetchImpl,tick){
   if(previous.campaign){
     await env.CAPTAIN_BUCKET.put(campaignCompleteKey(fp,previous.campaign),
       JSON.stringify({version:1,campaign:previous.campaign,
+        ...(previous.manualRecovery===true?{manualRecovery:true}:{}),
         progress:completedState,manifest:complete}),storageOptions);
   }
   // Preserve existing live pointers and roster scheduler behavior unchanged.
@@ -346,7 +348,9 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     try{await storeEarlyTrophyCard(env,fp,campaign,selected.sourcePayload,now);}
     catch{/* The next scheduled tick may try again. */}
     if(campaign&&previous&&previous.completed===previous.totalEligible){
-      const response=await finishSelf(env,fp,previous,selected,baseline,now,fetchImpl,internal.tick);
+      const finalPrevious=internal.manualRecovery===true?
+        {...previous,manualRecovery:true}:previous;
+      const response=await finishSelf(env,fp,finalPrevious,selected,baseline,now,fetchImpl,internal.tick);
       if(response.status!==409)return response;
       const {status}=await response.clone().json();
       return await scheduleAutomaticRestart(env,fp,previous,campaign,status)||response;
@@ -410,7 +414,8 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
         expiresAt:new Date(now+BATCH_MAX_AGE_MS).toISOString(),
         totalEligible:0,completed:0,observedMembers:result.memberCount,
         campaign,selfCompleted:false,lastAutoTick:internal.tick,
-        autoRestartCount
+        autoRestartCount,
+        ...(internal.manualRecovery===true?{manualRecovery:true}:{})
       };
       return await finishSelf(env,fp,selfOnly,selected,baseline,now,fetchImpl,internal.tick);
     }
@@ -458,7 +463,9 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
       completed:startIndex+result.selectedCount,
       observedMembers:result.memberCount,
       ...(campaign?{campaign,selfCompleted:false,lastAutoTick:internal.tick,
-        autoRestartCount}:{}),
+        autoRestartCount,
+        ...((internal.manualRecovery===true||previous?.manualRecovery===true)?
+          {manualRecovery:true}:{})}:{}),
       ...(baseline?{baseline}:{})
     };
     await env.CAPTAIN_BUCKET.put(stateKey(fp),JSON.stringify(updated),{
