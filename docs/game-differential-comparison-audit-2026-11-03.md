@@ -62,6 +62,9 @@ Pour chaque pointeur `latest/<sha(path)>.json` :
 - `metadata-other-change` : réponse dont `data` est identique,
   mais d'autres métadonnées (non ignorées par le collecteur) évoluent.
 - `data-change` : changement détecté dans les données métier.
+- `serialization-order-change` : ordre des propriétés JSON différent
+  sans modification des valeurs. La comparaison de production reste
+  actuellement sensible à cet ordre ; cet audit ne la modifie pas.
 - `no-linked-previous-version` : pas de lien prouvé ; aucune
   comparaison historique possible.
 - Autres anomalies explicites : reçu absent ou incohérent, objet
