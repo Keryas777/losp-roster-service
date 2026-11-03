@@ -21,6 +21,10 @@
     "membership-restart-scheduled":"Effectif modifié : reprise à zéro prévue au prochain passage",
     "already-processed":"Créneau déjà traité (réessayer la minute suivante)",
     "campaign-not-open":"Campagne non encore ouverte",
+    "queued":"Rattrapage programmé","running":"Rattrapage en cours",
+    "stopped":"Rattrapage arrêté","failed":"Rattrapage interrompu",
+    "outside-recovery-window":"Fenêtre de rattrapage terminée",
+    "no-incomplete-current-campaign":"Aucune campagne incomplète récupérable",
     "changed-during-read":"Effectif modifié pendant la lecture",
     "current-membership-unverified":"Compte OAuth non reconnu dans l'alliance",
     "unauthorized":"Session OAuth non autorisée",
@@ -117,12 +121,36 @@
       if(p.files&&(!m.files||m.matchesCurrentProgress===false))
         line(card,"Fichiers de la campagne en cours : "+p.files.checked+
           " contrôlés, "+p.files.missing+" manquant(s).");
+      const recovery=alliance.recovery||{status:"not-started"};
+      const activeRecovery=["queued","running"].includes(recovery.status);
+      if(recovery.status!=="not-started"){
+        line(card,"Rattrapage automatique : "+
+          (label[recovery.status]||recovery.status)+
+          (recovery.campaign?" ("+recovery.campaign+")":"")+
+          (recovery.lastOutcome?" · dernier passage : "+
+            (label[recovery.lastOutcome]||recovery.lastOutcome):"")+
+          (recovery.deadlineAt?" · limite : "+date(recovery.deadlineAt):"")+".");
+      }
+      if(["in-progress","complete-co-members"].includes(p.status)||activeRecovery){
+        const auto=document.createElement("button");
+        auto.type="button";
+        auto.textContent=(activeRecovery?"Arrêter le rattrapage automatique — ":
+          "Lancer le rattrapage automatique — ")+
+          String(alliance.name).replace(/<#[0-9a-f]{6}>/gi,"").trim();
+        auto.title=activeRecovery?
+          "Empêcher les prochains micro-lots ; un appel déjà en cours peut finir.":
+          "Un clic programme la reprise sur le Cron existant, même navigateur fermé.";
+        auto.addEventListener("click",()=>void recoveryAction(alliance,auto,
+          activeRecovery?"stop":"start"));
+        card.append(auto);
+      }
       const resume=document.createElement("button");
       resume.type="button";
-      resume.textContent="Reprendre un micro-lot automatique — "+
+      resume.textContent="Micro-lot manuel (1 roster) — "+
         String(alliance.name).replace(/<#[0-9a-f]{6}>/gi,"").trim();
-      resume.title="Collecte ciblée : un roster maximum, un passage par minute. "+
+      resume.title="Secours manuel : un seul roster. "+
         "Respecte le verrou, les pauses et le budget API existants.";
+      resume.disabled=activeRecovery;
       // Buttons are rendered while the read is still marked busy.
       // resumeOne() already guards re-entry and disables the clicked button.
       resume.addEventListener("click",()=>void resumeOne(alliance,resume));
@@ -138,6 +166,41 @@
     if(!result.ok||payload.status!=="ok")
       throw Error(payload.error||"HTTP "+result.status);
     return payload;
+  }
+  async function recoveryAction(alliance,control,action){
+    if(busy)return;
+    busy=true;control.disabled=true;button.disabled=true;copy.disabled=true;
+    const name=String(alliance.name).replace(/<#[0-9a-f]{6}>/gi,"").trim();
+    status.textContent=(action==="start"?"Programmation":"Arrêt")+
+      " du rattrapage automatique de "+name+"…";
+    try{
+      const response=await fetch("/admin/api/roster-auto-recovery",{
+        method:"POST",credentials:"same-origin",cache:"no-store",
+        headers:{"Content-Type":"application/json",Accept:"application/json"},
+        body:JSON.stringify({fingerprint:alliance.fingerprint,action})
+      });
+      const result=await response.json();
+      if(!response.ok)throw Error(label[result.status]||result.status||
+        "HTTP "+response.status);
+      const detail=await fetchJSON(endpoint+"?fingerprint="+
+        encodeURIComponent(alliance.fingerprint));
+      if(latest&&detail.alliances.length===1){
+        const index=latest.alliances.findIndex(a=>a.fingerprint===alliance.fingerprint);
+        if(index>=0)latest.alliances[index]=detail.alliances[0];
+      }
+      if(latest)render(latest);
+      status.textContent=name+" : "+(label[result.status]||result.status)+
+        (action==="start"?
+          ". Le Worker continuera les micro-lots automatiquement ; tu peux fermer Safari.":
+          ". Aucun nouveau micro-lot ne sera programmé.");
+    }catch(error){
+      status.textContent="Rattrapage de "+name+" : "+
+        (error instanceof Error?error.message:"indisponible")+
+        ". Aucune nouvelle collecte déclenchée par ce clic en cas de refus.";
+    }finally{
+      busy=false;button.disabled=false;copy.disabled=!latest;
+      if(control.isConnected)control.disabled=false;
+    }
   }
   async function resumeOne(alliance,control){
     if(busy)return;
