@@ -9,7 +9,7 @@ import {handleAdmin} from "../src/admin-routes.js";
 import {GAME_ARCHIVE_ROOT} from "../src/game-catalog-archive.js";
 
 const HOST="https://losp-roster-service.deliriousfan7.workers.dev";
-const URL=HOST+"/admin/api/game-differential-comparison-audit";
+const ENDPOINT=HOST+"/admin/api/game-differential-comparison-audit";
 const ROOT=GAME_ARCHIVE_ROOT+"diff/";
 const PROGRESS=ROOT+"comparison-audit/v1/progress.json";
 const LAST="11111111-2222-4333-8444-555555555555";
@@ -91,9 +91,9 @@ async function add(f,path,oldDoc,newDoc,{recordedStatus="changed",
   }));
   return {currentKey,previousKey,currentObject,previousObject,receipt,oldReceipt};
 }
-const get=f=>handleGameDifferentialComparisonAudit(new Request(URL),f.env,NOW);
+const get=f=>handleGameDifferentialComparisonAudit(new Request(ENDPOINT),f.env,NOW);
 const post=(f,action="start")=>handleGameDifferentialComparisonAudit(
-  new Request(URL,{method:"POST",headers:{Origin:HOST,
+  new Request(ENDPOINT,{method:"POST",headers:{Origin:HOST,
     "Content-Type":"application/json"},
     body:JSON.stringify({action})}),f.env,NOW);
 async function runToEnd(f){
@@ -156,7 +156,7 @@ test("missing historical linkage, invalid receipt and corrupted bytes are not mi
   await post(f);
   const report=await runToEnd(f);
   assert.equal(report.byClass["no-linked-previous-version"],1);
-  assert.equal(report.byClass["previous-stored-sha-mismatch"],1);
+  assert.equal(report.byClass["previous-invalid-storage-reference"],1);
   assert.equal(report.byClass["current-stored-sha-mismatch"],1);
   assert.equal(report.byClass["data-change"]||0,0);
 });
@@ -196,20 +196,20 @@ test("sample remains bounded and reports when source checkpoint changes",async()
 
 test("POST requires origin+JSON and admin Access, no provider calls",async()=>{
   const f=fixture();
-  assert.equal((await handleGameDifferentialComparisonAudit(new Request(URL,{
+  assert.equal((await handleGameDifferentialComparisonAudit(new Request(ENDPOINT,{
     method:"POST",headers:{"Content-Type":"application/json"},
     body:'{"action":"start"}'}),f.env)).status,403);
-  assert.equal((await handleGameDifferentialComparisonAudit(new Request(URL,{
+  assert.equal((await handleGameDifferentialComparisonAudit(new Request(ENDPOINT,{
     method:"DELETE"}),f.env)).status,405);
-  assert.equal((await handleGameDifferentialComparisonAudit(new Request(URL+"?x=1"),
+  assert.equal((await handleGameDifferentialComparisonAudit(new Request(ENDPOINT+"?x=1"),
     f.env)).status,400);
-  assert.equal((await handleGameDifferentialComparisonAudit(new Request(URL,{
+  assert.equal((await handleGameDifferentialComparisonAudit(new Request(ENDPOINT,{
     method:"POST",headers:{Origin:HOST,"Content-Type":"text/plain"},
     body:'{"action":"start"}'}),f.env)).status,403);
   const env={...f.env,MSF_ADMIN_ENABLED:"true",
     CF_ACCESS_TEAM_DOMAIN:"example.cloudflareaccess.com",
     CF_ACCESS_AUD:"a".repeat(64),MSF_ADMIN_EMAILS:"admin@example.test"};
-  assert.equal((await handleAdmin(new Request(URL),env)).status,403);
+  assert.equal((await handleAdmin(new Request(ENDPOINT),env)).status,403);
   assert.equal(f.calls.filter(x=>x[0]==="put").length,0);
 });
 
