@@ -9,6 +9,7 @@ import { buildPrivateCoverage } from "./alliance-coverage.js";
 import { handleAdmin } from "./admin-routes.js";
 import { prunePrivateRosterPilots } from "./private-roster-pilot.js";
 import { ROSTER_CRON, runRosterAutoTick } from "./automatic-roster-scheduler.js";
+import {runRosterRecoveryTick} from "./roster-auto-recovery.js";
 import {runMemberInfoAutoTick} from "./member-info-scheduler.js";
 import {runRewardInfoAutoTick} from "./member-info-reward.js";
 import {publicArenaHistory,archiveArenaHistory} from "./public-arena-history.js";
@@ -211,6 +212,19 @@ export default {
       const arenaHistory=await archiveArenaHistory(env,controller.scheduledTime);
       if(!["outside-window","unchanged"].includes(arenaHistory.status))
         console.info("arena-history-cron",JSON.stringify(arenaHistory));
+      // An approved R2 recovery queue can run while Safari is closed.
+      // Skip slots already using Scopely for the independent Info collectors,
+      // and the 20:17 / 22:17 Paris arena snapshots. One alliance per tick.
+      if(!(info.requests>0)&&!(reward.requests>0)&&
+         !(parts.minute===17&&[20,22].includes(parts.hour))){
+        const recovery=await runRosterRecoveryTick(env,controller.scheduledTime);
+        if(!["idle","disabled"].includes(recovery.status))
+          console.info("roster-recovery-cron",JSON.stringify({
+            status:recovery.status,requests:recovery.requestsThisTick||0,
+            ...(recovery.githubDispatch?
+              {githubDispatch:recovery.githubDispatch}:{})
+          }));
+      }
     }
     if(controller?.cron===GAME_ARCHIVE_CRON){
       const result=await runGameArchiveTick(env);
