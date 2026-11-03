@@ -76,3 +76,32 @@ test("GitHub rejection does not mark the campaign as dispatched; retry works",as
  assert.equal(await dispatchCompleteRosterCampaign(f.env,slot,[a,b],f.fetchGithub),"dispatched");
  assert.equal(f.calls.length,1);
 });
+
+test("explicit same-day recovery receipts permit late dispatch; forged or next-day captures do not",async()=>{
+ const f=fixture();
+ for(const fingerprint of [a,b]){
+   const key=campaignCompleteKey(fingerprint,slot.campaign);
+   const r=ready(fingerprint);
+   r.manualRecovery=true;
+   r.progress.manualRecovery=true;
+   r.manifest.capturedAt="2026-10-28T10:30:00Z";
+   f.values.set(key,JSON.stringify(r));
+ }
+ assert.equal(await dispatchCompleteRosterCampaign(f.env,slot,[a,b],f.fetchGithub),
+   "dispatched");
+ assert.equal(f.calls.length,1);
+ for(const failure of ["missing-flag","missing-progress-flag","after-pm-start"]){
+   const one=fixture(),key=campaignCompleteKey(b,slot.campaign);
+   const record=ready(b);
+   record.manualRecovery=true;
+   record.progress.manualRecovery=true;
+   record.manifest.capturedAt="2026-10-28T10:30:00Z";
+   if(failure==="missing-flag")delete record.manualRecovery;
+   if(failure==="missing-progress-flag")delete record.progress.manualRecovery;
+   if(failure==="after-pm-start")record.manifest.capturedAt="2026-10-28T14:00:00Z";
+   one.values.set(key,JSON.stringify(record));
+   assert.equal(await dispatchCompleteRosterCampaign(one.env,slot,[a,b],
+     one.fetchGithub),"invalid-receipt");
+   assert.equal(one.calls.length,0);
+ }
+});
