@@ -119,6 +119,9 @@ test("compares two verified versions, including a false change on meta.asOf",asy
       requestSerial:7}});
   await add(f,"/game/v1/traits?page=1&perPage=100",old,asof,
     {recordedStatus:"unchanged"});
+  await add(f,"/game/v1/characters/Ordering",
+    {data:{alpha:1,beta:2},meta:{asOf:"2026-10-20T00:00:00Z"}},
+    {data:{beta:2,alpha:1},meta:{asOf:"2026-11-03T00:00:00Z"}});
   assert.equal((await (await get(f)).json()).status,"not-started");
   assert.equal(f.calls.filter(x=>x[0]==="put").length,0);
   assert.equal((await (await post(f)).json()).status,"running");
@@ -127,11 +130,12 @@ test("compares two verified versions, including a false change on meta.asOf",asy
   assert.equal(first.sampled,3);
   const completed=await runToEnd(f);
   assert.equal(completed.status,"snapshot-complete");
-  assert.equal(completed.sampled,4);
+  assert.equal(completed.sampled,5);
   assert.equal(completed.byClass["false-change"],1);
   assert.equal(completed.byClass["data-change"],1);
   assert.equal(completed.byClass["metadata-other-change"],1);
   assert.equal(completed.byClass["only-asof-or-order"],1);
+  assert.equal(completed.byClass["serialization-order-change"],1);
   const paths=completed.rows.find(x=>x.classification==="data-change").changedFields;
   assert.ok(paths.some(x=>x.includes("power")));
   const report=JSON.stringify(completed);
