@@ -64,6 +64,8 @@ const semantic=async doc=>{
   }
   return hash(JSON.stringify(v));
 };
+// Export the exact production comparison for read-only R2 diagnostics.
+export const gameSemanticHash=semantic;
 const valid=x=>typeof x==="string"&&PATH.test(x)&&!x.includes("#");
 function visible(s,enabled=true){
   if(!s)return {status:"not-started",enabled,intervalHours:168,
