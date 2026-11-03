@@ -455,24 +455,24 @@ test("targeted late PM recovery produces marked receipt and dispatches only afte
    manual:true,targetFingerprint:fp,
    githubFetch:async(url,opts)=>{sent.push({url,opts});return {status:204};}
  });
- const first=await run("2026-10-19T17:00:10Z");
+ const first=await run("2026-11-03T17:00:10Z");
  assert.equal(first.status,"in-progress");
- const second=await run("2026-10-19T17:02:10Z");
+ const second=await run("2026-11-03T17:02:10Z");
  assert.equal(second.status,"complete-co-members");
  assert.equal(sent.length,0);
- const final=await run("2026-10-19T17:04:10Z");
+ const final=await run("2026-11-03T17:04:10Z");
  assert.equal(final.status,"complete");
  assert.equal(final.githubDispatch,"dispatched");
  assert.equal(sent.length,1);
- const key=BATCH_PREFIX+fp+"/campaigns/2026-10-19-pm.json";
+ const key=BATCH_PREFIX+fp+"/campaigns/2026-11-03-pm.json";
  const receipt=JSON.parse(f.store.get(key));
  assert.equal(receipt.manualRecovery,true);
  assert.equal(receipt.progress.manualRecovery,true);
  assert.equal(receipt.manifest.coMembers,2);
- assert.equal(receipt.manifest.capturedAt,"2026-10-19T17:04:10.000Z");
+ assert.equal(receipt.manifest.capturedAt,"2026-11-03T17:04:10.000Z");
  assert.equal(JSON.parse(sent[0].opts.body).inputs.period,"pm");
  const before=f.calls.length;
- const retry=await run("2026-10-19T17:04:40Z");
+ const retry=await run("2026-11-03T17:04:40Z");
  assert.equal(retry.status,"already-processed");
  assert.equal(f.calls.length,before);
 });
