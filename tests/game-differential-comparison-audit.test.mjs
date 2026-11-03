@@ -147,12 +147,16 @@ test("compares two verified versions, including a false change on meta.asOf",asy
 
 test("missing historical linkage, invalid receipt and corrupted bytes are not mislabelled as changes",async()=>{
   const f=fixture();
-  const old={data:{a:1},meta:{asOf:"2026-10-20T00:00:00Z"}};
-  const newer={data:{a:2},meta:{asOf:"2026-11-03T00:00:00Z"}};
-  await add(f,"/game/v1/characters/A",old,newer,{link:false});
-  await add(f,"/game/v1/items/B",old,newer,{invalidPrevious:true});
-  const c=await add(f,"/game/v1/events/C",old,newer);
-  f.stored.set(c.currentObject,JSON.stringify({...newer,data:{a:3}}));
+  // Different URLs can legitimately share a content-addressed R2 object.
+  // Give each scenario distinct bytes before corrupting only the final one.
+  const old=id=>({data:{id,a:1},meta:{asOf:"2026-10-20T00:00:00Z"}});
+  const newer=id=>({data:{id,a:2},meta:{asOf:"2026-11-03T00:00:00Z"}});
+  await add(f,"/game/v1/characters/A",old("A"),newer("A"),{link:false});
+  await add(f,"/game/v1/items/B",old("B"),newer("B"),{invalidPrevious:true});
+  const c=await add(f,"/game/v1/events/C",old("C"),newer("C"));
+  f.stored.set(c.currentObject,JSON.stringify({
+    ...newer("C"),data:{id:"C",a:3}
+  }));
   await post(f);
   const report=await runToEnd(f);
   assert.equal(report.byClass["no-linked-previous-version"],1);
