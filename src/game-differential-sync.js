@@ -54,13 +54,18 @@ const hash=async x=>{
   return [...new Uint8Array(await crypto.subtle.digest("SHA-256",bytes))]
     .map(b=>b.toString(16).padStart(2,"0")).join("");
 };
+// This is the second semantic comparison profile. The prior profile included
+// global meta.hashes, so old pointers must be re-evaluated against stored
+// bytes rather than compared directly with a V2 fingerprint.
+const SEMANTIC_VERSION=2;
 const semantic=async doc=>{
-  // Do not mistake a changed meta.asOf timestamp for a game-data change.
-  // All other official/unknown response fields remain comparison inputs.
+  // meta.asOf and meta.hashes describe observation time and global game
+  // revisions, not necessarily a change to THIS route's own data.
+  // Retain all other official/unknown response fields as comparison inputs.
   if(!doc||typeof doc!=="object"||Array.isArray(doc))return null;
   const v={...doc};
   if(v.meta&&typeof v.meta==="object"&&!Array.isArray(v.meta)){
-    v.meta={...v.meta};delete v.meta.asOf;
+    v.meta={...v.meta};delete v.meta.asOf;delete v.meta.hashes;
   }
   return hash(JSON.stringify(v));
 };
@@ -260,7 +265,10 @@ async function scan(b,s,now){
   return "scanning";
 }
 async function priorSemantic(bucket,reference){
-  if(SHA.test(reference?.semanticHash||""))return reference.semanticHash;
+  // A V1 semanticHash included meta.hashes: never compare incompatible
+  // profiles, and never rewrite the old immutable receipts/pointers.
+  if(reference?.semanticVersion===SEMANTIC_VERSION&&
+     SHA.test(reference?.semanticHash||""))return reference.semanticHash;
   const old=reference?.objectKey;
   if(typeof old!=="string"||!(old.startsWith(GAME_ARCHIVE_ROOT+"runs/")||
       old.startsWith(ROOT+"runs/")))return null;
@@ -463,7 +471,8 @@ async function usableReference(bucket,ref,now){
 function pointerFromReceipt(receipt,run,source){
   return {version:2,path:receipt.path,sha256:receipt.sha256,
     observedSha256:receipt.observedSha256||receipt.sha256,
-    semanticHash:receipt.semanticHash,objectKey:receipt.objectKey,
+    semanticHash:receipt.semanticHash,
+    semanticVersion:receipt.semanticVersion||null,objectKey:receipt.objectKey,
     storedAt:receipt.storedAt,checkedAt:receipt.checkedAt,
     lastChangedAt:receipt.lastChangedAt||null,
     changed:receipt.status==="changed",refreshed:receipt.refreshed===true,
@@ -560,7 +569,8 @@ async function checkOne(b,s,task,token,fetchImpl,now,committed=null){
   const receipt={version:2,path:task.path,
     status:unchanged?"unchanged":"changed",
     checkedAt:capturedAt,sha256:storedSha,observedSha256:raw,
-    semanticHash:sem,objectKey,storedAt,refreshed,
+    semanticHash:sem,semanticVersion:SEMANTIC_VERSION,
+    objectKey,storedAt,refreshed,
     lastChangedAt:unchanged?last?.lastChangedAt||null:capturedAt,
     sourceRun:s.sourceRun,sourceReceipt:ref.receiptKey||null};
   const journal=receiptKey(s.runId,s.checked);
