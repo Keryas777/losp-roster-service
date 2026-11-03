@@ -3,6 +3,7 @@ import {rosterSyncPreflight,saveRosterSyncApprovals,approveOneRosterAlliance} fr
 import {handlePrivateRosterPilot} from "./private-roster-pilot.js";
 import {handleRosterMicrobatch,getRosterBatchStatus} from "./private-roster-batches.js";
 import {rosterAutoStatus,handleAdminRosterAutoTest,handleAdminRosterAutoResume} from "./automatic-roster-scheduler.js";
+import {handleAdminRosterRecovery} from "./roster-auto-recovery.js";
 import {handleConnectedAlliances} from "./connected-alliance-index.js";
 import {handleRosterR2Coverage} from "./roster-r2-coverage.js";
 import {PUBLIC_SOURCE_ROUTES,handlePublicSourceProbe} from "./public-msf-source-probe.js";
@@ -73,7 +74,7 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<button id="roster-approve" type="button" disabled>Enregistrer les alliances approuvées</button>'+
 '<p id="roster-approve-status" role="status"></p></section>'+
 '<section><h2>Couverture réelle des rosters privés R2</h2>'+
-'<p>Vérification des alliances déjà approuvées, de leurs progrès et des fichiers R2. Le diagnostic est en lecture seule. Chaque bouton de reprise exécute un seul micro-lot Scopely ciblé, sans lancer de collecte globale.</p>'+
+'<p>Vérification R2 sans appel Scopely. Un rattrapage lancé ici poursuit automatiquement les micro-lots même après fermeture du navigateur. Il s’arrête avant la prochaine campagne UTC : AM à 14 h UTC, PM à 00 h UTC. Le bouton manuel d’un seul micro-lot reste disponible.</p>'+
 '<button id="roster-r2-refresh" type="button">Vérifier les alliances en R2</button>'+
 '<button id="roster-r2-copy" type="button" disabled>Copier le diagnostic JSON</button>'+
 '<p id="roster-r2-status" role="status"></p><div id="roster-r2-report" class="scroll"></div></section>'+
@@ -276,7 +277,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   if(request.method!=="GET"&&!(request.method==="POST"&&
        ["/admin/api/roster-approvals","/admin/api/roster-approve-one","/admin/api/roster-pilot",
         "/admin/api/roster-batch","/admin/api/roster-auto-test",
-        "/admin/api/roster-auto-resume",
+        "/admin/api/roster-auto-resume","/admin/api/roster-auto-recovery",
         "/admin/api/msf-secondary-probe","/admin/api/game-archive",
         "/admin/api/game-archive-schema-audit",
         "/admin/api/game-material-audit",
@@ -338,6 +339,8 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     return handleAdminRosterAutoTest(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-auto-resume")
     return handleAdminRosterAutoResume(request,env,fetchImpl);
+  if(pathname==="/admin/api/roster-auto-recovery")
+    return handleAdminRosterRecovery(request,env);
   if(pathname==="/admin/api/msf-secondary-probe")
     return handlePublicSourceProbe(request,env,fetchImpl);
   if(pathname==="/admin/api/game-archive")

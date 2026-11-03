@@ -7,6 +7,8 @@ import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 import {completeKey,trophyCardKey,BATCH_PREFIX} from "../src/private-roster-batches.js";
 import {rosterAttemptKey,rosterCooldownKey} from "../src/roster-auto-diagnostics.js";
 import {ROSTER_CRON,TICK_API_BUDGET,rosterWindow,manualRosterWindow,runRosterAutoTick,rosterAutoStatus,handleAdminRosterAutoTest,handleAdminRosterAutoResume} from "../src/automatic-roster-scheduler.js";
+import {handleAdminRosterRecovery,runRosterRecoveryTick,
+  readRosterRecoveryStatus,rosterRecoveryKey} from "../src/roster-auto-recovery.js";
 import worker from "../src/index.js";
 import {handleAdmin} from "../src/admin-routes.js";
 
@@ -584,4 +586,121 @@ test("a roster API failure cannot block trophy readiness from the captain card",
  assert.ok(f.store.has(trophyCardKey(fp,"2026-10-22-am")));
  assert.equal(sent.length,1);
  assert.equal(f.store.has(completeKey(fp)),false);
+});
+
+
+const recoveryEndpoint="https://losp-roster-service.deliriousfan7.workers.dev/admin/api/roster-auto-recovery";
+const recoveryRequest=(fingerprint=fp,action="start")=>
+  new Request(recoveryEndpoint,{method:"POST",headers:{
+    Origin:new URL(recoveryEndpoint).origin,"Content-Type":"application/json"
+  },body:JSON.stringify({fingerprint,action})});
+
+test("one authenticated click queues a current PM campaign without provider reads, then Cron finishes it",async()=>{
+ const f=fixture(),date="2026-11-04";
+ const prior=await runRosterAutoTick(f.env,
+   controller(date+"T14:00:00Z"),f.fetchImpl);
+ assert.equal(prior.status,"in-progress");
+ const before=f.calls.length;
+ const queued=await handleAdminRosterRecovery(recoveryRequest(),f.env,
+   d(date+"T17:00:00Z"));
+ assert.equal(queued.status,200);
+ assert.equal((await queued.json()).status,"queued");
+ assert.equal(f.calls.length,before,"Queuing must not call Scopely");
+ assert.equal(JSON.parse(f.store.get(rosterRecoveryKey(fp))).attempts,0);
+ const again=await handleAdminRosterRecovery(recoveryRequest(),f.env,
+   d(date+"T17:00:30Z"));
+ assert.equal((await again.json()).status,"already-queued");
+ assert.equal(f.calls.length,before);
+ const second=await runRosterRecoveryTick(f.env,d(date+"T17:01:00Z"),f.fetchImpl);
+ assert.equal(second.status,"complete-co-members");
+ assert.ok(second.requestsThisTick>0&&second.requestsThisTick<=24);
+ let status=await readRosterRecoveryStatus(f.env.CAPTAIN_BUCKET,fp,
+   d(date+"T17:01:00Z"));
+ assert.equal(status.status,"queued");
+ assert.equal(status.attempts,1);
+ const final=await runRosterRecoveryTick(f.env,d(date+"T17:02:00Z"),f.fetchImpl);
+ assert.equal(final.status,"complete");
+ assert.ok(f.store.has(completeKey(fp)));
+ const receipt=JSON.parse(f.store.get(BATCH_PREFIX+fp+"/campaigns/"+date+"-pm.json"));
+ assert.equal(receipt.manualRecovery,true);
+ assert.equal(receipt.progress.manualRecovery,true);
+ status=await readRosterRecoveryStatus(f.env.CAPTAIN_BUCKET,fp,
+   d(date+"T17:02:00Z"));
+ assert.equal(status.status,"complete");
+ const used=f.calls.length;
+ assert.equal((await runRosterRecoveryTick(f.env,d(date+"T17:03:00Z"),
+   f.fetchImpl)).status,"idle");
+ assert.equal(f.calls.length,used);
+});
+test("cancelling a queued automatic roster recovery prevents all later provider calls",async()=>{
+ const f=fixture(),date="2026-11-04";
+ await runRosterAutoTick(f.env,controller(date+"T14:00:00Z"),f.fetchImpl);
+ assert.equal((await (await handleAdminRosterRecovery(recoveryRequest(),f.env,
+   d(date+"T18:00:00Z"))).json()).status,"queued");
+ const stopped=await handleAdminRosterRecovery(recoveryRequest(fp,"stop"),f.env,
+   d(date+"T18:00:30Z"));
+ assert.equal((await stopped.json()).status,"stopped");
+ const before=f.calls.length;
+ assert.equal((await runRosterRecoveryTick(f.env,d(date+"T18:01:00Z"),
+   f.fetchImpl)).status,"idle");
+ assert.equal(f.calls.length,before);
+ assert.equal((await readRosterRecoveryStatus(f.env.CAPTAIN_BUCKET,fp,
+   d(date+"T18:01:00Z"))).status,"stopped");
+});
+test("recovery respects rate-limit cooldown and never starts another campaign after midnight UTC",async()=>{
+ const f=fixture(),date="2026-11-04";
+ await runRosterAutoTick(f.env,controller(date+"T14:00:00Z"),f.fetchImpl);
+ await handleAdminRosterRecovery(recoveryRequest(),f.env,d(date+"T22:00:00Z"));
+ f.flags.limit=true;
+ const failure=await runRosterRecoveryTick(f.env,d(date+"T22:01:00Z"),f.fetchImpl);
+ assert.equal(failure.status,"rate-limited");
+ const paused=f.calls.length;
+ assert.equal((await runRosterRecoveryTick(f.env,d(date+"T22:02:00Z"),
+   f.fetchImpl)).status,"idle");
+ assert.equal(f.calls.length,paused,"429 cooldown must not generate extra GET");
+ // Queue expires at the UTC day boundary without rolling into the AM campaign.
+ const next=await runRosterRecoveryTick(f.env,d("2026-11-05T00:00:00Z"),f.fetchImpl);
+ assert.equal(next.status,"idle");
+ assert.equal(f.calls.length,paused);
+ const record=await readRosterRecoveryStatus(f.env.CAPTAIN_BUCKET,fp,
+   d("2026-11-05T00:00:00Z"));
+ assert.equal(record.status,"expired");
+ assert.equal(record.campaign,date+"-pm");
+});
+test("queue rejects invalid or unapproved requests, missing progress and disabled service",async()=>{
+ const f=fixture(),date="2026-11-04",start=d(date+"T17:00:00Z");
+ for(const [request,status] of [
+   [new Request(recoveryEndpoint),405],
+   [new Request(recoveryEndpoint,{method:"POST",headers:{
+     Origin:"https://evil.invalid","Content-Type":"application/json"
+   },body:JSON.stringify({fingerprint:fp,action:"start"})}),403],
+   [new Request(recoveryEndpoint,{method:"POST",headers:{
+     Origin:new URL(recoveryEndpoint).origin,"Content-Type":"application/json"
+   },body:JSON.stringify({fingerprint:fp,action:"start",period:"am"})}),400],
+   [recoveryRequest("f".repeat(64)),403],
+ ]){
+   assert.equal((await handleAdminRosterRecovery(request,f.env,start)).status,status);
+ }
+ assert.equal((await handleAdminRosterRecovery(recoveryRequest(),f.env,start)).status,409);
+ assert.equal(f.calls.length,0);
+ assert.equal(f.store.has(rosterRecoveryKey(fp)),false);
+ await runRosterAutoTick(f.env,controller(date+"T14:00:00Z"),f.fetchImpl);
+ const count=f.calls.length;
+ assert.equal((await handleAdminRosterRecovery(recoveryRequest(),f.env,
+   d("2026-11-05T00:05:00Z"))).status,409);
+ f.env.ROSTER_AUTO_ENABLED="false";
+ assert.equal((await handleAdminRosterRecovery(recoveryRequest(),f.env,start)).status,503);
+ assert.equal(f.calls.length,count);
+});
+test("recovery queue endpoint is protected by the same Cloudflare Access gate",async()=>{
+ const f=fixture(),env={...f.env,MSF_ADMIN_ENABLED:"true",
+   CF_ACCESS_TEAM_DOMAIN:"private-losp.cloudflareaccess.com",
+   CF_ACCESS_AUD:"a".repeat(64),MSF_ADMIN_EMAILS:"admin@example.test"};
+ const response=await handleAdmin(recoveryRequest(),env,f.fetchImpl);
+ assert.equal(response.status,403);
+ assert.equal(f.calls.length,0);
+ assert.equal(f.store.has(rosterRecoveryKey(fp)),false);
+ const index=await import("node:fs/promises");
+ const workerSource=await index.readFile(new URL("../src/index.js",import.meta.url),"utf8");
+ assert.match(workerSource,/runRosterRecoveryTick\(env,controller.scheduledTime\)/);
 });
