@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import {createHash} from "node:crypto";
 import {RosterBatchLock} from "../src/roster-batch-lock.js";
-import {runGameDifferentialTick,gameDifferentialStatus} from "../src/game-differential-sync.js";
+import {runGameDifferentialTick,gameDifferentialStatus,gameFridaySlot} from "../src/game-differential-sync.js";
 import {GAME_ARCHIVE_ROOT} from "../src/game-catalog-archive.js";
 import {publicAwakenedMaterials} from "../src/awakened-material-catalog.js";
 import {handleAdmin} from "../src/admin-routes.js";
@@ -798,4 +798,84 @@ test("French event page is queued only by the existing weekly differential",asyn
   assert.equal(state.status,"completed");
   assert.equal(f.calls.filter(call=>call.url===url).length,before,
     "No extra /game fetch between weekly runs");
+});
+
+
+test("Friday 01:00 follows Paris time on BOTH sides of DST (not fixed UTC)",()=>{
+  assert.equal(gameFridaySlot(Date.parse("2026-10-22T22:59:00Z")),null);
+  assert.equal(gameFridaySlot(Date.parse("2026-10-22T23:00:00Z")),"2026-10-23");
+  assert.equal(gameFridaySlot(Date.parse("2026-10-23T00:00:00Z")),null);
+  assert.equal(gameFridaySlot(Date.parse("2026-10-29T23:59:00Z")),null);
+  assert.equal(gameFridaySlot(Date.parse("2026-10-30T00:00:00Z")),"2026-10-30");
+  assert.equal(gameFridaySlot(Date.parse("2026-10-30T01:00:00Z")),null);
+  assert.equal(gameFridaySlot(Date.parse("2026-11-06T00:30:00Z")),"2026-11-06");
+});
+test("Friday campaign starts once, WITHOUT moving the existing 7-day Monday deadline",async()=>{
+  const f=fixture();await f.seed();
+  const monday=Date.parse("2026-10-26T10:00:00Z");
+  const first=await finish(f,monday);
+  assert.equal(first.status.status,"completed");
+  const originalCompleted=first.status.completedAt;
+  assert.ok(originalCompleted);
+  const Friday=Date.parse("2026-10-30T00:00:00Z");
+  const callsBefore=f.calls.length;
+  assert.equal((await runGameDifferentialTick(f.env,f.provider,Friday-60000)).status,
+    "up-to-date","the Friday run must not begin before 01:00 Paris");
+  assert.equal(f.calls.length,callsBefore);
+  const trigger=await runGameDifferentialTick(f.env,f.provider,Friday);
+  assert.equal(trigger.status,"scanning","the new Friday run uses existing scan/check pipeline");
+  let state=JSON.parse(f.store.get("game-archive/v1/diff/state.json"));
+  assert.equal(state.scheduleTrigger,"friday");
+  assert.equal(state.fridaySlot,"2026-10-30");
+  assert.equal(state.weeklyCompletedAt,originalCompleted);
+  const fridayRun=await finish(f,Friday+60000);
+  assert.equal(fridayRun.status.status,"completed");
+  assert.equal(fridayRun.status.scheduleTrigger,"friday");
+  assert.equal(fridayRun.status.weeklyCompletedAt,originalCompleted);
+  assert.equal(fridayRun.status.nextRunAt,
+    new Date(Date.parse(originalCompleted)+7*86400000).toISOString());
+  const beforeNoRepeat=f.calls.length;
+  const sameFriday=await runGameDifferentialTick(f.env,f.provider,
+    Date.parse("2026-10-30T00:59:00Z"));
+  assert.equal(sameFriday.status,"up-to-date");
+  assert.equal(f.calls.length,beforeNoRepeat,
+    "no repeat collection inside the 1h Friday window");
+  const mondayDue=Date.parse(originalCompleted)+7*86400000+60000;
+  const due=await runGameDifferentialTick(f.env,f.provider,mondayDue);
+  assert.equal(due.status,"scanning",
+    "the normal seven-day run is due despite the completed Friday run");
+  state=JSON.parse(f.store.get("game-archive/v1/diff/state.json"));
+  assert.equal(state.scheduleTrigger,"weekly");
+  assert.equal(state.fridaySlot,"2026-10-30");
+  const next=await finish(f,mondayDue+60000);
+  assert.equal(next.status.status,"completed");
+  assert.equal(next.status.scheduleTrigger,"weekly");
+  assert.ok(Date.parse(next.status.weeklyCompletedAt)>Date.parse(originalCompleted));
+  assert.equal(next.status.lastFridaySlot,"2026-10-30");
+});
+test("an already running campaign is continued instead of being duplicated on Friday",async()=>{
+  const f=fixture();await f.seed();
+  const monday=Date.parse("2026-10-26T10:00:00Z");
+  await finish(f,monday);
+  const Fri=Date.parse("2026-10-30T00:00:00Z");
+  await runGameDifferentialTick(f.env,f.provider,Fri);
+  const first=JSON.parse(f.store.get("game-archive/v1/diff/state.json"));
+  const next=await runGameDifferentialTick(f.env,f.provider,Fri+60000);
+  const second=JSON.parse(f.store.get("game-archive/v1/diff/state.json"));
+  assert.equal(second.runId,first.runId);
+  assert.equal(second.scheduleTrigger,"friday");
+  assert.ok(["scanning","checking"].includes(next.status));
+  assert.equal(second.fridaySlot,"2026-10-30");
+});
+test("a normal weekly campaign on Friday claims the Friday slot too",async()=>{
+  const f=fixture();await f.seed();
+  const base=await finish(f,Date.parse("2026-10-23T00:30:00Z"));
+  const weeklyDue=Date.parse(base.status.completedAt)+7*86400000+60000;
+  assert.equal(gameFridaySlot(weeklyDue),"2026-10-30");
+  const starting=await runGameDifferentialTick(f.env,f.provider,weeklyDue);
+  assert.equal(starting.status,"scanning");
+  const state=JSON.parse(f.store.get("game-archive/v1/diff/state.json"));
+  assert.equal(state.scheduleTrigger,"weekly");
+  assert.equal(state.fridaySlot,"2026-10-30",
+    "two scheduling triggers must never start duplicate full scans");
 });
