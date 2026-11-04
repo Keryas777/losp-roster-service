@@ -222,7 +222,11 @@ async function scan(b,s,now){
     const phase=phase2RootTasks().map(t=>({
       path:t.path+(t.mode==="list"?"?page=1&perPage=100":"")
     }));
-    await queue(b,s,[...roots,...phase],now);
+    // French event list is sampled in the SAME weekly campaign. The
+    // existing English list remains the canonical fallback. Subsequent FR
+    // pages are discovered by the standard pagination logic.
+    const frenchEvents={path:"/game/v1/events?page=1&perPage=100&lang=fr"};
+    await queue(b,s,[...roots,...phase,frenchEvents],now);
     s.scanPhase="done";s.status="checking";s.cursor=null;
     s.lastOutcome="baseline-indexed";
     await write(b,STATE,s);
