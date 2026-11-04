@@ -820,7 +820,7 @@ test("Friday campaign starts once, WITHOUT moving the existing 7-day Monday dead
   const Friday=Date.parse("2026-10-30T00:00:00Z");
   const callsBefore=f.calls.length;
   assert.equal((await runGameDifferentialTick(f.env,f.provider,Friday-60000)).status,
-    "up-to-date","the Friday run must not begin before 01:00 Paris");
+    "completed","the Friday run must not begin before 01:00 Paris");
   assert.equal(f.calls.length,callsBefore);
   const trigger=await runGameDifferentialTick(f.env,f.provider,Friday);
   assert.equal(trigger.status,"scanning","the new Friday run uses existing scan/check pipeline");
@@ -837,7 +837,7 @@ test("Friday campaign starts once, WITHOUT moving the existing 7-day Monday dead
   const beforeNoRepeat=f.calls.length;
   const sameFriday=await runGameDifferentialTick(f.env,f.provider,
     Date.parse("2026-10-30T00:59:00Z"));
-  assert.equal(sameFriday.status,"up-to-date");
+  assert.equal(sameFriday.status,"completed");
   assert.equal(f.calls.length,beforeNoRepeat,
     "no repeat collection inside the 1h Friday window");
   const mondayDue=Date.parse(originalCompleted)+7*86400000+60000;
