@@ -2,6 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {rewardWindow,runRewardInfoAutoTick} from "../src/member-info-reward.js";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
+import {GUEST_APPROVAL_KEY} from "../src/guest-alliance-approvals.js";
 
 const t=s=>Date.parse(s);
 const fp1="1".repeat(64),fp2="2".repeat(64),fp3="3".repeat(64);
@@ -70,3 +71,17 @@ test("failing retention guard never triggers another request",async()=>{
     t("2026-11-02T16:01:00Z"),async()=>{throw Error("must not fetch");});
   assert.equal(result.status,"retention-not-confirmed");
 });
+
+test("automatic reward-time scheduling includes guests but keeps existing LoSP order",async()=>{
+ const f=fixture(),guest="4".repeat(64),sampled=[];
+ f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,
+   alliances:[{fingerprint:guest}]}));
+ for(let i=1;i<=4;i++){
+   const minute=String(i).padStart(2,"0");
+   await runRewardInfoAutoTick(f.env,t("2026-11-02T16:"+minute+":00Z"),
+     async()=>{throw Error("No provider access in injected collector");},
+     async(_env,fp)=>{sampled.push(fp);return {status:"complete",requests:0};});
+ }
+ assert.deepEqual(sampled,[fp1,fp2,fp3,guest]);
+});
+

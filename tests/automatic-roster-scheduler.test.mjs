@@ -4,6 +4,7 @@ import {createHash} from "node:crypto";
 import {RosterBatchLock} from "../src/roster-batch-lock.js";
 import {CAPTAIN_PREFIX} from "../src/captain-vault.js";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
+import {GUEST_APPROVAL_KEY} from "../src/guest-alliance-approvals.js";
 import {completeKey,trophyCardKey,BATCH_PREFIX} from "../src/private-roster-batches.js";
 import {rosterAttemptKey,rosterCooldownKey} from "../src/roster-auto-diagnostics.js";
 import {ROSTER_CRON,TICK_API_BUDGET,rosterWindow,manualRosterWindow,runRosterAutoTick,rosterAutoStatus,handleAdminRosterAutoTest,handleAdminRosterAutoResume} from "../src/automatic-roster-scheduler.js";
@@ -704,3 +705,28 @@ test("recovery queue endpoint is protected by the same Cloudflare Access gate",a
  const workerSource=await index.readFile(new URL("../src/index.js",import.meta.url),"utf8");
  assert.match(workerSource,/runRosterRecoveryTick\(env,controller.scheduledTime\)/);
 });
+
+test("guest collection shares the existing cron without blocking LoSP-only GitHub dispatch",async()=>{
+ const f=fixture(),outside="0".repeat(64),github=[];
+ f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
+   {fingerprint:outside}
+ ]}));
+ f.env.ROSTER_GITHUB_DISPATCH_ENABLED="true";
+ f.env.ROSTER_GITHUB_DISPATCH_TOKEN="FAKE_GITHUB_ONLY";
+ const fakeGithub=async(url)=>{
+   github.push(url);return new Response(null,{status:204});
+ };
+ for(const minute of ["02:00","02:02","02:04"]){
+   const r=await runRosterAutoTick(f.env,
+     controller("2026-11-04T"+minute+":00Z"),f.fetchImpl,
+     {githubFetch:fakeGithub});
+   assert.equal(r.status,"processed");
+   assert.equal(r.alliancesProcessed,2);
+   assert.ok(r.requestsThisTick<=48);
+ }
+ assert.ok(f.store.has(completeKey(fp)),"LoSP completion is preserved");
+ assert.equal(f.store.has(completeKey(outside)),false,"no invented outside roster");
+ assert.equal(github.length,1,"missing guest must not hold the LoSP publication");
+ assert.match(github[0],/pull-rosters-r2\\.yml/);
+});
+
