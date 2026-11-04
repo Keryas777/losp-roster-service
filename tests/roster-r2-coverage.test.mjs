@@ -1,11 +1,12 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
-import {Script} from "node:vm";
+import {Script,runInNewContext} from "node:vm";
 import {handleRosterR2Coverage} from "../src/roster-r2-coverage.js";
 import {handleAdmin} from "../src/admin-routes.js";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 import {GUEST_APPROVAL_KEY} from "../src/guest-alliance-approvals.js";
+import {CONNECTED_ALLIANCE_PREFIX} from "../src/connected-alliance-index.js";
 import {BATCH_PREFIX,BATCH_MAX_AGE_MS} from "../src/private-roster-batches.js";
 import {rosterAttemptKey,rosterCooldownKey,rosterAttemptRecord}
   from "../src/roster-auto-diagnostics.js";
@@ -347,4 +348,101 @@ test("R2 admin keeps targeted resume buttons enabled after initial load and re-r
  assert.equal(requests.filter(x=>x.url==="/admin/api/roster-auto-recovery").length,2);
  assert.equal(buttons().find(x=>x.textContent.startsWith("Micro-lot manuel")).disabled,false);
  assert.equal(nodes.get("roster-r2-refresh").disabled,false);
+});
+
+
+test("guest display name comes from cached Scopely directory without any provider or R2 writes",async()=>{
+  const f=fixture(),guest=fp("f"),other=fp("e");
+  f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
+    {fingerprint:guest}
+  ]}));
+  const cached=(sid,fingerprint,name,offset=0)=>f.store.set(
+    CONNECTED_ALLIANCE_PREFIX+sid,JSON.stringify({version:1,fingerprint,name,
+      observedAt:new Date(now-offset).toISOString()}));
+  cached(fp("a"),guest,"Ancien nom",3600_000);
+  cached(fp("b"),guest,"<color=red>ΜΛЯΠΣƧ</color>",60_000);
+  cached(fp("c"),fp(1),"FAUSSE ATHÉNA",30_000); // LoSP name is not overridden
+  cached(fp("d"),other,"ALLIANCE NON APPROUVÉE",20_000);
+  const listed=[];
+  f.env.CAPTAIN_BUCKET.list=async opts=>{
+    listed.push(opts);
+    const keys=[...f.store.keys()].filter(k=>k.startsWith(opts.prefix));
+    return {objects:keys.map(key=>({key})),truncated:false};
+  };
+  const data=await(await handleRosterR2Coverage(request(),f.env,now)).json();
+  assert.equal(data.status,"ok");
+  assert.equal(data.approvedCount,6);
+  assert.equal(data.alliances.at(-1).name,"<color=red>ΜΛЯΠΣƧ</color>");
+  assert.equal(data.alliances[0].name,"Zeus");
+  assert.deepEqual(listed.map(x=>x.prefix),[CONNECTED_ALLIANCE_PREFIX]);
+  assert.deepEqual(f.writes,[]);
+  assert.ok(f.read.every(k=>!k.startsWith("oauth-captains/")));
+  assert.doesNotMatch(JSON.stringify(data),/ALLIANCE NON APPROUVÉE|FAUSSE ATHÉNA/);
+  const selected=await(await handleRosterR2Coverage(
+    request("?fingerprint="+guest),f.env,now)).json();
+  assert.equal(selected.scope,"full");
+  assert.equal(selected.alliances[0].name,"<color=red>ΜΛЯΠΣƧ</color>");
+});
+
+test("missing, stale, malformed or unavailable cached guest names keep the generic label",async()=>{
+  const f=fixture(),guest=fp("f"),sid=fp("a");
+  f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
+    {fingerprint:guest}
+  ]}));
+  let objects=[];
+  f.env.CAPTAIN_BUCKET.list=async()=>({objects,truncated:false});
+  const readName=async()=> (await(await handleRosterR2Coverage(
+    request(),f.env,now)).json()).alliances.at(-1).name;
+  assert.equal(await readName(),"Alliance invitée");
+  const key=CONNECTED_ALLIANCE_PREFIX+sid;
+  objects=[{key}];
+  const save=(name,stamp)=>f.store.set(key,JSON.stringify({
+    version:1,fingerprint:guest,name,observedAt:stamp
+  }));
+  save("Trop ancien",new Date(now-8*86400000).toISOString());
+  assert.equal(await readName(),"Alliance invitée");
+  save("Nom futur",new Date(now+3600_000).toISOString());
+  assert.equal(await readName(),"Alliance invitée");
+  save("<script>danger</script>","invalid-date");
+  assert.equal(await readName(),"Alliance invitée");
+  f.env.CAPTAIN_BUCKET.list=async()=>{throw Error("unavailable");};
+  assert.equal(await readName(),"Alliance invitée");
+  assert.deepEqual(f.writes,[]);
+});
+
+test("paginated guest directory uses latest entry; incomplete listing cannot mislabel",async()=>{
+  const f=fixture(),guest=fp("f");
+  f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
+    {fingerprint:guest}
+  ]}));
+  const keys=[fp("a"),fp("b")].map(s=>CONNECTED_ALLIANCE_PREFIX+s);
+  f.store.set(keys[0],JSON.stringify({version:1,fingerprint:guest,name:"Ancien",
+    observedAt:new Date(now-2000).toISOString()}));
+  f.store.set(keys[1],JSON.stringify({version:1,fingerprint:guest,name:"À jour",
+    observedAt:new Date(now-1000).toISOString()}));
+  f.env.CAPTAIN_BUCKET.list=async opts=>opts.cursor?
+    {objects:[{key:keys[1]}],truncated:false}:
+    {objects:[{key:keys[0]}],truncated:true,cursor:"page-2"};
+  let data=await(await handleRosterR2Coverage(request(),f.env,now)).json();
+  assert.equal(data.alliances.at(-1).name,"À jour");
+  f.env.CAPTAIN_BUCKET.list=async()=>({objects:[{key:keys[0]}],
+    truncated:true,cursor:null});
+  data=await(await handleRosterR2Coverage(request(),f.env,now)).json();
+  assert.equal(data.alliances.at(-1).name,"Alliance invitée");
+  assert.deepEqual(f.writes,[]);
+});
+
+test("guest MSF color markup renders as a clean safe name in the R2 admin card",async()=>{
+  const js=await readFile(new URL("../public/admin-roster-r2-coverage.js",import.meta.url),"utf8");
+  const start=js.indexOf("  const title=(card,value)=>{");
+  const end=js.indexOf("\n  function render(",start);
+  assert.ok(start>=0&&end>start);
+  const node=tag=>({tag,style:{},children:[],append(...items){this.children.push(...items);}});
+  const document={createElement:node,createTextNode:text=>({textContent:text})};
+  const show=runInNewContext(js.slice(start,end)+"\ntitle",{document});
+  const card=node("article");
+  show(card,"<color=red>ΜΛЯΠΣƧ</color>");
+  assert.equal(card.children[0].children[0].textContent,"ΜΛЯΠΣƧ");
+  assert.equal(card.children[0].children[0].style.color,"#ff6060");
+  assert.doesNotMatch(JSON.stringify(card),/<color|<script/i);
 });
