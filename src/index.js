@@ -17,6 +17,7 @@ import {GAME_ARCHIVE_CRON,runGameArchiveTick} from "./game-catalog-archive.js";
 import {runGameArchiveSchemaAuditTick} from "./game-archive-schema-audit.js";
 import {runGameMaterialAuditTick} from "./game-material-audit.js";
 import {publicAwakenedMaterials} from "./awakened-material-catalog.js";
+import {publicEvents} from "./public-events.js";
 import {runGameOrphanAuditTick} from "./game-archive-orphan-audit.js";
 import {runGameProvenanceReconcileTick} from "./game-archive-provenance-reconcile.js";
 import {runPlayerCampaignTick} from "./player-campaign.js";
@@ -352,6 +353,8 @@ export default {
   },
   async fetch(request, env) {
     const url = new URL(request.url);
+    if(url.pathname==="/api/public/events")
+      return publicEvents(request,env);
     if(url.pathname==="/api/public/awakened-materials")
       return publicAwakenedMaterials(request,env);
     if(url.pathname==="/api/public/arena-history")
