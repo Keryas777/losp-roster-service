@@ -2,7 +2,7 @@
 // No cron collection, no WebApp push, no public download, no Google Sheets writes.
 import {CAPTAIN_PREFIX,validCaptainKey,captainConfigReady} from "./captain-vault.js";
 import {discoverAlliance,listCaptainSessionKeys} from "./alliance-coverage.js";
-import {readApproval} from "./roster-sync-preflight.js";
+import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
 import {collectAllianceRosterSample} from "./roster-collector.js";
 
 export const ROSTER_PILOT_PREFIX="roster-pilot/v1/latest/";
@@ -89,7 +89,7 @@ async function collectPilot(env,selected,fp,fetchImpl,now){
   const after=await discoverAlliance(selected.token,fetchImpl);
   if(!after.ok||after.aid!==selected.aid)
     return {status:"alliance-changed-during-read"};
-  const approvalAgain=await readApproval(env);
+  const approvalAgain=await readCollectibleApprovals(env);
   if(!approvedFingerprint(approvalAgain,fp))
     return {status:"approval-withdrawn"};
   const record={
@@ -129,7 +129,7 @@ export async function handlePrivateRosterPilot(request,env,fetchImpl=fetch,now=D
     requested=parsed.fingerprint;
   }catch{return answer({status:"invalid-selection"},400);}
   try{
-    const approval=await readApproval(env);
+    const approval=await readCollectibleApprovals(env);
     if(!approvedFingerprint(approval,requested))
       return answer({status:"alliance-not-approved"},403);
     const account=await chooseAccount(env,requested,fetchImpl);
@@ -146,7 +146,7 @@ export async function prunePrivateRosterPilots(env,now=Date.now()){
   if(!env?.CAPTAIN_BUCKET?.list||!env?.CAPTAIN_BUCKET?.delete||
      !env?.CAPTAIN_BUCKET?.get)return {status:"disabled"};
   try{
-    const approval=await readApproval(env);
+    const approval=await readCollectibleApprovals(env);
     const allowed=new Set(approval.status==="configured"?
       approval.alliances.map(a=>a.fingerprint):[]);
     let deleted=0,checked=0,cursor;

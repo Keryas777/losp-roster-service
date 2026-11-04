@@ -2,7 +2,7 @@
 // Exactly 1-2 OTHER members per batch; a connected account's own roster is deferred.
 import {captainConfigReady} from "./captain-vault.js";
 import {chooseAccount,approvedFingerprint} from "./private-roster-pilot.js";
-import {readApproval} from "./roster-sync-preflight.js";
+import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
 import {discoverAlliance} from "./alliance-coverage.js";
 import {collectAllianceRosterSample,collectPersonalRoster} from "./roster-collector.js";
 
@@ -165,7 +165,7 @@ export async function getRosterBatchStatus(request,env,now=Date.now()){
   const fp=new URL(request.url).searchParams.get("fingerprint");
   if(!FP.test(fp||""))return answer({status:"invalid-selection"},400);
   try{
-    const approval=await readApproval(env);
+    const approval=await readCollectibleApprovals(env);
     if(!approvedFingerprint(approval,fp))return answer({status:"alliance-not-approved"},403);
     return answer(publicState(await readState(env,fp),now));
   }catch{return answer({status:"unavailable"},503);}
@@ -230,7 +230,7 @@ async function finishSelf(env,fp,previous,selected,baseline,now,fetchImpl,tick){
   const after=await discoverAlliance(selected.token,fetchImpl,{includeSourcePayload:true});
   if(!after.ok||after.aid!==selected.aid)
     return answer({status:"alliance-changed-during-read"},409);
-  if(!approvedFingerprint(await readApproval(env),fp))
+  if(!approvedFingerprint(await readCollectibleApprovals(env),fp))
     return answer({status:"approval-withdrawn"},409);
   await storeAllianceSource(env,fp,previous.runId,now,{
     card:after.sourcePayload,
@@ -309,7 +309,7 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
   }catch{return answer({status:"invalid-selection"},400);}
   let holder=crypto.randomUUID(),acquired=false;
   try{
-    const approval=await readApproval(env);
+    const approval=await readCollectibleApprovals(env);
     if(!approvedFingerprint(approval,fp))return answer({status:"alliance-not-approved"},403);
     const status=await lock(env,fp,"acquire",holder);
     if(status!=="acquired")return answer({status:status==="busy"?"busy":"lock-unavailable"},409);
@@ -425,7 +425,7 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     const stillCurrent=await discoverAlliance(selected.token,fetchImpl,{includeSourcePayload:true});
     if(!stillCurrent.ok||stillCurrent.aid!==selected.aid)
       return answer({status:"alliance-changed-during-read"},409);
-    if(!approvedFingerprint(await readApproval(env),fp))
+    if(!approvedFingerprint(await readCollectibleApprovals(env),fp))
       return answer({status:"approval-withdrawn"},409);
     // The lock ensures only one writer updates the alliance's current progress.
     const runId=previous?.runId||crypto.randomUUID();

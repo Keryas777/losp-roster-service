@@ -3,7 +3,7 @@
 // /members includes everybody, regardless of rosterShare.
 // Volatile member IDs are used only within a verified single campaign.
 import {chooseAccount,approvedFingerprint} from "./private-roster-pilot.js";
-import {readApproval} from "./roster-sync-preflight.js";
+import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
 import {API_KEY} from "./player-card.js";
 
 export const INFO_PREFIX="roster-batches/v1/";
@@ -113,7 +113,7 @@ export async function runMemberInfoTick(env,fp,slot,fetchImpl=fetch){
     const cooldown=await read(bucket,cooldownKey(fp),3000);
     if(Number.isFinite(Date.parse(cooldown?.until))&&Date.parse(cooldown.until)>now)
       return {status:"cooldown",requests};
-    if(!approvedFingerprint(await readApproval(env),fp))
+    if(!approvedFingerprint(await readCollectibleApprovals(env),fp))
       return {status:"approval-withdrawn",requests};
     // chooseAccount revalidates the CURRENT Scopely alliance on every tick.
     const account=await chooseAccount(env,fp,fetchImpl);
@@ -160,7 +160,7 @@ export async function runMemberInfoTick(env,fp,slot,fetchImpl=fetch){
     const verified=after.status==="ok"?membersFrom(after.data):null;
     if(!verified||identity(verified)!==identity(members))
       return {status:"membership-changed",requests};
-    if(!approvedFingerprint(await readApproval(env),fp))
+    if(!approvedFingerprint(await readCollectibleApprovals(env),fp))
       return {status:"approval-withdrawn",requests};
     const rows=projectInfoRows(verified,state.extras,account.name);
     // No member IDs, OAuth tokens, private application messages, or raw provider envelopes.
