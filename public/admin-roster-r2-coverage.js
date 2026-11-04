@@ -46,8 +46,10 @@
     // Official MSF tags are inline colors, not part of the displayed name.
     const raw=String(value??"");
     const markers=raw.match(/<#[0-9a-f]{6}>/gi);
-    const color=markers?.length?"#"+markers[markers.length-1].slice(2,-1):null;
+    const color=markers?.length?"#"+markers[markers.length-1].slice(2,-1):
+      /<color=red>/i.test(raw)?"#ff6060":null;
     const clean=raw.replace(/<#[0-9a-f]{6}>/gi,"")
+      .replace(/<\/?color(?:=[^>]{1,32})?>/gi,"")
       .replace(/\s+/g," ").trim().replace(/^(LoSP\s+){2,}/i,"LoSP ");
     const match=/^(LoSP\s+)(.+)$/i.exec(clean);
     const strong=document.createElement("strong");

@@ -1,7 +1,7 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
-import {Script} from "node:vm";
+import {Script,runInNewContext} from "node:vm";
 import {handleRosterR2Coverage} from "../src/roster-r2-coverage.js";
 import {handleAdmin} from "../src/admin-routes.js";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
@@ -430,4 +430,19 @@ test("paginated guest directory uses latest entry; incomplete listing cannot mis
   data=await(await handleRosterR2Coverage(request(),f.env,now)).json();
   assert.equal(data.alliances.at(-1).name,"Alliance invitée");
   assert.deepEqual(f.writes,[]);
+});
+
+test("guest MSF color markup renders as a clean safe name in the R2 admin card",async()=>{
+  const js=await readFile(new URL("../public/admin-roster-r2-coverage.js",import.meta.url),"utf8");
+  const start=js.indexOf("  const title=(card,value)=>{");
+  const end=js.indexOf("\n  function render(",start);
+  assert.ok(start>=0&&end>start);
+  const node=tag=>({tag,style:{},children:[],append(...items){this.children.push(...items);}});
+  const document={createElement:node,createTextNode:text=>({textContent:text})};
+  const show=runInNewContext(js.slice(start,end)+"\ntitle",{document});
+  const card=node("article");
+  show(card,"<color=red>ΜΛЯΠΣƧ</color>");
+  assert.equal(card.children[0].children[0].textContent,"ΜΛЯΠΣƧ");
+  assert.equal(card.children[0].children[0].style.color,"#ff6060");
+  assert.doesNotMatch(JSON.stringify(card),/<color|<script/i);
 });
