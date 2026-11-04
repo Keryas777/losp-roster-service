@@ -782,3 +782,20 @@ test("unknown metadata and actual data modifications remain detectable",async()=
   assert.equal(JSON.parse(f.store.get(withData.receiptKey)).status,"changed");
   assert.ok(third.status.changed>=1);
 });
+
+
+test("French event page is queued only by the existing weekly differential",async()=>{
+  const f=fixture();await f.seed();
+  const {status,ts}=await finish(f);
+  assert.equal(status.status,"completed");
+  const path="/game/v1/events?page=1&perPage=100&lang=fr";
+  const url="https://api.marvelstrikeforce.com"+path;
+  assert.ok(f.calls.some(call=>call.url===url));
+  assert.ok(f.store.has("game-archive/v1/diff/latest/"+
+    sha(path)+".json"));
+  const before=f.calls.filter(call=>call.url===url).length;
+  const state=await runGameDifferentialTick(f.env,f.provider,ts+3600000);
+  assert.equal(state.status,"completed");
+  assert.equal(f.calls.filter(call=>call.url===url).length,before,
+    "No extra /game fetch between weekly runs");
+});
