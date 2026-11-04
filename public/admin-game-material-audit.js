@@ -147,5 +147,7 @@
     link.click();
     setTimeout(()=>URL.revokeObjectURL(url),1000);
   });
-  status.textContent="Audit R2 non chargé. Clique sur « Actualiser le rapport ».";
+  // Restore the persisted Cron report when the admin page is reopened.
+  // Read-only; the manual refresh button remains available on failure.
+  void read();
 })();
