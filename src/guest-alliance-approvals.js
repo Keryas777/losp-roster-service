@@ -60,7 +60,8 @@ export async function readCollectibleApprovals(env){
 }
 
 // Called exclusively behind the signed Cloudflare Access admin gate.
-// Approval checks a CURRENT OAuth session whose in-game rank is leader/captain.
+// Approval requires a fresh, valid Scopely alliance census plus explicit admin
+// action. In-game rank isn't an OAuth permission: Scopely enforces roster sharing.
 // Revocation needs no Scopely calls, never changes the LoSP registry.
 export async function handleGuestAllianceApproval(request,env,fetchImpl=fetch){
   if(request.method!=="POST")return reply({error:"method-not-allowed"},405);
@@ -88,12 +89,10 @@ export async function handleGuestAllianceApproval(request,env,fetchImpl=fetch){
       return reply({error:"already-losp-approved"},409);
     const already=guest.alliances.some(a=>a.fingerprint===fingerprint);
     if(action==="approve"&&!already){
-      const scan=await scanPrivateCoverage(env,fetchImpl,{verifyOfficer:true});
+      const scan=await scanPrivateCoverage(env,fetchImpl);
       const verified=scan?.alliances?.find(a=>
         a.allianceFingerprint===fingerprint&&a.status==="available");
       if(!verified)return reply({error:"alliance-not-currently-verifiable"},409);
-      if(verified.officerConnection!==true)
-        return reply({error:"captain-or-leader-required"},403);
     }
     const alliances=action==="approve"?
       already?guest.alliances:[...guest.alliances,{fingerprint}]:

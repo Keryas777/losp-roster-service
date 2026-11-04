@@ -9,8 +9,10 @@ n'autorise aucune publication des données invitées par la WebApp actuelle.
    (notamment `m3p.f.pr.ros`, `m3p.f.ar.ros` et `offline` effectivement accordés).
 2. Dans `/admin#rosters`, « Autoriser la collecte invitée » procède à un
    recensement Scopely frais. L'alliance doit être actuelle, disponible et
-   associée à au moins une session dont `isSelf` a le rang `leader` ou
-   `captain`. L'approbation nécessite le contrôle Cloudflare Access.
+   associée à une session OAuth avec un unique membre `isSelf` vérifié.
+   L'approbation nécessite le contrôle Cloudflare Access. Le rang en jeu
+   n'est pas une permission OAuth et n'est donc pas un critère bloquant :
+   les droits Scopely et `rosterShare` restent vérifiés par les collecteurs.
 3. Seul le **fingerprint SHA-256 du stable aid** est inscrit dans
    `roster-sync/v1/approved-guest-alliances.json`. Pas de jeton, pseudo,
    roster, identifiant de membre temporaire ni nom d'alliance dans ce registre.
