@@ -1,0 +1,112 @@
+import {test} from "node:test";
+import assert from "node:assert/strict";
+import {createHash} from "node:crypto";
+import {CAPTAIN_PREFIX} from "../src/captain-vault.js";
+import {ROSTER_APPROVAL_KEY,readApproval} from "../src/roster-sync-preflight.js";
+import {GUEST_APPROVAL_KEY,readGuestApprovals,readCollectibleApprovals,
+  handleGuestAllianceApproval} from "../src/guest-alliance-approvals.js";
+
+const origin="https://losp-roster-service.deliriousfan7.workers.dev";
+const hash=s=>createHash("sha256").update(s).digest("hex");
+const guest=hash("outside-aid"),losp=hash("losp-aid");
+function fixture(role="captain"){
+  const store=new Map(),calls=[];
+  const state={role};
+  store.set(ROSTER_APPROVAL_KEY,JSON.stringify({version:1,
+    alliances:[{fingerprint:losp,name:"Zeus"}]}));
+  const env={
+    CAPTAIN_SESSIONS_ENABLED:"true",CAPTAIN_ENCRYPTION_KEY_HEX:"ac".repeat(32),
+    CAPTAIN_BUCKET:{
+      get:async k=>store.has(k)?{text:async()=>store.get(k)}:null,
+      put:async(k,v)=>store.set(k,v),
+      list:async()=>({objects:[{key:CAPTAIN_PREFIX+"a".repeat(64)}],truncated:false})
+    },
+    CAPTAIN_REFRESH_COORDINATOR:{
+      idFromName:k=>k,
+      get:()=>({fetch:async()=>Response.json({status:"active",accessToken:"SECRET"})})
+    }
+  };
+  const provider=async(uri)=>{
+    calls.push(uri);
+    if(uri.endsWith("/alliance/card"))
+      return Response.json({data:{id:"outside-aid:v1",name:"Invités de test"}});
+    if(uri.endsWith("/alliance/members"))
+      return Response.json({data:[
+        {id:"self",isSelf:true,rank:state.role,
+          card:{name:"Leader",rosterShare:false}},
+        {id:"co",isSelf:false,rank:"member",
+          card:{name:"Membre",rosterShare:true}}
+      ]});
+    throw Error("Unexpected request: "+uri);
+  };
+  const request=(fingerprint,action="approve",override={})=>new Request(origin+
+    "/admin/api/guest-alliance-approval",{
+      method:"POST",headers:{Origin:override.origin||origin,
+        "Content-Type":"application/json"},
+      body:JSON.stringify({fingerprint,action})
+    });
+  return {env,store,calls,state,provider,request};
+}
+test("a captain can explicitly enroll her own current guest alliance, without altering LoSP",async()=>{
+  const f=fixture();
+  const before=(await readApproval(f.env)).alliances;
+  const response=await handleGuestAllianceApproval(f.request(guest),f.env,f.provider);
+  assert.equal(response.status,200);
+  assert.deepEqual(await response.json(),{status:"approved",count:1});
+  const raw=f.store.get(GUEST_APPROVAL_KEY);
+  const saved=JSON.parse(raw);
+  assert.deepEqual(saved.alliances,[{fingerprint:guest}]);
+  assert.doesNotMatch(raw,/SECRET|Invités de test|Leader|Membre|outside-aid/);
+  assert.deepEqual((await readApproval(f.env)).alliances,before);
+  const merged=await readCollectibleApprovals(f.env);
+  assert.deepEqual(merged.lospAlliances,before);
+  assert.deepEqual(merged.guestAlliances.map(a=>a.fingerprint),[guest]);
+  assert.equal(merged.status,"configured");
+  assert.ok(f.calls.every(u=>!u.includes("/roster")));
+  const duplicate=await handleGuestAllianceApproval(f.request(guest),f.env,f.provider);
+  assert.equal((await duplicate.json()).status,"already-approved");
+  const revoked=await handleGuestAllianceApproval(f.request(guest,"revoke"),
+    f.env,f.provider);
+  assert.equal((await revoked.json()).status,"revoked");
+  assert.equal((await readGuestApprovals(f.env)).alliances.length,0);
+  assert.deepEqual((await readApproval(f.env)).alliances,before);
+});
+test("a normal member cannot approve a guest collective collection",async()=>{
+  const f=fixture("member");
+  const result=await handleGuestAllianceApproval(f.request(guest),f.env,f.provider);
+  assert.equal(result.status,403);
+  assert.equal((await result.json()).error,"captain-or-leader-required");
+  assert.equal(f.store.has(GUEST_APPROVAL_KEY),false);
+  f.state.role="leader";
+  assert.equal((await handleGuestAllianceApproval(f.request(guest),
+    f.env,f.provider)).status,200);
+});
+test("guest enrollment rejects foreign origin, nonexistent alliance and LoSP promotion",async()=>{
+  const f=fixture();
+  assert.equal((await handleGuestAllianceApproval(f.request(guest,"approve",{
+    origin:"https://evil.example"
+  }),f.env,f.provider)).status,403);
+  assert.equal((await handleGuestAllianceApproval(f.request("e".repeat(64)),
+    f.env,f.provider)).status,409);
+  assert.equal((await handleGuestAllianceApproval(f.request(losp),
+    f.env,f.provider)).status,409);
+  assert.equal(f.store.has(GUEST_APPROVAL_KEY),false);
+});
+test("a broken guest registry fails closed for guests but leaves LoSP available",async()=>{
+  const f=fixture();
+  f.store.set(GUEST_APPROVAL_KEY,'{"version":1,"alliances":[{"fingerprint":"bad"}]}');
+  assert.equal((await readGuestApprovals(f.env)).status,"invalid-registry");
+  const merged=await readCollectibleApprovals(f.env);
+  assert.equal(merged.status,"configured");
+  assert.equal(merged.guestRegistryStatus,"invalid-registry");
+  assert.equal(merged.guestAlliances.length,0);
+  assert.deepEqual(merged.alliances.map(a=>a.fingerprint),[losp]);
+});
+test("LoSP always wins if the same fingerprint is present in both registries",async()=>{
+  const f=fixture();
+  f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,
+    alliances:[{fingerprint:losp},{fingerprint:guest}]}));
+  const merged=await readCollectibleApprovals(f.env);
+  assert.equal(merged.alliances.length,2);
+  assert.deepEqual(merged.guestAlliances.map(a=>a.fingerprint),[guest]);
+});
