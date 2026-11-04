@@ -34,7 +34,7 @@ function setup(total=150){
     const receiptKey=BASE+"diff/runs/"+RUN+"/checks/"+String(page).padStart(8,"0")+".json";
     const receipt={status:"changed",path,sha256:sha,objectKey,storedAt,
       checkedAt:storedAt,...overrides.receipt};
-    const pointer={version:2,path,sha256:sha,objectKey,storedAt,receiptKey,
+    const pointer={version:2,path,sha256:sha,objectKey,storedAt,receiptKey,runId:RUN,
       checkedAt:storedAt,...overrides.pointer};
     store.set(objectKey,source);
     store.set(receiptKey,JSON.stringify(receipt));
@@ -69,7 +69,7 @@ test("fails closed when a page is missing",async()=>{
   const res=await publicEvents(new Request(URL),f.env,NOW);
   assert.equal(res.status,503);assert.equal((await res.json()).status,"unavailable");
 });
-test("fails closed when collection pages carry different event revisions",async()=>{
+test("accepts differing archived metadata hashes within a single verified run",async()=>{
   const f=setup();
   const key=f.refs[1].objectKey;
   const value=JSON.parse(f.store.get(key));
@@ -84,6 +84,20 @@ test("fails closed when collection pages carry different event revisions",async(
   f.store.set(newKey,updated);
   f.store.set(f.refs[1].receiptKey,JSON.stringify(receipt));
   f.store.set(f.refs[1].key,JSON.stringify(pointer));
+  const published=await publicEvents(new Request(URL),f.env,NOW);
+  assert.equal(published.status,200);
+  assert.equal((await published.json()).revision,null);
+});
+test("fails closed when pages belong to different weekly runs",async()=>{
+  const f=setup();
+  const key=f.refs[1].key;
+  const pointer=JSON.parse(f.store.get(key));
+  const receipt=JSON.parse(f.store.get(pointer.receiptKey));
+  const other="a1bcde22-1234-4a22-8b33-aabbccddeeff";
+  const nextReceiptKey=BASE+"diff/runs/"+other+"/checks/00000002.json";
+  pointer.runId=other;pointer.receiptKey=nextReceiptKey;
+  f.store.set(nextReceiptKey,JSON.stringify(receipt));
+  f.store.set(key,JSON.stringify(pointer));
   assert.equal((await publicEvents(new Request(URL),f.env,NOW)).status,503);
 });
 test("fails closed on tampered bytes or expired source, ignoring new checkedAt",async()=>{

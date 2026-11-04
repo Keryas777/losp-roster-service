@@ -101,7 +101,9 @@ async function verifiedPage(bucket,page,now){
   const objectMatch=OBJECT.exec(pointer?.objectKey||"");
   if(pointer?.version!==2||pointer.path!==path||
     !SHA.test(pointer?.sha256||"")||!objectMatch||
-    objectMatch[1]!==pointer.sha256||!RECEIPT.test(pointer.receiptKey||""))
+    objectMatch[1]!==pointer.sha256||!RECEIPT.test(pointer.receiptKey||"")||
+    !/^[a-f0-9-]{36}$/.test(pointer.runId||"")||
+    !pointer.receiptKey.startsWith(ROOT+"diff/runs/"+pointer.runId+"/checks/"))
     throw Error("invalid-pointer");
   const at=stamp(pointer.storedAt,now);
   if(at===null||now-at>=MAX_AGE)throw Error("expired-source");
@@ -119,7 +121,7 @@ async function verifiedPage(bucket,page,now){
     !/^[a-f0-9]{10,64}$/.test(meta.hashes?.events||""))
     throw Error("invalid-page");
   return {data:document.data,total:meta.perTotal,
-    revision:meta.hashes.events,storedAt:pointer.storedAt,
+    runId:pointer.runId,revision:meta.hashes.events,storedAt:pointer.storedAt,
     checkedAt:pointer.checkedAt||receipt.checkedAt};
 }
 export async function buildPublicEvents(env,now=Date.now()){
@@ -132,7 +134,9 @@ export async function buildPublicEvents(env,now=Date.now()){
   for(let p=2;p<=pages;p++)all.push(await verifiedPage(bucket,p,now));
   for(let i=0;i<all.length;i++){
     const page=all[i],expected=Math.min(PER_PAGE,first.total-i*PER_PAGE);
-    if(page.total!==first.total||page.revision!==first.revision||
+    // Compare the weekly verification run, NOT the historical meta.hashes:
+    // semantically unchanged pages may reuse older raw bytes deliberately.
+    if(page.total!==first.total||page.runId!==first.runId||
       page.data.length!==expected)throw Error("inconsistent-catalog");
     for(const raw of page.data){
       const event=project(raw);
@@ -144,7 +148,8 @@ export async function buildPublicEvents(env,now=Date.now()){
   const updatedAt=all.map(x=>x.checkedAt).filter(x=>stamp(x,now)!==null)
     .sort().at(-1)||null;
   return {schemaVersion:1,status:"ok",source:"verified-weekly-game-archive",
-    updatedAt,revision: first.revision,total:first.total,count:events.length,
+    updatedAt,revision: all.every(p=>p.revision===first.revision)?
+      first.revision:null,total:first.total,count:events.length,
     pages,events};
 }
 export async function publicEvents(request,env,now=Date.now()){
