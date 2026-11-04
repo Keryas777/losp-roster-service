@@ -1,4 +1,5 @@
 // Automatic, read-only /game/v1 differential synchronization.
+// Seven-day baseline plus Friday 01:00 Europe/Paris, same bounded collector.
 // A completed original archive is the immutable baseline. The existing 1-min
 // Cron resumes scans and checks; only changed provider JSON is saved as a new
 // version. No unsupported conditional request or private player endpoint.
@@ -15,6 +16,34 @@ const STATE=ROOT+"state.json",ACTIVE=GAME_ARCHIVE_ROOT+"active.json";
 const API="https://api.marvelstrikeforce.com";
 const LOCK="e".repeat(64); // Shared with the existing /game collector and daily budget.
 const HOUR=3600000,WEEK=7*24*HOUR,TICK=12;
+// The Worker Cron already ticks every minute. Interpret the extra collection
+// in Europe/Paris so the start stays at 01:00 through CET/CEST transitions.
+// A Friday date key is claimed when a campaign STARTS (not when it finishes).
+const PARIS_CLOCK=new Intl.DateTimeFormat("en-GB",{
+  timeZone:"Europe/Paris",weekday:"short",year:"numeric",
+  month:"2-digit",day:"2-digit",hour:"2-digit",hourCycle:"h23"
+});
+export function gameFridaySlot(now){
+  const fields=Object.fromEntries(PARIS_CLOCK.formatToParts(new Date(now))
+    .map(part=>[part.type,part.value]));
+  return fields.weekday==="Fri"&&fields.hour==="01"?
+    fields.year+"-"+fields.month+"-"+fields.day:null;
+}
+function weeklyAnchor(s){
+  const last=Date.parse(s?.weeklyCompletedAt||s?.completedAt||"");
+  return Number.isFinite(last)?last:null;
+}
+function scheduledTrigger(s,sourceRun,now){
+  if(!s||s.sourceRun!==sourceRun)return "weekly";
+  const anchor=weeklyAnchor(s);
+  if(anchor===null)return "weekly";
+  if(now<anchor)return null;
+  // The established seven-day cadence is NEVER reset by a Friday run.
+  if(now-anchor>=WEEK)return "weekly";
+  const slot=gameFridaySlot(now);
+  return slot&&s.fridaySlot!==slot?"friday":null;
+}
+
 const DAILY=GAME_ARCHIVE_DAILY_LIMIT; // Match current main after PR #86.
 const BACKFILL_PER_TICK=8,MAX_RECOVERY_RUNS=3;
 // The Scopely terms require a maximum 30-day data TTL. Re-materialize
@@ -78,7 +107,12 @@ function visible(s,enabled=true){
   return {status:s.status,enabled,intervalHours:168,
     startedAt:s.startedAt||null,completedAt:s.completedAt||null,
     lastCheckedAt:s.lastCheckedAt||null,lastChangedAt:s.lastChangedAt||null,
-    nextRunAt:s.completedAt?new Date(Date.parse(s.completedAt)+WEEK).toISOString():null,
+    nextRunAt:weeklyAnchor(s)!==null?
+      new Date(weeklyAnchor(s)+WEEK).toISOString():null,
+    weeklyCompletedAt:s.weeklyCompletedAt||s.completedAt||null,
+    fridaySchedule:"vendredi 01:00 Europe/Paris",
+    lastFridaySlot:s.fridaySlot||null,
+    scheduleTrigger:s.scheduleTrigger||"weekly",
     changed:s.changed||0,unchanged:s.unchanged||0,refreshed:s.refreshed||0,failed:s.failed||0,
     recoveryBackfill:s.recoveryBackfill?{scanned:s.recoveryBackfill.cursor,
       total:s.recoveryBackfill.end}:null,
@@ -206,8 +240,15 @@ async function queue(b,s,candidates,now=Date.now()){
     if(group.added)await write(b,seenKey(s.runId,shard),[...group.seen]);
   }
 }
-function make(source,now){
+function make(source,now,previous=null,trigger="weekly"){
+  const sameSource=previous?.sourceRun===source;
   return {version:1,runId:crypto.randomUUID(),sourceRun:source,
+    scheduleTrigger:trigger,
+    // Legacy records use completedAt as the initial weekly anchor.
+    weeklyCompletedAt:sameSource?
+      (previous.weeklyCompletedAt||previous.completedAt||null):null,
+    // Consume the Friday window even when the 7-day run falls on Friday.
+    fridaySlot:gameFridaySlot(now)||(sameSource?previous.fridaySlot||null:null),
     status:"scanning",scanPhase:"base",cursor:null,
     writeIndex:0,readIndex:0,readOffset:0,queued:0,checked:0,
     changed:0,unchanged:0,refreshed:0,failed:0,retries:0,pauseUntil:null,
@@ -585,6 +626,8 @@ async function checkOne(b,s,task,token,fetchImpl,now,committed=null){
 }
 function done(s,now){
   s.status=s.failed?"partial":"completed";s.completedAt=new Date(now).toISOString();
+  if((s.scheduleTrigger||"weekly")==="weekly")
+    s.weeklyCompletedAt=s.completedAt;
   s.scanPhase="done";s.lastOutcome=s.status;
 }
 export async function gameDifferentialStatus(env){
@@ -606,12 +649,12 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
     if(!UID.test(active?.runId||""))
       return {status:"awaiting-initial-archive"};
     const s=await read(b,STATE);
-    const last=Date.parse(s?.completedAt||"");
     if(s&&["completed","partial"].includes(s.status)&&
-       s.sourceRun===active.runId&&Number.isFinite(last)&&
-       now>=last&&now-last<WEEK)
-      return {status:"up-to-date",nextAt:new Date(last+WEEK).toISOString(),
-        ...visible(s,true)};
+       s.sourceRun===active.runId&&
+       !scheduledTrigger(s,active.runId,now))
+      return {status:"up-to-date",...visible(s,true),
+        nextAt:weeklyAnchor(s)!==null?
+          new Date(weeklyAnchor(s)+WEEK).toISOString():null};
   }catch{
     // On an uncertain R2 read, continue with the original locked checks.
   }
@@ -628,22 +671,21 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
     if(base.phase2&&base.phase2.status!=="done")
       return {status:"awaiting-phase2"};
     let s=await read(b,STATE);
-    const interval=WEEK;
     if(!s||["completed","partial"].includes(s.status)){
-      if(s?.completedAt&&s.sourceRun===active.runId&&
-         now-Date.parse(s.completedAt)<interval)
-        return {status:"up-to-date",nextAt:new Date(Date.parse(s.completedAt)+interval).toISOString(),
-          ...visible(s,true)};
-      // New weekly run. Previous differential objects and latest pointers
-      // are retained unchanged, not deleted or overwritten.
-      s=make(active.runId,now);await write(b,STATE,s);
+      const trigger=scheduledTrigger(s,active.runId,now);
+      if(!trigger)return {status:"up-to-date",...visible(s,true),
+        nextAt:weeklyAnchor(s)!==null?
+          new Date(weeklyAnchor(s)+WEEK).toISOString():null};
+      // Resume the SAME differential pipeline, checkpoints, lock and budget.
+      // Friday never changes the seven-day anchor; no second Cron is needed.
+      s=make(active.runId,now,s,trigger);await write(b,STATE,s);
     }
     if(s.sourceRun!==active.runId){
       // Another admin started a full archive between weekly checks. Keep
       // the old checkpoint for inspection and resume from the new baseline.
       await write(b,ROOT+"runs/"+s.runId+"/superseded.json",{
         ...visible(s,true),supersededAt:new Date(now).toISOString()});
-      s=make(active.runId,now);await write(b,STATE,s);
+      s=make(active.runId,now,null,"weekly");await write(b,STATE,s);
     }
     if(s.pauseUntil&&Date.parse(s.pauseUntil)>now)
       return {status:"cooldown",nextAt:s.pauseUntil};
