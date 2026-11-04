@@ -94,8 +94,9 @@ function project(e){
       brackets:brackets(e.pickYourPoison.brackets)};
   return event;
 }
-async function verifiedPage(bucket,page,now){
-  const path=PATH+"?page="+page+"&perPage="+PER_PAGE;
+async function verifiedPage(bucket,page,now,lang="en"){
+  const path=PATH+"?page="+page+"&perPage="+PER_PAGE+
+    (lang==="fr"?"&lang=fr":"");
   const pointerKey=LATEST+await sha256(path)+".json";
   const {document:pointer}=await read(bucket,pointerKey,5000);
   const objectMatch=OBJECT.exec(pointer?.objectKey||"");
@@ -124,6 +125,111 @@ async function verifiedPage(bucket,page,now){
     runId:pointer.runId,revision:meta.hashes.events,storedAt:pointer.storedAt,
     checkedAt:pointer.checkedAt||receipt.checkedAt};
 }
+// Overlay only public display strings. Keep canonical EN ids, dates,
+// rewards, images and numeric scoring. An incomplete FR section falls back
+// to its English counterpart, never silently replacing numeric mechanics.
+function overlayMethods(original,translated){
+  if(!Array.isArray(original)||!Array.isArray(translated)||
+     original.length!==translated.length)return original;
+  return original.map((method,index)=>{
+    const candidate=translated[index];
+    return candidate?.points===method.points&&candidate.description?
+      {...method,description:candidate.description}:method;
+  });
+}
+function overlayEvent(original,translated){
+  const result={...original};
+  for(const field of ["name","subName","details"])
+    if(translated[field])result[field]=translated[field];
+  if(original.milestone&&translated.milestone){
+    const milestone={...original.milestone};
+    if(translated.milestone.typeName)
+      milestone.typeName=translated.milestone.typeName;
+    const base=original.milestone.scoring,fr=translated.milestone.scoring;
+    if(base&&fr){
+      const scoring={...base};
+      if(fr.description)scoring.description=fr.description;
+      scoring.methods=overlayMethods(base.methods,fr.methods);
+      if(Array.isArray(base.cappedScorings)&&
+         Array.isArray(fr.cappedScorings)&&
+         base.cappedScorings.length===fr.cappedScorings.length){
+        scoring.cappedScorings=base.cappedScorings.map((entry,i)=>{
+          const target=fr.cappedScorings[i];
+          if(entry.cap!==target?.cap||
+             (entry.rewardTier??null)!==(target.rewardTier??null))return entry;
+          return {...entry,methods:overlayMethods(entry.methods,target.methods)};
+        });
+      }
+      milestone.scoring=scoring;
+    }
+    result.milestone=milestone;
+  }
+  if(original.episodic&&translated.episodic?.typeName)
+    result.episodic={...original.episodic,typeName:translated.episodic.typeName};
+  if(original.pickYourPoison&&translated.pickYourPoison?.typeName)
+    result.pickYourPoison={...original.pickYourPoison,
+      typeName:translated.pickYourPoison.typeName};
+  return result;
+}
+function countTranslationChanges(original,translated){
+  let count=0;
+  for(const field of ["name","subName","details"])
+    if(original[field]!==translated[field]&&translated[field])count++;
+  const a=original.milestone?.scoring,b=translated.milestone?.scoring;
+  if(a&&b){
+    if(a.description!==b.description&&b.description)count++;
+    const methods=(left,right)=>{
+      if(!Array.isArray(left)||!Array.isArray(right))return;
+      for(let i=0;i<Math.min(left.length,right.length);i++)
+        if(left[i]?.points===right[i]?.points&&left[i]?.description!==right[i]?.description)
+          count++;
+    };
+    methods(a.methods,b.methods);
+    for(let i=0;i<Math.min(a.cappedScorings?.length||0,b.cappedScorings?.length||0);i++)
+      if(a.cappedScorings[i].cap===b.cappedScorings[i].cap)
+        methods(a.cappedScorings[i].methods,b.cappedScorings[i].methods);
+  }
+  return count;
+}
+// Optional localization. English is always independently verified first;
+// all French pages must be verified in the SAME weekly run and have exactly
+// matching event IDs/times/types before any overlay is accepted.
+async function frenchCatalog(bucket,englishPages,events,now){
+  const first=englishPages[0],count=englishPages.length;
+  const frenchPages=await Promise.all(Array.from({length:count},(_,i)=>
+    verifiedPage(bucket,i+1,now,"fr")));
+  const translated=new Map();
+  for(let i=0;i<count;i++){
+    const page=frenchPages[i],canonical=englishPages[i];
+    if(page.total!==first.total||page.runId!==first.runId||
+       page.data.length!==canonical.data.length)
+      throw Error("incomplete-french-collection");
+    for(const raw of page.data){
+      const projected=project(raw);
+      if(translated.has(projected.id))throw Error("duplicate-french-event");
+      translated.set(projected.id,projected);
+    }
+  }
+  if(translated.size!==events.length)throw Error("french-event-set-mismatch");
+  let changed=0;
+  const merged=events.map(base=>{
+    const french=translated.get(base.id);
+    if(!french||french.type!==base.type||
+       french.startTime!==base.startTime||french.endTime!==base.endTime)
+      throw Error("french-event-identity-mismatch");
+    const localized=overlayEvent(base,french);
+    changed+=countTranslationChanges(base,localized);
+    return localized;
+  });
+  // Do not report a French translation when the provider supplied only
+  // byte-equivalent English text, despite the lang=fr query being verified.
+  if(changed===0)return {events,locale:"en",localizationStatus:"no-translated-text",
+    localizedFields:0,localizedAt:null};
+  const localizedAt=frenchPages.map(p=>p.checkedAt)
+    .filter(x=>stamp(x,now)!==null).sort().at(-1)||null;
+  return {events:merged,locale:"fr",localizationStatus:"verified",
+    localizedFields:changed,localizedAt};
+}
 export async function buildPublicEvents(env,now=Date.now()){
   const bucket=env?.CAPTAIN_BUCKET;
   if(!bucket?.get)throw Error("storage-unavailable");
@@ -147,10 +253,18 @@ export async function buildPublicEvents(env,now=Date.now()){
   if(events.length!==first.total)throw Error("incomplete-catalog");
   const updatedAt=all.map(x=>x.checkedAt).filter(x=>stamp(x,now)!==null)
     .sort().at(-1)||null;
+  let localized={events,locale:"en",
+    localizationStatus:"awaiting-weekly-french-collection",
+    localizedFields:0,localizedAt:null};
+  try{localized=await frenchCatalog(bucket,all,events,now);}
+  catch{
+    // A missing/stale/partial French source never makes the verified
+    // English catalog unavailable to the WebApp.
+  }
   return {schemaVersion:1,status:"ok",source:"verified-weekly-game-archive",
     updatedAt,revision: all.every(p=>p.revision===first.revision)?
       first.revision:null,total:first.total,count:events.length,
-    pages,events};
+    pages,...localized};
 }
 export async function publicEvents(request,env,now=Date.now()){
   if(request.method!=="GET")return response({status:"method-not-allowed"},405);
