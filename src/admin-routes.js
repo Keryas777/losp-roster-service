@@ -5,6 +5,7 @@ import {handleRosterMicrobatch,getRosterBatchStatus} from "./private-roster-batc
 import {rosterAutoStatus,handleAdminRosterAutoTest,handleAdminRosterAutoResume} from "./automatic-roster-scheduler.js";
 import {handleAdminRosterRecovery} from "./roster-auto-recovery.js";
 import {handleConnectedAlliances} from "./connected-alliance-index.js";
+import {handleGuestAllianceApproval} from "./guest-alliance-approvals.js";
 import {handleRosterR2Coverage} from "./roster-r2-coverage.js";
 import {PUBLIC_SOURCE_ROUTES,handlePublicSourceProbe} from "./public-msf-source-probe.js";
 import {handleGameArchiveAdmin} from "./game-catalog-archive.js";
@@ -59,7 +60,7 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<p id="season-ranks-status" role="status"></p>'+
 '<div id="season-ranks-table" class="scroll"></div></section>'+
 '<section id="connected-alliance-directory"><h2>Alliances connectées automatiquement</h2>'+
-'<p>Les alliances des joueurs connectés via Scopely apparaissent ici automatiquement. Leur approbation pour les rosters reste distincte.</p>'+
+'<p>Les alliances des joueurs connectés via Scopely apparaissent ici automatiquement. Leur approbation pour les collectes LoSP ou invitées est explicite et distincte.</p>'+
 '<button id="roster-connected-refresh" type="button">Actualiser les alliances connectées</button>'+
 '<p id="roster-connected-status" role="status">Recherche des alliances déjà connectées…</p>'+
 '<div id="roster-connected-list"></div></section>'+
@@ -275,7 +276,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 export async function handleAdmin(request,env,fetchImpl=fetch){
   const endpoint=new URL(request.url).pathname;
   if(request.method!=="GET"&&!(request.method==="POST"&&
-       ["/admin/api/roster-approvals","/admin/api/roster-approve-one","/admin/api/roster-pilot",
+       ["/admin/api/roster-approvals","/admin/api/roster-approve-one","/admin/api/guest-alliance-approval","/admin/api/roster-pilot",
         "/admin/api/roster-batch","/admin/api/roster-auto-test",
         "/admin/api/roster-auto-resume","/admin/api/roster-auto-recovery",
         "/admin/api/msf-secondary-probe","/admin/api/game-archive",
@@ -329,6 +330,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   if(pathname==="/admin/api/roster-preflight")return rosterSyncPreflight(env,fetchImpl);
   if(pathname==="/admin/api/roster-approvals")return saveRosterSyncApprovals(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-approve-one")return approveOneRosterAlliance(request,env,fetchImpl);
+  if(pathname==="/admin/api/guest-alliance-approval")return handleGuestAllianceApproval(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-pilot")return handlePrivateRosterPilot(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-batch")return handleRosterMicrobatch(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-batch-status")return getRosterBatchStatus(request,env);

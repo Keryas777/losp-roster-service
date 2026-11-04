@@ -81,7 +81,7 @@ export async function readAllianceCoverage(token,fetchImpl=fetch){
   const members=memberResponse.data;
   if(!Array.isArray(members)||members.length>100||members.length===0)
     return fail("invalid-members");
-  let self=0,shared=0,otherShared=0;const ids=new Set();
+  let self=0,shared=0,otherShared=0,officer=false;const ids=new Set();
   for(const member of members){
     if(!member||!validMemberId(member.id)||ids.has(member.id)||
        !member.card||typeof member.card!=="object"||Array.isArray(member.card))
@@ -89,7 +89,10 @@ export async function readAllianceCoverage(token,fetchImpl=fetch){
     ids.add(member.id);
     if(member.isSelf!==true&&typeof member.card.rosterShare!=="boolean")
       return fail("sharing-consent-unverified");
-    if(member.isSelf===true)self++;
+    if(member.isSelf===true){
+      self++;
+      if(["leader","captain"].includes(member.rank))officer=true;
+    }
     if(member.card.rosterShare===true){
       shared++;
       if(member.isSelf!==true)otherShared++;
@@ -97,7 +100,7 @@ export async function readAllianceCoverage(token,fetchImpl=fetch){
   }
   if(self!==1)return fail("current-membership-unverified");
   return {ok:true,members:members.length,shared,otherShared,
-    notShared:members.length-shared};
+    notShared:members.length-shared,officer};
 }
 const sha=async(v)=>Array.from(new Uint8Array(
   await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v))
@@ -140,12 +143,16 @@ export async function scanPrivateCoverage(env,fetchImpl=fetch){
     // normally made; try another captain only if the first provider request fails.
     let result=fail("unavailable");
     for(const session of g.sessions){
-      result=await readAllianceCoverage(session.token,fetchImpl);
-      if(result.ok)break;
+      const current=await readAllianceCoverage(session.token,fetchImpl);
+      if(current.ok){
+        result=current;
+        if(current.officer)break;
+      }else if(!result.ok)result=current;
     }
     alliances.push({
       allianceFingerprint:await sha(aid),name:g.name,
       captainConnections:g.sessions.length,
+      officerConnection:result.ok&&result.officer===true,
       status:result.ok?"available":result.status,
       memberCount:result.ok?result.members:null,
       sharedCount:result.ok?result.shared:null,
