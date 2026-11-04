@@ -1,7 +1,7 @@
 // Independent AM/PM member-info micro-campaigns on the EXISTING every-minute
 // Cloudflare trigger. Separate invocation from roster cron: never adds GETs
 // to a roster tick or violates its 50-subrequest Worker ceiling.
-import {readApproval} from "./roster-sync-preflight.js";
+import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
 import {captainConfigReady} from "./captain-vault.js";
 import {runMemberInfoTick} from "./member-info-campaign.js";
 
@@ -18,7 +18,7 @@ export async function runMemberInfoAutoTick(env,scheduledTime,fetchImpl=fetch){
   const stamp=date.toISOString().slice(0,16)+"Z";
   const slot={campaign,stamp};
   try{
-    const approval=await readApproval(env);
+    const approval=await readCollectibleApprovals(env);
     if(approval.status!=="configured"||!approval.alliances.length)
       return {status:"no-approved-alliances"};
     const alliances=approval.alliances.map(a=>a.fingerprint).sort();

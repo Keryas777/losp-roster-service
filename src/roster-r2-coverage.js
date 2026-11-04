@@ -1,6 +1,6 @@
 // Admin-only, read-only view of APPROVED roster snapshots already in R2.
 // No Scopely GET, OAuth refresh, Durable Object lock or storage mutation.
-import {readApproval} from "./roster-sync-preflight.js";
+import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
 import {BATCH_PREFIX,BATCH_MAX_AGE_MS,completeKey} from "./private-roster-batches.js";
 import {rosterAttemptKey,rosterCooldownKey,verifiedRosterAttempt}
   from "./roster-auto-diagnostics.js";
@@ -146,7 +146,7 @@ export async function handleRosterR2Coverage(request,env,now=Date.now()){
   const bucket=env?.CAPTAIN_BUCKET;
   if(!bucket?.get||!bucket?.head)return respond({error:"storage-unavailable"},503);
   try{
-    const registry=await readApproval(env);
+    const registry=await readCollectibleApprovals(env);
     if(registry.status==="invalid-registry")return respond({error:"invalid-registry"},503);
     const entries=selected?
       registry.alliances.filter(a=>a.fingerprint===selected):registry.alliances;

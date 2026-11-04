@@ -2,6 +2,7 @@
 // Starts at 17:01 Europe/Paris on the existing once-per-minute cron.
 // Stores a short-lived private R2 receipt for each approved alliance.
 import {readApproval} from "./roster-sync-preflight.js";
+import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
 import {captainConfigReady} from "./captain-vault.js";
 import {chooseAccount,approvedFingerprint} from "./private-roster-pilot.js";
 import {projectInfoRows} from "./member-info-campaign.js";
@@ -131,7 +132,7 @@ export async function collectRewardAlliance(env,fp,slot,fetchImpl=fetch){
     if(await read(bucket,receiptKey(fp,slot.day)))return {status:"complete"};
     const pause=await read(bucket,cooldownKey(fp),3000);
     if(Date.parse(pause?.until)>Date.parse(slot.stamp))return {status:"cooldown"};
-    if(!approvedFingerprint(await readApproval(env),fp))
+    if(!approvedFingerprint(await readCollectibleApprovals(env),fp))
       return {status:"approval-withdrawn"};
     const account=await chooseAccount(env,fp,fetchImpl);
     requests+=account.discoveryRequests||0;
@@ -196,7 +197,7 @@ export async function collectRewardAlliance(env,fp,slot,fetchImpl=fetch){
     const verified=after.status==="ok"?validateMembers(after.data):null;
     if(!verified||memberIdentity(verified)!==membership)
       return {status:"membership-changed",requests};
-    if(!approvedFingerprint(await readApproval(env),fp))
+    if(!approvedFingerprint(await readCollectibleApprovals(env),fp))
       return {status:"approval-withdrawn",requests};
     const rows=projectInfoRows(verified,state.extras,account.name);
     const observedAt=rows.map((row,i)=>({
@@ -238,8 +239,9 @@ export function parisRewardDay(timestamp){
     afterReward:minutes>=17*60+1};
 }
 
-async function approvedRewardFingerprints(env){
-  const approval=await readApproval(env);
+async function approvedRewardFingerprints(env,includeGuests=false){
+  const approval=includeGuests?
+    await readCollectibleApprovals(env):await readApproval(env);
   if(approval.status!=="configured"||!approval.alliances.length)
     return null;
   const fps=approval.alliances.map(a=>a.fingerprint).sort();
@@ -399,10 +401,11 @@ export async function runRewardInfoAutoTick(env,scheduledTime,fetchImpl=fetch,
     // The official 17:01–17:30 automatic window always keeps priority.
     // Outside it, only a short-lived, explicitly authorized manual intent
     // can wake this same collector. No extra scheduler or daily campaign.
-    const slot=rewardWindow(scheduledTime)||
-      await manualTickSlot(env,scheduledTime);
+    const automatic=rewardWindow(scheduledTime);
+    const slot=automatic||await manualTickSlot(env,scheduledTime);
     if(!slot)return {status:"outside-window"};
-    const fps=await approvedRewardFingerprints(env);
+    // Automatic campaigns include guests. Explicit manual imports stay LoSP-only.
+    const fps=await approvedRewardFingerprints(env,Boolean(automatic));
     if(!fps)return {status:"no-approved-alliances"};
     return await collectImpl(env,fps[slot.tick%fps.length],slot,fetchImpl);
   }catch{return {status:"unavailable"};}
