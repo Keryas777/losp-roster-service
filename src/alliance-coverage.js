@@ -74,7 +74,7 @@ export async function discoverAlliance(token,fetchImpl=fetch,options={}){
     // fields and meta, only for storage by the private validated batch path.
     ...(options.includeSourcePayload===true?{sourcePayload:card.payload}:{})};
 }
-export async function readAllianceCoverage(token,fetchImpl=fetch){
+export async function readAllianceCoverage(token,fetchImpl=fetch,options={}){
   if(typeof token!=="string"||!token)return fail("missing-token");
   const memberResponse=await jsonGet("/player/v1/alliance/members",token,fetchImpl);
   if(!memberResponse.ok)return memberResponse;
@@ -100,7 +100,8 @@ export async function readAllianceCoverage(token,fetchImpl=fetch){
   }
   if(self!==1)return fail("current-membership-unverified");
   return {ok:true,members:members.length,shared,otherShared,
-    notShared:members.length-shared,officer};
+    notShared:members.length-shared,
+    ...(options.includeOfficer===true?{officer}:{})};
 }
 const sha=async(v)=>Array.from(new Uint8Array(
   await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v))
@@ -120,7 +121,7 @@ async function grant(env,key){
 }
 // A read-only version of multi-alliance discovery for authorized admin requests.
 // It does not persist any results or depend on the daily cron flag.
-export async function scanPrivateCoverage(env,fetchImpl=fetch){
+export async function scanPrivateCoverage(env,fetchImpl=fetch,options={}){
   if(!captainConfigReady(env))return null;
   const keys=await listCaptainSessionKeys(env.CAPTAIN_BUCKET);
   const groups=new Map();
@@ -143,16 +144,19 @@ export async function scanPrivateCoverage(env,fetchImpl=fetch){
     // normally made; try another captain only if the first provider request fails.
     let result=fail("unavailable");
     for(const session of g.sessions){
-      const current=await readAllianceCoverage(session.token,fetchImpl);
+      const current=await readAllianceCoverage(session.token,fetchImpl,
+        options.verifyOfficer===true?{includeOfficer:true}:{});
       if(current.ok){
         result=current;
-        if(current.officer)break;
+        // Existing LoSP scans stop after the first valid response.
+        if(options.verifyOfficer!==true||current.officer===true)break;
       }else if(!result.ok)result=current;
     }
     alliances.push({
       allianceFingerprint:await sha(aid),name:g.name,
       captainConnections:g.sessions.length,
-      officerConnection:result.ok&&result.officer===true,
+      ...(options.verifyOfficer===true?{officerConnection:
+        result.ok&&result.officer===true}:{}),
       status:result.ok?"available":result.status,
       memberCount:result.ok?result.members:null,
       sharedCount:result.ok?result.shared:null,

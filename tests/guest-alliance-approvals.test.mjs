@@ -19,6 +19,7 @@ function fixture(role="captain"){
     CAPTAIN_BUCKET:{
       get:async k=>store.has(k)?{text:async()=>store.get(k)}:null,
       put:async(k,v)=>store.set(k,v),
+      delete:async k=>store.delete(k),
       list:async()=>({objects:[{key:CAPTAIN_PREFIX+"a".repeat(64)}],truncated:false})
     },
     CAPTAIN_REFRESH_COORDINATOR:{

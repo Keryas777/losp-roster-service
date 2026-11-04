@@ -88,7 +88,7 @@ export async function handleGuestAllianceApproval(request,env,fetchImpl=fetch){
       return reply({error:"already-losp-approved"},409);
     const already=guest.alliances.some(a=>a.fingerprint===fingerprint);
     if(action==="approve"&&!already){
-      const scan=await scanPrivateCoverage(env,fetchImpl);
+      const scan=await scanPrivateCoverage(env,fetchImpl,{verifyOfficer:true});
       const verified=scan?.alliances?.find(a=>
         a.allianceFingerprint===fingerprint&&a.status==="available");
       if(!verified)return reply({error:"alliance-not-currently-verifiable"},409);

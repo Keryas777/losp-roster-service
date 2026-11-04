@@ -727,6 +727,6 @@ test("guest collection shares the existing cron without blocking LoSP-only GitHu
  assert.ok(f.store.has(completeKey(fp)),"LoSP completion is preserved");
  assert.equal(f.store.has(completeKey(outside)),false,"no invented outside roster");
  assert.equal(github.length,1,"missing guest must not hold the LoSP publication");
- assert.match(github[0],/pull-rosters-r2\\.yml/);
+ assert.ok(github[0].includes("pull-rosters-r2.yml"));
 });
 
