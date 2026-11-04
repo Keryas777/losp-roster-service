@@ -1,0 +1,83 @@
+# Alliances invitées — collectes privées avec consentement Scopely
+
+Date : 4 novembre 2026. Cette modification étend **le Roster Service** ; elle
+n'autorise aucune publication des données invitées par la WebApp actuelle.
+
+## Flux
+
+1. Un chef ou capitaine extérieur se connecte à `/captain` avec Scopely OAuth
+   (notamment `m3p.f.pr.ros`, `m3p.f.ar.ros` et `offline` effectivement accordés).
+2. Dans `/admin#rosters`, « Autoriser la collecte invitée » procède à un
+   recensement Scopely frais. L'alliance doit être actuelle, disponible et
+   associée à au moins une session dont `isSelf` a le rang `leader` ou
+   `captain`. L'approbation nécessite le contrôle Cloudflare Access.
+3. Seul le **fingerprint SHA-256 du stable aid** est inscrit dans
+   `roster-sync/v1/approved-guest-alliances.json`. Pas de jeton, pseudo,
+   roster, identifiant de membre temporaire ni nom d'alliance dans ce registre.
+4. Les collecteurs existants résolvent les alliances LoSP plus les invitées
+   via `readCollectibleApprovals`. Avant chaque lot ils utilisent la session
+   OAuth active, revalident l'alliance actuelle et le partage `rosterShare` de
+   chaque membre. Les membres sans partage ne sont **jamais** lus via
+   `/player/v1/roster/member/{id}`. Le roster personnel du compte OAuth est
+   lu séparément avec son propre scope.
+5. « Révoquer la collecte invitée » retire immédiatement le fingerprint de
+   la sélection pour les prochains lots. Les données R2 existantes sont
+   limitées par leur durée de vie et doivent être purgées en cas de demande
+   de déconnexion/retrait de données selon les conditions Scopely.
+
+## Réutilisations / séparations
+
+- **Rosters :** micro-lots AM/PM avec vérifications actuelles, Durable Object,
+  checkpoints, plafonds de requêtes et cooldown. Aucun nouveau Cron.
+- **Infos :** collectes AM/PM, puis capture post-récompenses à 17:01 Paris
+  pour les rangs d'Arène de tous les membres de l'alliance. Aucune lecture de
+  roster d'un membre sans partage pour cette tâche.
+- **Arène :** historique glissant **invité privé** sous
+  `roster-batches/v1/guest-arena-history/rolling.json`. L'API publique
+  `/api/public/arena-history` et son historique LoSP restent inchangés.
+- **Guerre / raid :** capture AllianceCard des invités dans
+  `roster-batches/v1/guest-season-ranks/`, séparée du
+  `roster-batches/v1/season-ranks/` LoSP.
+- **Trophées :** les marqueurs AllianceCard des invités sont archivés par
+  le collecteur de rosters, mais le déclenchement GitHub du jeudi/samedi
+  reste **LoSP seulement**.
+- **GitHub :** `dispatchCompleteRosterCampaign` et
+  `dispatchCompleteTrophyCards` ne reçoivent que la liste LoSP originale.
+  Une alliance invitée en panne ne bloque jamais les publications LoSP.
+- **Autres familles /player :** l'archivage individuel enrichi conserve son
+  périmètre LoSP ; les permissions invitées n'autorisent pas automatiquement
+  inventaire, événements ou données privées supplémentaires.
+- **Rétention :** tous les relevés invités ci-dessus restent sous le préfixe
+  privé `roster-batches/v1/`, couvert par la règle R2 existante de **7 jours**.
+  Ils ne constituent pas un historique permanent. Les autorisations Scopely
+  ne permettent pas une conservation illimitée (max. 30 jours).
+
+## Limites de cette PR / suite côté WebApp
+
+Cette PR ne change pas `Keryas777/msf` :
+- pas encore de publication ou import des rosters invités ;
+- pas encore de snapshots hebdomadaires invités dans la WebApp ;
+- pas encore de graphique invité accessible depuis sa page Discord ;
+- pas de droit de lecture public des archives privées invitées.
+
+L'intégration suivante devra relier chaque **fingerprint d'alliance
+Scopely approuvée** au **groupement Discord autorisé** via un registre
+administratif explicite, vérifier ce lien côté serveur sur chaque requête et
+utiliser des projections authentifiées : masquer des tuiles en frontend ne
+protège pas les rosters. Il faut ensuite produire les snapshots historiques
+uniquement dans la fenêtre de conservation autorisée.
+
+## Vérification avant activation
+
+- Déployer cette branche après revue et tests ; aucune action sur la prod
+  n'est exécutée par le dépôt ou la PR.
+- Vérifier l'apparition de l'alliance invitée dans
+  `/admin#rosters` et approuver **en invité**, pas en LoSP.
+- Vérifier le statut `collecte invitée approuvée`, puis la présence de
+  manifests `roster-batches/v1/{fingerprint}/latest-complete.json` et des
+  fiches Infos sous le préfixe existant.
+- Constater que les imports GitHub de LoSP ne contiennent aucune alliance
+  invitée et que les six alliances LoSP restent complètes.
+- Surveiller les erreurs 429, les dépenses en GET et la couverture des
+  sessions : la cadence des collecteurs n'augmente pas, mais le nombre
+  d'alliances en concurrence augmente.
