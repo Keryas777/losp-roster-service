@@ -72,15 +72,14 @@ test("a captain can explicitly enroll her own current guest alliance, without al
   assert.equal((await readGuestApprovals(f.env)).alliances.length,0);
   assert.deepEqual((await readApproval(f.env)).alliances,before);
 });
-test("a normal member cannot approve a guest collective collection",async()=>{
+test("explicit admin approval relies on current membership and OAuth, not an in-game rank",async()=>{
   const f=fixture("member");
   const result=await handleGuestAllianceApproval(f.request(guest),f.env,f.provider);
-  assert.equal(result.status,403);
-  assert.equal((await result.json()).error,"captain-or-leader-required");
-  assert.equal(f.store.has(GUEST_APPROVAL_KEY),false);
-  f.state.role="leader";
-  assert.equal((await handleGuestAllianceApproval(f.request(guest),
-    f.env,f.provider)).status,200);
+  assert.equal(result.status,200);
+  assert.equal((await result.json()).status,"approved");
+  assert.ok(f.calls.some(url=>url.endsWith("/alliance/members")));
+  assert.ok(f.calls.every(url=>!url.includes("/roster")));
+  assert.deepEqual((await readGuestApprovals(f.env)).alliances,[{fingerprint:guest}]);
 });
 test("guest enrollment rejects foreign origin, nonexistent alliance and LoSP promotion",async()=>{
   const f=fixture();
