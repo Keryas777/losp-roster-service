@@ -1,6 +1,7 @@
 // Admin-only, read-only view of APPROVED roster snapshots already in R2.
 // No Scopely GET, OAuth refresh, Durable Object lock or storage mutation.
 import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
+import {cachedConnectedAllianceNames} from "./connected-alliance-index.js";
 import {BATCH_PREFIX,BATCH_MAX_AGE_MS,completeKey} from "./private-roster-batches.js";
 import {rosterAttemptKey,rosterCooldownKey,verifiedRosterAttempt}
   from "./roster-auto-diagnostics.js";
@@ -152,8 +153,18 @@ export async function handleRosterR2Coverage(request,env,now=Date.now()){
       registry.alliances.filter(a=>a.fingerprint===selected):registry.alliances;
     if(selected&&!entries.length)return respond({error:"alliance-not-approved"},403);
     const full=selected!==null;
+    // The guest register deliberately stores only fingerprints. For admin
+    // display, resolve names from the already-cached Scopely directory in R2.
+    // No change to approval, collection, receipts, or LoSP display names.
+    const guestFingerprints=new Set(registry.guestAlliances
+      .map(a=>a.fingerprint).filter(fp=>entries.some(e=>e.fingerprint===fp)));
+    const guestNames=await cachedConnectedAllianceNames(bucket,guestFingerprints,now);
     const alliances=[];
-    for(const item of entries)alliances.push(await allianceState(bucket,item,now,full));
+    for(const item of entries){
+      const display=guestNames.has(item.fingerprint)?
+        {...item,name:guestNames.get(item.fingerprint)}:item;
+      alliances.push(await allianceState(bucket,display,now,full));
+    }
     return respond({status:"ok",source:"private-r2-only",scope:full?"full":"summary",
       checkedAt:new Date(now).toISOString(),registryStatus:registry.status,
       approvedCount:registry.alliances.length,alliances,

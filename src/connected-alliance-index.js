@@ -62,6 +62,50 @@ async function readIndexed(bucket,key){
     return valid(value)?value:null;
   }catch{return null;}
 }
+// R2-only resolver for admin diagnostics: read the existing Scopely-derived
+// directory, NEVER refresh OAuth grants or call Scopely. Only requested guest
+// fingerprints are eligible; the newest valid cached name wins. A missing,
+// expired or incomplete directory leaves the caller's generic label intact.
+export async function cachedConnectedAllianceNames(bucket,fingerprints,now=Date.now()){
+  const names=new Map(),latest=new Map();
+  if(!bucket?.list||!bucket?.get||!(fingerprints instanceof Set)||
+     fingerprints.size===0)return names;
+  let cursor=null;
+  try{
+    for(let pageNumber=0;pageNumber<5;pageNumber++){
+      const page=await bucket.list({prefix:CONNECTED_ALLIANCE_PREFIX,limit:100,
+        ...(cursor?{cursor}:{})});
+      if(!Array.isArray(page?.objects)||page.objects.length>100)
+        return new Map();
+      const keys=page.objects.map(o=>o?.key).filter(key=>
+        typeof key==="string"&&key.startsWith(CONNECTED_ALLIANCE_PREFIX)&&
+        HEX.test(key.slice(CONNECTED_ALLIANCE_PREFIX.length)));
+      // Limit parallel R2 GETs; never inspect captain grants or member data.
+      for(let i=0;i<keys.length;i+=5){
+        const records=await Promise.all(keys.slice(i,i+5).map(async key=>{
+          try{return await readIndexed(bucket,CAPTAIN_PREFIX+
+            key.slice(CONNECTED_ALLIANCE_PREFIX.length));}
+          catch{return null;}
+        }));
+        for(const item of records){
+          if(!item||!fingerprints.has(item.fingerprint))continue;
+          const observed=Date.parse(item.observedAt);
+          if(observed>now||observed<now-7*86400000)continue;
+          if(!latest.has(item.fingerprint)||observed>latest.get(item.fingerprint)){
+            latest.set(item.fingerprint,observed);
+            names.set(item.fingerprint,item.name);
+          }
+        }
+      }
+      if(page.truncated!==true)return names;
+      if(typeof page.cursor!=="string"||!page.cursor||page.cursor===cursor)
+        return new Map();
+      cursor=page.cursor;
+    }
+  }catch{/* Name lookup must not break a valid roster diagnosis. */}
+  return new Map(); // Never use a partial R2 directory after a listing failure.
+}
+
 async function accessGrant(env,key){
   const stub=env.CAPTAIN_REFRESH_COORDINATOR.get(
     env.CAPTAIN_REFRESH_COORDINATOR.idFromName(key));
