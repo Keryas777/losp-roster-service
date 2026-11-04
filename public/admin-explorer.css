@@ -10,6 +10,8 @@ label{display:grid;gap:.3rem;font-weight:600;min-width:0}
 select,input{width:100%;min-width:0}
 button,select,input{font:inherit;min-height:40px;border:1px solid #6b89b1;border-radius:8px;padding:.5rem .65rem;background:#0e1829;color:#fff;max-width:100%}
 button{cursor:pointer;background:#214a79}button:disabled{opacity:.55;cursor:not-allowed}
+/* Deliberately red: enrolling an external alliance as LoSP is a sensitive action. */
+#roster-connected-list button.roster-losp-enroll-danger{background:#a42131;border-color:#f1949e;color:#fff;font-weight:700}
 button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid #8acbff}
 .controls{display:grid;gap:.65rem}.actions{display:flex;gap:.5rem;flex-wrap:wrap;margin:.7rem 0}
 .status{font-size:.9rem;color:#aaccf2;min-height:1.5em}

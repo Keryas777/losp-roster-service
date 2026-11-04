@@ -206,6 +206,7 @@ async function loadConnectedAlliances(){
       if(!alliance.approved&&!alliance.guestApproved){
         const enable=document.createElement("button");
         enable.type="button";
+        enable.className="roster-losp-enroll-danger";
         enable.textContent="Inclure "+alliance.name+" dans les collectes LoSP";
         const info=document.createElement("p");
         info.setAttribute("role","status");
