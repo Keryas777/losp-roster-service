@@ -2,7 +2,7 @@
 // the existing every-minute Cron performs one bounded automatic microbatch.
 // No detached tasks, extra cron, public roster data or unapproved collection.
 import {captainConfigReady} from "./captain-vault.js";
-import {readApproval} from "./roster-sync-preflight.js";
+import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
 import {BATCH_PREFIX} from "./private-roster-batches.js";
 import {manualRosterWindow,runRosterAutoTick,ROSTER_CRON}
   from "./automatic-roster-scheduler.js";
@@ -120,7 +120,7 @@ export async function handleAdminRosterRecovery(request,env,now=Date.now()){
   }catch{return answer({status:"invalid-selection"},400);}
   if(!configured(env))return answer({status:"disabled"},503);
   try{
-    const approval=await readApproval(env);
+    const approval=await readCollectibleApprovals(env);
     if(approval.status!=="configured"||
        !approval.alliances.some(a=>a.fingerprint===fingerprint))
       return answer({status:"alliance-not-approved"},403);
@@ -175,7 +175,7 @@ export async function runRosterRecoveryTick(env,now=Date.now(),fetchImpl=fetch,
   if(!Number.isFinite(now))return {status:"invalid-time",requestsThisTick:0};
   const window=recoveryWindow(now);
   try{
-    const approval=await readApproval(env);
+    const approval=await readCollectibleApprovals(env);
     if(approval.status!=="configured")return {status:"not-configured",requestsThisTick:0};
     const alliances=approval.alliances.map(a=>a.fingerprint).filter(fp=>FP.test(fp));
     if(!alliances.length)return {status:"idle",requestsThisTick:0};

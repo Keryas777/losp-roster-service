@@ -4,9 +4,12 @@
 // Rolling history uses the SAME lifecycle prefix, is trimmed to 30 dates,
 // and is rebuilt on the existing every-minute cron at local 20:17 / 22:17.
 import {readApproval} from "./roster-sync-preflight.js";
+import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
 
 const ROOT="roster-batches/v1/";
 const HISTORY_KEY=ROOT+"arena-history/rolling.json";
+// Private-only guest history. Never exposed by /api/public/arena-history.
+const GUEST_HISTORY_KEY=ROOT+"guest-arena-history/rolling.json";
 const INITIAL_DAY="2026-10-31",FIRST_SOURCE_DAY="2026-11-01";
 const DAY_RE=/^\d{4}-\d{2}-\d{2}$/;
 const FP=/^[a-f0-9]{64}$/;
@@ -43,10 +46,12 @@ async function json(bucket,key,max=240000){
   if(raw.length>max)return null;
   return JSON.parse(raw);
 }
-async function fingerprints(env){
-  const approval=await readApproval(env);
+async function fingerprints(env,scope="losp"){
+  const approval=scope==="guest"?
+    await readCollectibleApprovals(env):await readApproval(env);
   if(approval.status!=="configured"||!approval.alliances.length)return null;
-  const list=approval.alliances.map(x=>x.fingerprint);
+  const entries=scope==="guest"?approval.guestAlliances:approval.alliances;
+  const list=entries.map(x=>x.fingerprint);
   if(list.length>30||list.some(x=>!FP.test(x))||
     new Set(list).size!==list.length)return null;
   return list;
@@ -112,13 +117,13 @@ export function mergeArenaHistory(history,incoming,today){
   return {version:1,retentionDays:30,generatedAt:new Date().toISOString(),
     snapshots:[...dates.values()].sort((a,b)=>a.date.localeCompare(b.date))};
 }
-export async function buildArenaHistory(env,now=Date.now()){
+export async function buildArenaHistory(env,now=Date.now(),scope="losp"){
   const bucket=env?.CAPTAIN_BUCKET;
   if(!bucket?.get)throw Error("storage-unavailable");
   const today=parisParts(now).day;
-  const fps=await fingerprints(env);
-  if(!fps)throw Error("no-approved-alliances");
-  const previous=await json(bucket,HISTORY_KEY,2400000);
+  const fps=await fingerprints(env,scope);
+  if(!fps||!fps.length)throw Error("no-approved-alliances");
+  const previous=await json(bucket,scope==="guest"?GUEST_HISTORY_KEY:HISTORY_KEY,2400000);
   if(previous&&(previous.version!==1||!Array.isArray(previous.snapshots)))
     throw Error("invalid-existing-history");
   const incoming=[];
@@ -148,24 +153,31 @@ export async function publicArenaHistory(request,env,now=Date.now()){
       {status:503,headers:HEADERS});
   }
 }
+async function archiveScope(env,now,scope){
+  try{
+    const history=await buildArenaHistory(env,now,scope);
+    const bucket=env.CAPTAIN_BUCKET;
+    const key=scope==="guest"?GUEST_HISTORY_KEY:HISTORY_KEY;
+    const previous=await json(bucket,key,2400000);
+    if(JSON.stringify(previous?.snapshots||[])===JSON.stringify(history.snapshots))
+      return {status:"unchanged",snapshots:history.snapshots.length};
+    const raw=JSON.stringify(history);
+    if(raw.length>2000000)throw Error("oversized-history");
+    await bucket.put(key,raw,{
+      httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
+    });
+    return {status:"updated",snapshots:history.snapshots.length};
+  }catch{return {status:"unavailable"};}
+}
 export async function archiveArenaHistory(env,now=Date.now()){
   const local=parisParts(now);
   if(!([20,22].includes(local.hour)&&local.minute===17))
     return {status:"outside-window"};
+  const losp=await archiveScope(env,now,"losp");
   try{
-    const history=await buildArenaHistory(env,now);
-    const bucket=env.CAPTAIN_BUCKET;
-    const previous=await json(bucket,HISTORY_KEY,2400000);
-    const previousData=JSON.stringify(previous?.snapshots||[]);
-    if(previousData===JSON.stringify(history.snapshots))
-      return {status:"unchanged",snapshots:history.snapshots.length};
-    const raw=JSON.stringify(history);
-    if(raw.length>2000000)throw Error("oversized-history");
-    await bucket.put(HISTORY_KEY,raw,{
-      httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
-    });
-    return {status:"updated",snapshots:history.snapshots.length};
-  }catch{
-    return {status:"unavailable"};
-  }
+    const registry=await readCollectibleApprovals(env);
+    if(!registry.guestAlliances?.length)return losp;
+    const guest=await archiveScope(env,now,"guest");
+    return {...losp,guestStatus:guest.status,guestSnapshots:guest.snapshots};
+  }catch{return {...losp,guestStatus:"unavailable"};}
 }

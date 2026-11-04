@@ -5,6 +5,7 @@ import {handleAdmin} from "../src/admin-routes.js";
 import {CAPTAIN_PREFIX} from "../src/captain-vault.js";
 import {createHash} from "node:crypto";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
+import {GUEST_APPROVAL_KEY} from "../src/guest-alliance-approvals.js";
 
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const URL=ORIGIN+"/admin/api/alliance-season-ranks";
@@ -23,7 +24,8 @@ function fixture(){
       },
       put:async(k,v)=>{
         actions.push(["put",k]);
-        assert.ok(k.startsWith(PREFIX),"Only existing seven-day lifecycle prefix");
+        assert.ok(k.startsWith(PREFIX)||k.startsWith("roster-batches/v1/guest-season-ranks/"),
+          "Only existing seven-day lifecycle prefix");
         db.set(k,v);
       },
       delete:async()=>{throw Error("Must not delete existing R2 data")},
@@ -158,3 +160,27 @@ test("unavailable sessions remain visible rather than manufactured as rank zero"
   assert.equal(report.snapshot.completeSessionScan,false);
   assert.ok(!JSON.stringify(report.snapshot).includes('"raidRank":0'));
 });
+
+test("guest season ranks are written to separate R2 keys, never into LoSP latest",async()=>{
+ const f=fixture();
+ const kronos=createHash("sha256").update("kronos").digest("hex");
+ const zeus=createHash("sha256").update("zeus").digest("hex");
+ f.db.set(ROSTER_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
+   {fingerprint:zeus,name:"Zeus"}
+ ]}));
+ f.db.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
+   {fingerprint:kronos}
+ ]}));
+ const response=await f.post(Date.parse("2026-11-04T03:15:00Z"));
+ assert.equal(response.status,200);
+ const body=await response.json();
+ assert.deepEqual(body.snapshot.alliances.map(a=>a.name),["Zeus"]);
+ assert.equal(body.guestStatus,"captured");
+ const guest=JSON.parse(f.db.get(
+   "roster-batches/v1/guest-season-ranks/latest.json"));
+ assert.deepEqual(guest.alliances.map(a=>a.name),["Kronos"]);
+ const losp=JSON.parse(f.db.get(PREFIX+"latest.json"));
+ assert.deepEqual(losp.alliances.map(a=>a.name),["Zeus"]);
+ assert.equal(f.calls.length,3,"one provider scan shared by both scopes");
+});
+

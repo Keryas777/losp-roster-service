@@ -171,8 +171,39 @@ async function loadConnectedAlliances(){
       rosterLine(parent,alliance.name+" — "+
         alliance.captainConnections+" connexion(s) OAuth — "+
         (alliance.approved?"collecte LoSP approuvée":
+          alliance.guestApproved?"collecte invitée approuvée":
           "roster personnel uniquement"));
       if(!alliance.approved){
+        const guest=document.createElement("button");
+        guest.type="button";
+        guest.textContent=alliance.guestApproved?
+          "Révoquer la collecte invitée — "+alliance.name:
+          "Autoriser la collecte invitée — "+alliance.name;
+        const guestStatus=document.createElement("p");
+        guestStatus.setAttribute("role","status");
+        guest.addEventListener("click",async()=>{
+          guest.disabled=true;
+          guestStatus.textContent="Vérification des autorisations…";
+          try{
+            const response=await fetch("/admin/api/guest-alliance-approval",{
+              method:"POST",credentials:"same-origin",cache:"no-store",
+              headers:{"Content-Type":"application/json",Accept:"application/json"},
+              body:JSON.stringify({fingerprint:alliance.fingerprint,
+                action:alliance.guestApproved?"revoke":"approve"})
+            });
+            const result=await response.json();
+            if(!response.ok)throw Error(result.error||"approval-unavailable");
+            guestStatus.textContent=alliance.guestApproved?
+              "Collecte invitée révoquée.":"Alliance invitée autorisée pour les rosters partagés.";
+            void loadConnectedAlliances();
+          }catch(error){
+            guestStatus.textContent="Impossible : "+(error.message||"indisponible");
+            guest.disabled=false;
+          }
+        });
+        parent.append(guest,guestStatus);
+      }
+      if(!alliance.approved&&!alliance.guestApproved){
         const enable=document.createElement("button");
         enable.type="button";
         enable.textContent="Inclure "+alliance.name+" dans les collectes LoSP";

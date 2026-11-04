@@ -1,6 +1,6 @@
 // Opt-in private roster scheduler. No public snapshots, WebApp pushes or Sheets writes.
 import {captainConfigReady} from "./captain-vault.js";
-import {readApproval} from "./roster-sync-preflight.js";
+import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
 import {handleRosterMicrobatch} from "./private-roster-batches.js";
 import {dispatchCompleteRosterCampaign} from "./roster-github-dispatch.js";
 import {dispatchCompleteTrophyCards} from "./trophy-github-dispatch.js";
@@ -185,7 +185,7 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
       return {status:"invalid-budget-state"};
     const d=raw||{date:slot.date,used:0,ticks:0,lastTick:null};
     // Daily request counts are telemetry, not an undocumented Scopely quota.
-    const approval=await readApproval(env);
+    const approval=await readCollectibleApprovals(env);
     if(approval.status!=="configured"||!approval.alliances.length)
       return {status:"no-approved-alliances"};
     const alliances=approval.alliances.map(a=>a.fingerprint).sort();
@@ -265,7 +265,7 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
     if(slot.tick%5===0||(used>0&&outcomes.some(o=>
       o.status==="complete"||o.status==="partial-consent"))){
       try{githubDispatch=await dispatchCompleteRosterCampaign(env,slot,
-        alliances,options.githubFetch||fetch);}
+        approval.lospAlliances.map(a=>a.fingerprint),options.githubFetch||fetch);}
       catch{githubDispatch="unavailable";}
     }
     // Trophy cards are available at the beginning of the roster microbatches:
@@ -276,7 +276,7 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
        [4,6].includes(new Date(timestamp).getUTCDay())&&
        (slot.tick%5===0||used>0)){
       try{trophyDispatch=await dispatchCompleteTrophyCards(env,slot,
-        alliances,options.githubFetch||fetch);}
+        approval.lospAlliances.map(a=>a.fingerprint),options.githubFetch||fetch);}
       catch{trophyDispatch="unavailable";}
     }
     return {status:outcome,requestsThisTick:used,

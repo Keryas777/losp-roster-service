@@ -3,7 +3,7 @@
 import {CAPTAIN_PREFIX,validCaptainKey,captainConfigReady} from "./captain-vault.js";
 import {collectPersonalRoster} from "./roster-collector.js";
 import {discoverAlliance} from "./alliance-coverage.js";
-import {readApproval} from "./roster-sync-preflight.js";
+import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
 
 const ROOT="roster-batches/v1/connected-personal-rosters/";
 const SIZE=3_000_000;
@@ -52,7 +52,7 @@ export async function captureConnectedPersonalRoster(env,sessionKey,token,
     // LoSP alliances use their own complete, shared-roster scheduler.
     // An outside captain's consent NEVER authorizes background retrieval
     // of any fellow alliance member.
-    const approvals=await readApproval(env);
+    const approvals=await readCollectibleApprovals(env);
     if(approvals.status==="invalid-registry")
       return {status:"invalid-approval-registry"};
     if(approvals.alliances.some(a=>a.fingerprint===fingerprint))

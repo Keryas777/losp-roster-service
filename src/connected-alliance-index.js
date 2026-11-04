@@ -4,6 +4,7 @@
 import {CAPTAIN_PREFIX,captainConfigReady,getCaptainRecord} from "./captain-vault.js";
 import {discoverAlliance,listCaptainSessionKeys} from "./alliance-coverage.js";
 import {readApproval} from "./roster-sync-preflight.js";
+import {readGuestApprovals} from "./guest-alliance-approvals.js";
 
 // Under the existing seven-day R2 lifecycle; expired entries are rebuilt
 // from still-valid OAuth grants when Admin is opened.
@@ -116,9 +117,13 @@ export async function listConnectedAlliances(env,fetchImpl=fetch,now=Date.now())
   };
   await Promise.all(Array.from({length:Math.min(3,keys.length)},worker));
   const registry=await readApproval(env);
+  const guests=await readGuestApprovals(env);
   const approved=new Set(registry.alliances.map(x=>x.fingerprint));
+  const guestApproved=guests.status==="configured"?
+    new Set(guests.alliances.map(x=>x.fingerprint)):new Set();
   const alliances=[...groups.values()].map(a=>({
-    ...a,approved:approved.has(a.fingerprint)
+    ...a,approved:approved.has(a.fingerprint),
+    guestApproved:!approved.has(a.fingerprint)&&guestApproved.has(a.fingerprint)
   })).sort((a,b)=>a.name.localeCompare(b.name,"fr"));
   return {status:"ok",source:"private-r2-captain-consent",
     connectedSessions:connected,unresolvedSessions:unresolved,
