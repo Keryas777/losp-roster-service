@@ -446,3 +446,19 @@ test("guest MSF color markup renders as a clean safe name in the R2 admin card",
   assert.equal(card.children[0].children[0].style.color,"#ff6060");
   assert.doesNotMatch(JSON.stringify(card),/<color|<script/i);
 });
+
+
+test("admin R2 controls use clean guest names in buttons and statuses",async()=>{
+  const js=await readFile(new URL("../public/admin-roster-r2-coverage.js",import.meta.url),"utf8");
+  const start=js.indexOf("  const plainAllianceName=");
+  const end=js.indexOf(";",start);
+  assert.ok(start>=0&&end>start);
+  const format=runInNewContext(js.slice(start,end+1)+"\nplainAllianceName");
+  assert.equal(format("<color=red>ΜΛЯΠΣƧ</color>"),"ΜΛЯΠΣƧ");
+  assert.equal(format("LoSP <#E10D17>Kronos"),"LoSP Kronos");
+  assert.equal(format("  <color=red> Invités </color>  "),"Invités");
+  assert.equal(format("LoSP Zeus"),"LoSP Zeus");
+  assert.equal(js.split("plainAllianceName(alliance.name)").length-1,4,
+    "Manual action, auto recovery and their statuses must share the formatter");
+  assert.doesNotMatch(js,/String\(alliance\.name\)\.replace\(/);
+});
