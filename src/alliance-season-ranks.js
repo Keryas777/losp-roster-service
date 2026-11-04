@@ -3,9 +3,11 @@
 // R2 retention rule needed and no indefinite historical API-data archive.
 import {scanPrivateAllianceRanks} from "./alliance-coverage.js";
 import {readApproval} from "./roster-sync-preflight.js";
+import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
 
 const PREFIX="roster-batches/v1/season-ranks/";
 const LATEST=PREFIX+"latest.json";
+const GUEST_PREFIX="roster-batches/v1/guest-season-ranks/";
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const COOLDOWN=10*60_000;
 const HEADERS={"Cache-Control":"private, no-store","X-Robots-Tag":"noindex",
@@ -51,9 +53,17 @@ export async function handleAllianceSeasonRanks(request,env,fetchImpl=fetch,now=
     const approval=await readApproval(env);
     if(approval.status!=="configured"||!approval.alliances.length)
       return respond({error:"no-approved-alliances"},409);
-    const authorized=new Set(approval.alliances.map(a=>a.fingerprint));
-    const snapshot=await scanPrivateAllianceRanks(env,fetchImpl,now,authorized);
-    if(!snapshot)return respond({error:"oauth-unavailable"},503);
+    const registry=await readCollectibleApprovals(env);
+    const lospFingerprints=new Set(approval.alliances.map(a=>a.fingerprint));
+    const guestFingerprints=new Set(registry.guestAlliances.map(a=>a.fingerprint));
+    const authorized=new Set([...lospFingerprints,...guestFingerprints]);
+    const shared=await scanPrivateAllianceRanks(env,fetchImpl,now,authorized);
+    if(!shared)return respond({error:"oauth-unavailable"},503);
+    const select=keys=>{
+      const alliances=shared.alliances.filter(a=>keys.has(a.allianceFingerprint));
+      return {...shared,alliances,connectedAlliances:alliances.length};
+    };
+    const snapshot=select(lospFingerprints);
     if(!snapshot.connectedAlliances)
       return respond({error:"no-connected-alliances",scannedSessions:snapshot.scannedSessions,
         unavailableSessions:snapshot.unavailableSessions},409);
@@ -66,7 +76,22 @@ export async function handleAllianceSeasonRanks(request,env,fetchImpl=fetch,now=
     const bytes=JSON.stringify(snapshot);
     await bucket.put(key,bytes,options);
     await bucket.put(LATEST,bytes,options);
+    // Guest rankings remain private and separate from LoSP's GitHub imports.
+    let guestStatus="not-configured";
+    if(guestFingerprints.size){
+      try{
+        const guest=select(guestFingerprints);
+        if(guest.connectedAlliances){
+          const payload=JSON.stringify(guest);
+          const guestKey=GUEST_PREFIX+"captures/"+
+            shared.capturedAt.replace(/[:.]/g,"-")+"-"+crypto.randomUUID()+".json";
+          await bucket.put(guestKey,payload,options);
+          await bucket.put(GUEST_PREFIX+"latest.json",payload,options);
+          guestStatus=guest.completeSessionScan?"captured":"partial-capture";
+        }else guestStatus="no-connected-guests";
+      }catch{guestStatus="unavailable";}
+    }
     return respond({status:snapshot.completeSessionScan?"captured":"partial-capture",
-      snapshot,retention:"existing-roster-batches-7-days"});
+      snapshot,guestStatus,retention:"existing-roster-batches-7-days"});
   }catch{return respond({error:"capture-unavailable"},503);}
 }
