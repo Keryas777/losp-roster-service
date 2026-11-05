@@ -16,6 +16,10 @@
   const line=(parent,content)=>{
     const p=document.createElement("p");p.textContent=content;parent.append(p);return p;
   };
+  const displayName=value=>String(value||"")
+    .replace(/<#[a-f0-9]{6}>/gi,"")
+    .replace(/<\/?color(?:=[^<>]{1,32})?>/gi,"")
+    .replace(/\s+/g," ").trim();
   const time=value=>typeof value==="string"&&Number.isFinite(Date.parse(value))?
     new Date(value).toLocaleString("fr-FR",{timeZone:"Europe/Paris"}):"—";
   async function load(){
@@ -39,7 +43,7 @@
         const card=document.createElement("article");
         card.className="collection-alliance";
         const name=document.createElement("strong");
-        name.textContent=a.name+" · "+(a.scope==="guest"?"Invitée":"LoSP");
+        name.textContent=displayName(a.name)+" · "+(a.scope==="guest"?"Invitée":"LoSP");
         card.append(name);
         line(card,"Reçu : "+(words[a.receipt]||a.receipt)+
           " · "+a.ranks+"/"+a.players+" rang(s) valides.");
