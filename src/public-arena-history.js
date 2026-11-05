@@ -2,7 +2,7 @@
 // No Scopely requests, no OAuth/member IDs, no private R2 key exposure.
 // Source receipts already exist under the 7-day roster-batches lifecycle.
 // Rolling history uses the SAME lifecycle prefix, is trimmed to 30 dates,
-// and is rebuilt on the existing every-minute cron at local 20:17 / 22:17.
+// and is archived from completed receipts, with 20:17 / 22:17 fallback.
 import {readApproval} from "./roster-sync-preflight.js";
 import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
 
@@ -153,11 +153,28 @@ export async function publicArenaHistory(request,env,now=Date.now()){
       {status:503,headers:HEADERS});
   }
 }
-async function archiveScope(env,now,scope){
+// The 17:01 reward collection has already persisted source receipts in R2.
+// On the first quiet minute after completion, promote *each scope* as soon
+// as all of its own approved alliances have valid receipts for TODAY. Guests
+// never block LoSP and are NEVER added to its public history.
+async function archiveScope(env,now,scope,whenReady=false){
   try{
-    const history=await buildArenaHistory(env,now,scope);
     const bucket=env.CAPTAIN_BUCKET;
     const key=scope==="guest"?GUEST_HISTORY_KEY:HISTORY_KEY;
+    if(whenReady){
+      const day=parisParts(now).day;
+      const saved=await json(bucket,key,2400000);
+      if(saved&&(saved.version!==1||!Array.isArray(saved.snapshots)))
+        throw Error("invalid-existing-history");
+      if(saved?.snapshots?.some(s=>s.date===day&&s.sourceKind==="reward"))
+        return {status:"unchanged",snapshots:saved.snapshots.length};
+      const fps=await fingerprints(env,scope);
+      if(!fps?.length)return {status:"unavailable"};
+      // Read the R2 receipts only; do not call the Scopely API again.
+      if(!await snapshot(bucket,fps,day,"reward",now))
+        return {status:"awaiting-receipts"};
+    }
+    const history=await buildArenaHistory(env,now,scope);
     const previous=await json(bucket,key,2400000);
     if(JSON.stringify(previous?.snapshots||[])===JSON.stringify(history.snapshots))
       return {status:"unchanged",snapshots:history.snapshots.length};
@@ -169,15 +186,29 @@ async function archiveScope(env,now,scope){
     return {status:"updated",snapshots:history.snapshots.length};
   }catch{return {status:"unavailable"};}
 }
+async function archiveBothScopes(env,now,whenReady){
+  const losp=await archiveScope(env,now,"losp",whenReady);
+  try{
+    const registry=await readCollectibleApprovals(env);
+    if(!registry.guestAlliances?.length)return losp;
+    const guest=await archiveScope(env,now,"guest",whenReady);
+    return {...losp,guestStatus:guest.status,guestSnapshots:guest.snapshots};
+  }catch{return {...losp,guestStatus:"unavailable"};}
+}
+// Called only following a completed *zero-Scopely-request* collector tick.
+// Avoid stacking R2 operations onto the collector's existing request budget.
+// Support same-day, explicitly authorized manual recovery as late as 20:16.
+export async function archiveArenaHistoryWhenReady(env,now=Date.now()){
+  const local=parisParts(now);
+  const minute=local.hour*60+local.minute;
+  if(minute<17*60+1||minute>=20*60+17)
+    return {status:"outside-window"};
+  return archiveBothScopes(env,now,true);
+}
+// The 20:17 and 22:17 scheduled consolidations stay in place as fallbacks.
 export async function archiveArenaHistory(env,now=Date.now()){
   const local=parisParts(now);
   if(!([20,22].includes(local.hour)&&local.minute===17))
     return {status:"outside-window"};
-  const losp=await archiveScope(env,now,"losp");
-  try{
-    const registry=await readCollectibleApprovals(env);
-    if(!registry.guestAlliances?.length)return losp;
-    const guest=await archiveScope(env,now,"guest");
-    return {...losp,guestStatus:guest.status,guestSnapshots:guest.snapshots};
-  }catch{return {...losp,guestStatus:"unavailable"};}
+  return archiveBothScopes(env,now,false);
 }
