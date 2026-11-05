@@ -112,8 +112,9 @@ export async function handleAllianceSeasonRanks(request,env,fetchImpl=fetch,now=
           await bucket.put(guestKey,payload,options);
           await bucket.put(GUEST_PREFIX+"latest.json",payload,options);
           guestStatus=guest.completeSessionScan?"captured":"partial-capture";
-          // Persist a rank-only, consented sample only at the existing Monday
-          // 03:15 capture. No extra provider request or duplicate season point.
+          // Persist each real, approved rank-only capture. The WebApp maps
+          // it to the previous displayed season using its JSON calendar.
+          // This adds no Scopely request or scheduled collection.
           const projection=await archiveGuestSeasonRankSample(env,guest,now);
           guestHistoryStatus=projection.status;
         }else guestStatus="no-connected-guests";
