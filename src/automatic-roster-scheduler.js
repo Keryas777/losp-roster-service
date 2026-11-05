@@ -22,6 +22,13 @@ const FP=/^[a-f0-9]{64}$/;
 const dayKey=d=>ROOT+"days/"+d+".json";
 const pauseKey=rosterCooldownKey;
 const dateOf=ms=>new Date(ms).toISOString().slice(0,10);
+const isFullMode=env=>env?.ROSTER_FULL_COLLECTION_ENABLED==="true";
+const providerBudget=env=>{
+  if(!isFullMode(env))return TICK_API_BUDGET;
+  const configured=Number(env?.ROSTER_FULL_COLLECTION_REQUEST_BUDGET);
+  return Number.isSafeInteger(configured)&&configured>=FREE_FULL_API_BUDGET&&
+    configured<=PAID_MAX_API_BUDGET?configured:FREE_FULL_API_BUDGET;
+};
 
 async function read(bucket,key){
   const obj=await bucket.get(key);
@@ -88,7 +95,9 @@ export async function rosterAutoStatus(env,time=Date.now()){
   const enabled=env?.ROSTER_AUTO_ENABLED==="true";
   const retention=env?.ROSTER_RETENTION_CONFIRMED==="true";
   const out={enabled,retentionConfirmed:retention,
-    dailyBudget:null,perTickBudget:TICK_API_BUDGET,
+    dailyBudget:null,perTickBudget:providerBudget(env),
+    fullCollectionEnabled:isFullMode(env),
+    alliancesPerTick:isFullMode(env)?1:ALLIANCES_PER_TICK,
     utcWindows:["02:00–04:00","14:00–16:00"],frequencyMinutes:1};
   if(!captainConfigReady(env))return {status:"storage-unavailable",...out};
   try{
@@ -191,11 +200,8 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
     if(approval.status!=="configured"||!approval.alliances.length)
       return {status:"no-approved-alliances"};
     const alliances=approval.alliances.map(a=>a.fingerprint).sort();
-    const fullMode=env.ROSTER_FULL_COLLECTION_ENABLED==="true";
-    const configured=Number(env.ROSTER_FULL_COLLECTION_REQUEST_BUDGET);
-    const tickBudget=fullMode&&Number.isSafeInteger(configured)&&
-      configured>=FREE_FULL_API_BUDGET&&configured<=PAID_MAX_API_BUDGET?
-      configured:fullMode?FREE_FULL_API_BUDGET:TICK_API_BUDGET;
+    const fullMode=isFullMode(env);
+    const tickBudget=providerBudget(env);
     // A full-alliance pass receives the entire invocation budget. Completed
     // campaigns should not waste future minutes when many guests are approved.
     const candidates=[];
