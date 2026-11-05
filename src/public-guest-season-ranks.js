@@ -49,17 +49,17 @@ function validArchive(value){
         (a.manualSeasonId===undefined||
           (validSeasonId(a.manualSeasonId)&&a.seasonConfirmation==="admin-in-game"))));
 }
-// Only the already-scheduled Monday 03:15 UTC private capture is retained.
-// The WebApp decides whether it follows a *completed* 14-day season from its
-// existing JSON calendar. Other Mondays must not invent a season point.
+// Record real, approved guest rank observations from the existing private
+// AllianceCard capture, regardless of the weekday. The WebApp alone derives
+// the last *completed* season from its configurable release calendar.
+// Reconciliation may occur later (R2 only); never invent a rank or timestamp.
 export async function archiveGuestSeasonRankSample(env,capture,now=Date.now()){
   const at=new Date(now);
-  if(!monday(now)||at.getUTCHours()!==3||at.getUTCMinutes()!==15)
-    return {status:"outside-window"};
   if(!env?.CAPTAIN_BUCKET?.get||!env?.CAPTAIN_BUCKET?.put)
     return {status:"storage-unavailable"};
   if(capture?.version!==1||capture.source!=="/player/v1/alliance/card"||
-     !date(capture.capturedAt)||Math.abs(Date.parse(capture.capturedAt)-now)>600000||
+     !date(capture.capturedAt)||Date.parse(capture.capturedAt)>now+60000||
+     now-Date.parse(capture.capturedAt)>DAY_MS||
      !Array.isArray(capture.alliances)||capture.alliances.length>30)
     return {status:"invalid-capture"};
   const guests=await readGuestApprovals(env);
@@ -72,16 +72,30 @@ export async function archiveGuestSeasonRankSample(env,capture,now=Date.now()){
        !rank(a.warRank)||!rank(a.raidRank))continue;
     seen.add(a.allianceFingerprint);
     alliances.push({fingerprint:a.allianceFingerprint,nameAtCapture:a.name,
-      warRank:a.warRank,raidRank:a.raidRank});
+      warRank:a.warRank,raidRank:a.raidRank,capturedAt:capture.capturedAt});
   }
   if(!alliances.length)return {status:"no-valid-guest-ranks"};
   const bucket=env.CAPTAIN_BUCKET;
   let old=await read(bucket,KEY);
   if(old&&!validArchive(old))return {status:"invalid-history"};
-  const day=dayOf(now);
-  const snapshot={collectionDayUtc:day,capturedAt:capture.capturedAt,
-    completeSessionScan:capture.completeSessionScan===true,alliances};
+  const day=dayOf(Date.parse(capture.capturedAt));
   const previous=old?.snapshots?.find(s=>s.collectionDayUtc===day);
+  const combined=new Map((previous?.alliances||[])
+    .map(a=>[a.fingerprint,a]));
+  // A verified one-off backfill is preserved as historical evidence. For
+  // ordinary readings, keep the newest genuine AllianceCard of that day.
+  for(const item of alliances){
+    const prior=combined.get(item.fingerprint);
+    if(prior?.manualSeasonId)continue;
+    if(!prior||Date.parse(prior.capturedAt||previous.capturedAt)<=
+      Date.parse(item.capturedAt))combined.set(item.fingerprint,item);
+  }
+  const snapshot={collectionDayUtc:day,
+    capturedAt:previous?.capturedAt>capture.capturedAt?
+      previous.capturedAt:capture.capturedAt,
+    completeSessionScan:previous?.completeSessionScan===true||
+      capture.completeSessionScan===true,
+    alliances:[...combined.values()]};
   if(JSON.stringify(previous)===JSON.stringify(snapshot))
     return {status:"unchanged",observed:alliances.length};
   const snapshots=(old?.snapshots||[]).filter(s=>
@@ -95,6 +109,17 @@ export async function archiveGuestSeasonRankSample(env,capture,now=Date.now()){
     contentType:"application/json",cacheControl:"private, no-store"}});
   return {status:"updated",observed:alliances.length};
 }
+// Scheduled R2-only reconciliation of the last PRIVATE guest snapshot.
+// It repairs already captured MARINES rankings without another Scopely GET,
+// also when a prior deployment missed the projection write.
+export async function reconcileLatestGuestSeasonRanks(env,now=Date.now()){
+  try{
+    if(!env?.CAPTAIN_BUCKET?.get)return {status:"storage-unavailable"};
+    const latest=await read(env.CAPTAIN_BUCKET,GUEST_LATEST);
+    if(!latest)return {status:"no-latest-capture"};
+    return await archiveGuestSeasonRankSample(env,latest,now);
+  }catch{return {status:"reconcile-unavailable"};}
+}
 export async function publicGuestSeasonRanks(request,env,now=Date.now()){
   if(request.method!=="GET")return Response.json({status:"method-not-allowed"},
     {status:405,headers:HEADERS});
@@ -102,8 +127,9 @@ export async function publicGuestSeasonRanks(request,env,now=Date.now()){
     {status:400,headers:HEADERS});
   try{
     const bucket=env.CAPTAIN_BUCKET;
-    const [history,guests,losp,trophies]=await Promise.all([
-      read(bucket,KEY),readGuestApprovals(env),readApproval(env),
+    const [history,latest,guests,losp,trophies]=await Promise.all([
+      read(bucket,KEY),read(bucket,GUEST_LATEST),
+      readGuestApprovals(env),readApproval(env),
       read(bucket,TROPHIES,600000)]);
     if(history&&!validArchive(history))throw Error("invalid-history");
     if(guests.status==="invalid-registry"||losp.status==="invalid-registry")
@@ -114,8 +140,46 @@ export async function publicGuestSeasonRanks(request,env,now=Date.now()){
     const ids=trophies?.version===1&&
       trophies.kind==="connected-alliance-trophy-history"&&
       trophies.ids&&typeof trophies.ids==="object"?trophies.ids:{};
-    const snapshots=(history?.snapshots||[]).filter(s=>
-      s.collectionDayUtc>=minDay(now)&&s.collectionDayUtc<=dayOf(now))
+    // The latest PRIVATE AllianceCard can predate deployment of the rolling
+    // publisher. Project it read-only now; the next existing scheduled capture
+    // persists it. Never write to R2 from a public request.
+    const eligible=(history?.snapshots||[]).filter(s=>
+      s.collectionDayUtc>=minDay(now)&&s.collectionDayUtc<=dayOf(now));
+    if(latest?.version===1&&latest.source==="/player/v1/alliance/card"&&
+       date(latest.capturedAt)&&
+       Date.parse(latest.capturedAt)<=now+60000&&
+       now-Date.parse(latest.capturedAt)<=DAY_MS&&
+       Array.isArray(latest.alliances)&&latest.alliances.length<=30){
+      const day=dayOf(Date.parse(latest.capturedAt));
+      const previous=eligible.find(s=>s.collectionDayUtc===day);
+      const merged=new Map((previous?.alliances||[])
+        .map(a=>[a.fingerprint,a]));
+      for(const a of latest.alliances){
+        if(!FP.test(a?.allianceFingerprint||"")||!name(a.name)||
+           !rank(a.warRank)||!rank(a.raidRank))continue;
+        const prior=merged.get(a.allianceFingerprint);
+        if(prior?.manualSeasonId)continue;
+        if(!prior||Date.parse(prior.capturedAt||previous.capturedAt)<=
+          Date.parse(latest.capturedAt))
+          merged.set(a.allianceFingerprint,{
+            fingerprint:a.allianceFingerprint,nameAtCapture:a.name,
+            warRank:a.warRank,raidRank:a.raidRank,
+            capturedAt:latest.capturedAt});
+      }
+      if(merged.size){
+        const projected={collectionDayUtc:day,
+          capturedAt:previous?.capturedAt>latest.capturedAt?
+            previous.capturedAt:latest.capturedAt,
+          completeSessionScan:previous?.completeSessionScan===true||
+            latest.completeSessionScan===true,
+          alliances:[...merged.values()]};
+        const index=eligible.findIndex(s=>s.collectionDayUtc===day);
+        if(index>=0)eligible[index]=projected;
+        else eligible.push(projected);
+      }
+    }
+    const snapshots=eligible.sort((a,b)=>
+      a.collectionDayUtc.localeCompare(b.collectionDayUtc))
       .map(s=>({collectionDayUtc:s.collectionDayUtc,capturedAt:s.capturedAt,
         coverage:{complete:s.completeSessionScan===true},
         alliances:s.alliances.flatMap(a=>{

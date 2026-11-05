@@ -2,7 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {createHash,webcrypto} from "node:crypto";
 import {archiveGuestSeasonRankSample,publicGuestSeasonRanks,
-  publishVerifiedGuestSeasonRanks}
+  publishVerifiedGuestSeasonRanks,reconcileLatestGuestSeasonRanks}
   from "../src/public-guest-season-ranks.js";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 import {GUEST_APPROVAL_KEY} from "../src/guest-alliance-approvals.js";
@@ -64,11 +64,8 @@ test("Monday capture publishes guest ranks without fingerprints or provider call
   assert.equal(response.headers.get("Cache-Control"),"no-store");
   assert.equal((await archiveGuestSeasonRankSample(f.env,sample(),NOW)).status,"unchanged");
 });
-test("only Monday 03:15, no synthetic season or unrelated captures",async()=>{
-  const f=fixture();
-  const before=sample();
-  assert.equal((await archiveGuestSeasonRankSample(f.env,before,
-    NOW+12*3600000)).status,"outside-window");
+test("real rank samples work on any day; old or malformed sources are rejected",async()=>{
+  const f=fixture(),before=sample();
   assert.equal((await archiveGuestSeasonRankSample(f.env,before,
     NOW+7*86400000)).status,"invalid-capture");
   assert.equal(f.ops.length,0);
@@ -76,6 +73,14 @@ test("only Monday 03:15, no synthetic season or unrelated captures",async()=>{
   assert.equal((await archiveGuestSeasonRankSample(f.env,before,NOW)).observed,2);
   const result=await(await publicGuestSeasonRanks(new Request(url),f.env,NOW)).json();
   assert.equal(result.snapshots[0].alliances.length,2);
+  const afternoon=sample();
+  afternoon.capturedAt="2026-11-09T15:15:00.000Z";
+  assert.equal((await archiveGuestSeasonRankSample(f.env,afternoon,
+    Date.parse(afternoon.capturedAt))).status,"updated");
+  const latest=await(await publicGuestSeasonRanks(new Request(url),f.env,
+    Date.parse(afternoon.capturedAt))).json();
+  assert.equal(latest.snapshots.length,1);
+  assert.equal(latest.snapshots[0].alliances.length,3);
 });
 test("revocation and unbinding hide data on the next GET",async()=>{
   const f=fixture();
@@ -127,12 +132,12 @@ test("one-off MARINES ranks from a real November 5 source belong to October 11â€
   const projection=await(await publicGuestSeasonRanks(new Request(url),f.env,now)).json();
   assert.equal(projection.snapshots.length,1);
   assert.equal(projection.snapshots[0].collectionDayUtc,"2026-11-05");
-  assert.deepEqual(projection.snapshots[0].alliances.map(a=>({
-    seasonId:a.manualSeasonId,confirmation:a.seasonConfirmation,
-    warRank:a.warRank,raidRank:a.raidRank})),[
-    {seasonId:"2026-10-11/2026-10-25",
-      confirmation:"admin-in-game",warRank:111,raidRank:77}
-  ]);
+  const marina=projection.snapshots[0].alliances.find(a=>a.publicId===publicId);
+  assert.deepEqual({
+    seasonId:marina.manualSeasonId,confirmation:marina.seasonConfirmation,
+    warRank:marina.warRank,raidRank:marina.raidRank
+  },{seasonId:"2026-10-11/2026-10-25",
+    confirmation:"admin-in-game",warRank:111,raidRank:77});
   for(const secret of [marines,red,orange,"roster-batches","fingerprint"]){
     assert.ok(!JSON.stringify(projection).includes(secret));
   }
@@ -176,4 +181,28 @@ test("manual record remains when a new completed season is captured on Monday",a
   assert.equal(report.snapshots[0].alliances[0].manualSeasonId,
     "2026-10-11/2026-10-25");
   assert.equal(report.snapshots[1].alliances[0].manualSeasonId,undefined);
+});
+
+test("November 5 MARINES rankings are public immediately from existing private R2",async()=>{
+  const f=fixture();freshGuestCapture(f);
+  const now=Date.parse(manualAt)+25000;
+  const latest=JSON.parse(f.store.get("roster-batches/v1/guest-season-ranks/latest.json"));
+  latest.alliances[0].warRank=5;
+  latest.alliances[0].raidRank=12;
+  f.store.set("roster-batches/v1/guest-season-ranks/latest.json",
+    JSON.stringify(latest));
+  const first=await(await publicGuestSeasonRanks(new Request(url),f.env,now)).json();
+  assert.equal(first.snapshots.length,1);
+  assert.equal(first.snapshots[0].collectionDayUtc,"2026-11-05");
+  const row=first.snapshots[0].alliances.find(a=>a.publicId===publicId);
+  assert.equal(row.warRank,5);
+  assert.equal(row.raidRank,12);
+  assert.equal(row.capturedAt,manualAt);
+  assert.ok(f.ops.every(([operation])=>operation==="get"));
+  assert.equal((await reconcileLatestGuestSeasonRanks(f.env,now)).status,"updated");
+  assert.equal((await reconcileLatestGuestSeasonRanks(f.env,now)).status,"unchanged");
+  f.store.delete("roster-batches/v1/guest-season-ranks/latest.json");
+  const rolled=await(await publicGuestSeasonRanks(new Request(url),
+    f.env,now+2*86400000)).json();
+  assert.equal(rolled.snapshots[0].alliances.find(a=>a.publicId===publicId).warRank,5);
 });

@@ -86,10 +86,13 @@ uniquement dans la fenêtre de conservation autorisée.
 
 ## Extension du 5 novembre 2026 — rangs Guerre et Raid des invitées
 
-- Les captures `AllianceCard` déjà programmées à 03:15 et 15:15 UTC
-  restent privées. Seul le relevé **du lundi 03:15 UTC** est projeté
+- Les captures `AllianceCard` existantes à 03:15 et 15:15 UTC
+  restent privées et leurs rangs réels invités sont projetés **chaque jour**
   dans `roster-batches/v1/guest-season-ranks/rolling.json`.
-  Aucun nouvel appel à Scopely, Cron ou import GitHub supplémentaire.
+  L’endpoint public peut également lire le dernier relevé R2 privé encore
+  frais (moins de 24 h) sans écriture ni nouvel appel à Scopely, pour
+  récupérer une capture antérieure au déploiement du correctif.
+  Aucun nouvel appel Scopely, Cron ou import GitHub supplémentaire.
 - L’endpoint `GET /api/public/guest-season-ranks` fournit exclusivement
   les rangs Guerre et Raid des invitées encore approuvées et **identifiées**
   par une clé WebApp liée administrativement ou par un `publicId` déjà
@@ -98,10 +101,13 @@ uniquement dans la fenêtre de conservation autorisée.
   La révocation ou la suppression d’une association prend effet au
   prochain GET. La projection conserve au plus 22 jours de captures
   sous la règle R2 existante de sept jours : moins de 30 jours en tout.
-- La WebApp déduit **uniquement les saisons terminées** à partir de
-  `docs/data/alliance-standings/config.json`. Les lundis intermédiaires
-  ne créent aucun point. La première observation doit être réelle :
-  une capture antérieure manquante n'est pas reconstruite.
+- La WebApp déduit la **dernière saison terminée** de
+  `docs/data/alliance-standings/config.json` pour tout relevé réel
+  effectué pendant les 14 jours d'affichage de ses résultats. Un lundi
+  intermédiaire ne crée pas une saison supplémentaire : une seule valeur
+  par alliance et saison apparaît, même si plusieurs lectures sont archivées.
+  Les lectures dans le délai de publication au changement de saison sont
+  exclues. Les captures réelles sont toujours horodatées à la vraie date.
 - Dans `/admin#rosters` → Alliances connectées, après
   « Autoriser la collecte invitée », renseigner la **clé WebApp exacte**
   (la clé `key` dans `docs/data/alliances.json`) puis
@@ -163,3 +169,18 @@ Les observations invitées restent dans le cadre des contraintes
 de rétention Scopely : historique glissant de 22 jours, objets R2
 soumis au cycle de vie existant de 7 jours, aucune conservation
 indéfinie.
+
+## Correction automatique des saisons affichées (5 novembre)
+
+MARINES possède un relevé réel du 5 novembre (Guerre 5, Raid 12)
+encore associé à la saison du 11 au 25 octobre. Le classement officiel
+reste affiché pendant la saison suivante, du 25 octobre au 8 novembre.
+L'association de la saison est calculée depuis le calendrier JSON WebApp :
+elle ne dépend ni du jour de la semaine de la lecture, ni d'un formulaire
+manuel, ni d'une date d'observation artificiellement rétrodatée.
+
+La confirmation exceptionnelle depuis l'administration reste possible
+si le calendrier doit être confronté à l'affichage MSF, mais n'est plus
+nécessaire dans ce cas courant. Les deux alliances ENDGAME portant le
+même nom exigent toujours leur liaison individuelle approuvée : ne
+jamais déduire leur identité du seul nom.
