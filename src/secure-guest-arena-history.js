@@ -166,6 +166,12 @@ export async function secureGuestArenaHistory(request,env,now=Date.now(),
     if(archive&&(archive.version!==1||!Array.isArray(archive.snapshots)||
       archive.snapshots.length>35))throw Error("invalid-history");
     const byDay=new Map(),sourceCache=new Map();
+    // Older archives predate tenant-key stamping. The only safe legacy
+    // attribution is a *single* globally approved guest, cross-checked
+    // against its original private receipt. Never guess across guests
+    // that could share the same styled in-game alliance name.
+    const allowLegacyUntagged=guests.alliances.length===1&&
+      approved.length===1;
     async function source(fp,day){
       const id=fp+":"+day;
       if(!sourceCache.has(id))
@@ -194,7 +200,8 @@ export async function secureGuestArenaHistory(request,env,now=Date.now(),
           // Tenant keys are stamped on PRIVATE records at capture time,
           // never accepted from a client-provided value.
           k=p.allianceKey;
-        }else if(!p.allianceKey&&!duplicateNames.has(p.alliance)){
+        }else if(allowLegacyUntagged&&!p.allianceKey&&
+          !duplicateNames.has(p.alliance)){
           const proof=byName.get(p.alliance);
           if(proof&&proof.record.rows.some(row=>
             row.name===p.name&&row.arenaRank===p.arenaRank))
