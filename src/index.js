@@ -12,7 +12,7 @@ import { ROSTER_CRON, runRosterAutoTick } from "./automatic-roster-scheduler.js"
 import {runRosterRecoveryTick} from "./roster-auto-recovery.js";
 import {runMemberInfoAutoTick} from "./member-info-scheduler.js";
 import {runRewardInfoAutoTick} from "./member-info-reward.js";
-import {publicArenaHistory,archiveArenaHistory} from "./public-arena-history.js";
+import {publicArenaHistory,archiveArenaHistory,archiveArenaHistoryWhenReady} from "./public-arena-history.js";
 import {publicTrophyHistory,archiveTrophyHistory} from "./public-trophy-history.js";
 import {publicGuestSeasonRanks} from "./public-guest-season-ranks.js";
 import {GAME_ARCHIVE_CRON,runGameArchiveTick} from "./game-catalog-archive.js";
@@ -191,6 +191,26 @@ export default {
         timeZone:"Europe/Paris",hour:"2-digit",minute:"2-digit",hourCycle:"h23"
       }).formatToParts(slot).filter(p=>p.type==="hour"||p.type==="minute")
         .map(p=>[p.type,Number(p.value)]));
+      // When the existing 17:01 collector is quiet, persist genuine R2
+      // receipts immediately. After its 17:30 window, retry R2-only every
+      // five minutes (including after a late deploy) until the fallback.
+      // Never stack archive reads on a tick that just used Scopely GETs.
+      const quietReward=reward.status==="complete"&&!(reward.requests>0);
+      const afterWindow=reward.status==="outside-window"&&
+        (parts.hour===17&&parts.minute>=31||
+         parts.hour===18||parts.hour===19||
+         parts.hour===20&&parts.minute<17)&&parts.minute%5===0;
+      if(quietReward||afterWindow){
+        try{
+          const ready=await archiveArenaHistoryWhenReady(env,scheduled);
+          if(["updated","unavailable"].includes(ready.status)||
+             ["updated","unavailable"].includes(ready.guestStatus))
+            console.info("arena-history-ready",JSON.stringify(ready));
+        }catch{
+          console.warn("arena-history-ready",JSON.stringify({
+            status:"unavailable"}));
+        }
+      }
       if(parts.minute===10&&parts.hour%3===0){
         try{
           const token=env?.ROSTER_GITHUB_DISPATCH_TOKEN;
@@ -212,10 +232,11 @@ export default {
           console.warn("msf-characters-dispatch",JSON.stringify({status:"unavailable"}));
         }
       }
-      // R2-only rolling arena history, at 20:17/22:17 Paris.
-      // No new cron, no provider calls, no roster pipeline changes.
+      // R2-only scheduled backup at 20:17/22:17 Paris.
+      // Ready-to-publish snapshots are already handled after quiet ticks.
       const arenaHistory=await archiveArenaHistory(env,controller.scheduledTime);
-      if(!["outside-window","unchanged"].includes(arenaHistory.status))
+      if(!["outside-window","unchanged"].includes(arenaHistory.status)||
+         ["updated","unavailable"].includes(arenaHistory.guestStatus))
         console.info("arena-history-cron",JSON.stringify(arenaHistory));
       // Trophy projection is R2-only: use the existing minute Cron, never
       // depend on GitHub Action scheduling or make another Scopely GET.

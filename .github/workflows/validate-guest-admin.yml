@@ -5,6 +5,8 @@ on:
       - "src/admin-arena-coverage.js"
       - "src/admin-routes.js"
       - "src/member-info-reward.js"
+      - "src/public-arena-history.js"
+      - "src/index.js"
       - "src/alliance-season-ranks.js"
       - "src/collection-overview.js"
       - "public/admin-arena-coverage.js"
@@ -13,6 +15,7 @@ on:
       - "public/admin-collection-dashboard.js"
       - "public/admin-navigation.js"
       - "tests/admin-arena-coverage.test.mjs"
+      - "tests/public-arena-history.test.mjs"
       - "tests/admin-arena-pending-labels.test.mjs"
       - "tests/member-info-reward-manual.test.mjs"
       - "tests/alliance-season-ranks.test.mjs"
@@ -36,6 +39,8 @@ jobs:
           node --check src/admin-arena-coverage.js
           node --check src/admin-routes.js
           node --check src/member-info-reward.js
+          node --check src/public-arena-history.js
+          node --check src/index.js
           node --check src/alliance-season-ranks.js
           node --check src/collection-overview.js
           node --check public/admin-arena-coverage.js
