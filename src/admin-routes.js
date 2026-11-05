@@ -23,6 +23,7 @@ import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
 import {handlePlayerExtraArchive} from "./player-extras-archive.js";
 import {handlePlayerCampaignAdmin} from "./player-campaign.js";
 import {handleRewardInfoManual} from "./member-info-reward.js";
+import {handleAdminArenaCoverage} from "./admin-arena-coverage.js";
 import {handlePlayerR2Explorer} from "./player-r2-explorer.js";
 import {handleCollectionOverview} from "./collection-overview.js";
 import {gameDifferentialStatus} from "./game-differential-sync.js";
@@ -52,7 +53,7 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<button id="check-coverage" type="button">Vérifier toutes les alliances</button>'+
 '<p id="coverage-status" role="status"></p><div id="coverage" class="scroll"></div></section>'+
 '<section><h2>Sauvegarde des classements raid / guerre</h2>'+
-'<p>Capture datée des alliances dont les sessions OAuth sont connectées : rangs raid et guerre, ligue et trophées de guerre. Ce ne sont pas les points de saison. La saison exacte n’est pas fournie par l’API.</p>'+
+'<p>Captures privées séparées des alliances LoSP et invitées autorisées : rangs raid et guerre, ligue et trophées. Ce ne sont pas les points de saison ; l’API ne fournit pas leur saison exacte.</p>'+
 '<p>Stockage R2 privé sous la règle existante de 7 jours. Copie le rapport rapidement si nécessaire. Aucune lecture des rosters.</p>'+
 '<button id="season-ranks-capture" type="button">Capturer les classements maintenant</button>'+
 '<button id="season-ranks-refresh" type="button">Voir la dernière capture</button>'+
@@ -79,8 +80,13 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<button id="roster-r2-refresh" type="button">Vérifier les alliances en R2</button>'+
 '<button id="roster-r2-copy" type="button" disabled>Copier le diagnostic JSON</button>'+
 '<p id="roster-r2-status" role="status"></p><div id="roster-r2-report" class="scroll"></div></section>'+
+'<section id="arena-coverage"><h2>Diagnostic Arène — LoSP et alliances invitées</h2>'+
+'<p>Vérification des reçus et de l’historique Arène dans R2 pour toutes les alliances dont la collecte est autorisée. Aucun appel Scopely ni lancement de collecte.</p>'+
+'<button id="arena-coverage-refresh" type="button">Vérifier les relevés Arène (R2)</button>'+
+'<p id="arena-coverage-status" role="status">Contrôle non lancé.</p>'+
+'<div id="arena-coverage-report" class="collection-grid" aria-live="polite"></div></section>'+
 '<section id="reward-info-manual"><h2>Relevé Arène — Infos après 17 h</h2>'+
-'<p>Collecte indépendante des fiches Infos enrichies, dont latestArena. Le relevé automatique de 17 h 01 et toutes les autres collectes restent inchangés.</p>'+
+'<p>Collecte indépendante des fiches Infos enrichies (latestArena) pour les alliances LoSP et invitées approuvées. La collecte automatique de 17 h 01 reste inchangée ; le lancement manuel est une action explicite faisant des appels Scopely.</p>'+
 '<button id="reward-info-manual-start" type="button">Collecter les Infos maintenant</button>'+
 '<button id="reward-info-manual-refresh" type="button">Voir la progression R2</button>'+
 '<p id="reward-info-manual-status" role="status">Aucune collecte déclenchée depuis cette page.</p>'+
@@ -257,6 +263,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-player-extras.js" defer></script>'+
 '<script src="/admin-player-r2-explorer.js" defer></script>'+ 
 '<script src="/admin-player-campaign.js" defer></script>'+
+'<script src="/admin-arena-coverage.js" defer></script>'+
 '<script src="/admin-reward-info-manual.js" defer></script>'+ 
 '<script src="/admin-secondary-probes.js" defer></script>'+
 '<script src="/admin-game-archive.js" defer></script>'+
@@ -375,6 +382,8 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     return handlePlayerR2Explorer(request,env);
   if(pathname==="/admin/api/player-campaign")
     return handlePlayerCampaignAdmin(request,env);
+  if(pathname==="/admin/api/arena-coverage")
+    return handleAdminArenaCoverage(request,env);
   if(pathname==="/admin/api/reward-infos-manual")
     return handleRewardInfoManual(request,env);
   return new Response("Not Found",{status:404});
