@@ -49,6 +49,10 @@ export function projectInfoReceipt(source,fp,campaign,key,now){
   if(!Number.isFinite(captured)||captured>now||captured<now-MAX_AGE||
      !Number.isFinite(expires)||expires<=now||expires>captured+MAX_AGE||
      source.capturedAt.slice(0,10)!==day)return null;
+  // Full, enriched Infos contract, accessible only through signed Discord scope.
+  const integerFields=["stp","charactersCollected","daysInAlliance",
+    "charactersAtMaxStarRank","bestArena","latestArena","latestBlitz",
+    "blitzWins","wwPoints"];
   const seen=new Set(),players=[];
   for(const p of source.rows){
     if(!isObject(p)||typeof p.name!=="string"||
@@ -58,9 +62,38 @@ export function projectInfoReceipt(source,fp,campaign,key,now){
        !validString(p.icon)||!validString(p.frame)||
        seen.has(nameKey(p.name)))return null;
     seen.add(nameKey(p.name));
-    // IDs, sharing flags, ranks and private profile fields are not exposed.
-    players.push({name:p.name,alliance:key,tcp:p.tcp,
-      war_mvp:p.war_mvp,icon:p.icon,frame:p.frame});
+    const info={name:p.name,alliance:key,tcp:p.tcp,
+      war_mvp:p.war_mvp,icon:p.icon,frame:p.frame};
+    for(const field of integerFields)
+      if(Object.hasOwn(p,field)){
+        if(!validNum(p[field]))return null;
+        info[field]=p[field];
+      }
+    if(Object.hasOwn(p,"rank")){
+      if(!["leader","captain","member"].includes(p.rank))return null;
+      info.rank=p.rank;
+    }
+    if(Object.hasOwn(p,"rosterShare")){
+      if(typeof p.rosterShare!=="boolean")return null;
+      info.rosterShare=p.rosterShare;
+    }
+    if(Object.hasOwn(p,"profileStatus")){
+      if(p.profileStatus!=="unavailable")return null;
+      info.profileStatus=p.profileStatus;
+    }
+    if(Object.hasOwn(p,"aid")){
+      if(!(typeof p.aid==="string"&&p.aid.length<=256)&&
+         !validNum(p.aid))return null;
+      info.aid=p.aid;
+    }
+    for(const field of ["level","qualifications"])
+      if(Object.hasOwn(p,field)){
+        if(!isObject(p[field])||
+           JSON.stringify(p[field]).length>(field==="level"?1000:4000))
+          return null;
+        info[field]=p[field];
+      }
+    players.push(info);
   }
   return {alliance:key,state:"complete",capturedAt:source.capturedAt,players};
 }
