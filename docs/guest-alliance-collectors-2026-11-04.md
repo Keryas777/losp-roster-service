@@ -83,3 +83,39 @@ uniquement dans la fenêtre de conservation autorisée.
 - Surveiller les erreurs 429, les dépenses en GET et la couverture des
   sessions : la cadence des collecteurs n'augmente pas, mais le nombre
   d'alliances en concurrence augmente.
+
+## Extension du 5 novembre 2026 — rangs Guerre et Raid des invitées
+
+- Les captures `AllianceCard` déjà programmées à 03:15 et 15:15 UTC
+  restent privées. Seul le relevé **du lundi 03:15 UTC** est projeté
+  dans `roster-batches/v1/guest-season-ranks/rolling.json`.
+  Aucun nouvel appel à Scopely, Cron ou import GitHub supplémentaire.
+- L’endpoint `GET /api/public/guest-season-ranks` fournit exclusivement
+  les rangs Guerre et Raid des invitées encore approuvées et **identifiées**
+  par une clé WebApp liée administrativement ou par un `publicId` déjà
+  publié par l’historique des trophées. Les empreintes Scopely, identifiants
+  des joueurs, jetons et chemins R2 ne sortent jamais de R2.
+  La révocation ou la suppression d’une association prend effet au
+  prochain GET. La projection conserve au plus 22 jours de captures
+  sous la règle R2 existante de sept jours : moins de 30 jours en tout.
+- La WebApp déduit **uniquement les saisons terminées** à partir de
+  `docs/data/alliance-standings/config.json`. Les lundis intermédiaires
+  ne créent aucun point. La première observation doit être réelle :
+  une capture antérieure manquante n'est pas reconstruite.
+- Dans `/admin#rosters` → Alliances connectées, après
+  « Autoriser la collecte invitée », renseigner la **clé WebApp exacte**
+  (la clé `key` dans `docs/data/alliances.json`) puis
+  « Associer à la WebApp ». Un lien est propre à une seule alliance
+  approuvée. Deux alliances affichant le même nom, notamment ENDGAME,
+  doivent être associées séparément après vérification de leurs comptes
+  connectés : ne **jamais** choisir automatiquement rouge/orange
+  d’après le seul nom ou le rang. Effacer le champ et enregistrer
+  pour retirer l'association sans révoquer la collecte.
+- L’ancien import des six LoSP et les données privées des invités
+  (rosters, Infos, Arène) restent inchangés. L’association d'affichage
+  ne confère jamais de permission de collecte ou de lecture de roster.
+- Déploiement : fusionner d'abord le Roster Service, **déployer son
+  Worker Cloudflare**, vérifier l’endpoint sans données privées,
+  puis fusionner le correctif WebApp associé. Le dépôt du Worker
+  dispose de workflows de validation, mais **aucun déploiement automatique**
+  sur `main` dans sa configuration GitHub Actions actuelle.
