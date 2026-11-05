@@ -122,3 +122,44 @@ uniquement dans la fenêtre de conservation autorisée.
   Vérifier dans le tableau Cloudflare que le nouveau build est bien `Ready`
   avant de considérer l'endpoint comme déployé. Les builds de prévisualisation
   des branches étaient désactivés dans la configuration vérifiée en octobre 2026.
+
+## Rattrapage exceptionnel d'une saison récemment terminée
+
+Pour une alliance invitée approuvée (MARINES dans le cas du 5 novembre
+2026), les deux rangs `warRank` et `raidRank` visibles dans le jeu peuvent
+encore correspondre à une saison **déjà terminée**, alors que le prélèvement
+automatique habituel n'a pas encore été installé lors de sa clôture.
+
+Le nouvel outil `/admin` → « Sauvegarde des classements raid / guerre »
+permet de qualifier **une capture récente réelle** :
+
+1. Cliquer sur « Voir la dernière capture ». Si elle est absente ou
+   ancienne, cliquer sur « Capturer les classements maintenant » (action
+   explicitement manuelle, déjà existante, utilisant Scopely).
+2. Vérifier que la section « Alliances invitées autorisées » contient
+   bien les rangs Guerre et Raid de l'alliance concernée.
+3. Dans « Rattrapage d’une saison terminée », sélectionner l'alliance
+   **exacte** ; saisir la date du début et celle de fin affichées dans
+   MSF. Pour le cas documenté : début `2026-10-11`, fin `2026-10-25`.
+4. Cocher la confirmation **uniquement après avoir vérifié** dans MSF
+   que les rangs affichés se rapportent effectivement à cette saison.
+   Cliquer ensuite sur « Enregistrer ces rangs pour la saison confirmée ».
+5. L'action ne lance **aucun nouvel appel Scopely** : elle lit la dernière
+   capture R2 privée (moins de 24 h), contrôle les droits/identités, puis
+   enregistre ses rangs observés et sa date réelle dans le même historique
+   glissant que les autres collectes.
+6. La WebApp doit correspondre à la PR liée qui reconnaît ces relevés
+   administrativement confirmés, les confronte à son calendrier dynamique
+   et refuse un identifiant de saison incohérent.
+
+Ce mécanisme ne rétrodate **jamais** la mesure : le rang reste réellement
+observé le jour de sa capture, tout en étant étiqueté avec la saison
+explicitement confirmée par un administrateur. Il ne publie ni points
+de raid inexistants ni nouveau trophée. Refus si capture trop ancienne,
+saison invraisemblable, absence d'approbation, source absente, identité
+publique non associée ou doublon contradictoire.
+
+Les observations invitées restent dans le cadre des contraintes
+de rétention Scopely : historique glissant de 22 jours, objets R2
+soumis au cycle de vie existant de 7 jours, aucune conservation
+indéfinie.
