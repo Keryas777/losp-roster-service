@@ -64,11 +64,8 @@ test("Monday capture publishes guest ranks without fingerprints or provider call
   assert.equal(response.headers.get("Cache-Control"),"no-store");
   assert.equal((await archiveGuestSeasonRankSample(f.env,sample(),NOW)).status,"unchanged");
 });
-test("only Monday 03:15, no synthetic season or unrelated captures",async()=>{
-  const f=fixture();
-  const before=sample();
-  assert.equal((await archiveGuestSeasonRankSample(f.env,before,
-    NOW+12*3600000)).status,"outside-window");
+test("real rank samples work on any day; old or malformed sources are rejected",async()=>{
+  const f=fixture(),before=sample();
   assert.equal((await archiveGuestSeasonRankSample(f.env,before,
     NOW+7*86400000)).status,"invalid-capture");
   assert.equal(f.ops.length,0);
@@ -76,6 +73,14 @@ test("only Monday 03:15, no synthetic season or unrelated captures",async()=>{
   assert.equal((await archiveGuestSeasonRankSample(f.env,before,NOW)).observed,2);
   const result=await(await publicGuestSeasonRanks(new Request(url),f.env,NOW)).json();
   assert.equal(result.snapshots[0].alliances.length,2);
+  const afternoon=sample();
+  afternoon.capturedAt="2026-11-09T15:15:00.000Z";
+  assert.equal((await archiveGuestSeasonRankSample(f.env,afternoon,
+    Date.parse(afternoon.capturedAt))).status,"updated");
+  const latest=await(await publicGuestSeasonRanks(new Request(url),f.env,
+    Date.parse(afternoon.capturedAt))).json();
+  assert.equal(latest.snapshots.length,1);
+  assert.equal(latest.snapshots[0].alliances.length,3);
 });
 test("revocation and unbinding hide data on the next GET",async()=>{
   const f=fixture();
