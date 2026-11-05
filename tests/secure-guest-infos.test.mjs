@@ -16,7 +16,11 @@ const receipt=(id=fp,campaign="2026-11-05-pm",alliance="MΛЯIΠΣƧ")=>({
   expiresAt:"2026-11-12T14:19:00Z",
   rows:[{name:"Marine 01",alliance,tcp:125000000,war_mvp:125,
     icon:"https://assets.marvelstrikeforce.com/imgs/icon.png",
-    frame:"",rosterShare:false,rank:"leader",aid:"private"}],
+    frame:"",rosterShare:false,rank:"leader",aid:"private",
+    level:{completedTier:110},stp:19000000,daysInAlliance:75,
+    charactersCollected:380,charactersAtMaxStarRank:310,
+    latestArena:10,latestBlitz:150,blitzWins:500,
+    wwPoints:1000,qualifications:{lang:["fr"]}}],
   accessToken:"secret-data"
 });
 function fixture(){
@@ -61,10 +65,14 @@ test("signed MARINES can read latest private Infos, without publishing private f
   assert.equal(json.alliances[0].state,"complete");
   assert.deepEqual(json.alliances[0].players[0],{
     name:"Marine 01",alliance:"marines",tcp:125000000,war_mvp:125,
-    icon:"https://assets.marvelstrikeforce.com/imgs/icon.png",frame:""
+    icon:"https://assets.marvelstrikeforce.com/imgs/icon.png",frame:"",
+    rank:"leader",rosterShare:false,aid:"private",level:{completedTier:110},
+    stp:19000000,daysInAlliance:75,charactersCollected:380,
+    charactersAtMaxStarRank:310,latestArena:10,latestBlitz:150,
+    blitzWins:500,wwPoints:1000,qualifications:{lang:["fr"]}
   });
-  for(const secret of [fp,losp,"secret-data","rosterShare","accessToken",
-    "allianceFingerprint","aid","roster-batches/v1/"])
+  for(const secret of [fp,losp,"secret-data","accessToken",
+    "allianceFingerprint","roster-batches/v1/"])
     assert.doesNotMatch(JSON.stringify(json),new RegExp(secret));
   assert.ok(f.reads.includes(path()));
 });
