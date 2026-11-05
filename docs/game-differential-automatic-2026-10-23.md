@@ -6,10 +6,11 @@ Une fois terminée, aucun nouveau balayage périodique n'était lancé.
 
 ## Nouveau comportement
 - `GAME_DIFF_ENABLED=true` : une **première vérification automatique** démarre après clôture de la campagne initiale **et de sa phase 2**.
-- La cadence de base reste **une passe 7 jours après la fin de la précédente passe hebdomadaire**. Une passe intermédiaire ne repousse pas cette échéance.
-- **Une collecte supplémentaire démarre le vendredi à 01:00 (heure `Europe/Paris`, CET/CEST)**, dans la fenêtre 01:00–01:59. Chaque vendredi est consommé une seule fois au démarrage, y compris si le passage de 7 jours tombe au même moment.
-- Si une passe est déjà en cours le vendredi à 01:00, elle continue ; aucune seconde campagne parallèle ne démarre. Si le créneau du vendredi s'écoule pendant cette passe, il est ignoré plutôt que rattrapé par un doublon.
-- Ces deux échéances réutilisent le Cron Cloudflare `* * * * *`, le même verrou Durable Object, les mêmes reçus et le même budget ; **aucun Cron supplémentaire** n'est configuré.
+- La collecte différentielle suit **deux créneaux fixes en heure `Europe/Paris`** : **lundi à 01:00** et **jeudi à 13:00**, chacun dans une fenêtre de 60 minutes (CET/CEST).
+- Ces créneaux sont espacés de **84 heures (3 jours et demi)** en temps normal ; la transition été/hiver peut produire un écart réel de 83 ou 85 heures pour conserver les horaires locaux.
+- Le mécanisme précédent « 7 jours après la fin » et le déclencheur du vendredi sont supprimés. Après clôture de l'archive initiale et de sa phase 2, la première campagne différentielle démarre toujours automatiquement.
+- Si une campagne est déjà en cours lors d'un créneau, elle continue : le créneau est considéré consommé, sans deuxième campagne parallèle ni rattrapage dans la même heure. Si le Worker manque toute la fenêtre, il attend le prochain créneau.
+- Ces deux créneaux réutilisent le Cron Cloudflare `* * * * *`, le même verrou Durable Object, les mêmes reçus et le même budget ; **aucun Cron supplémentaire** n'est configuré.
 - Aucune réinitialisation de `game-archive/v1/active.json` et aucune modification/destruction des archives originales.
 - Index des URLs exactes tirées des reçus originaux, des précédentes vérifications différentielles et des 17 racines officielles. Les six racines épisodiques sont ajoutées.
 - Les mêmes mécanismes de découverte prudente que l'archive initiale retrouvent les nouveaux IDs présents dans les listes et associations officiellement documentées, avec contrôle de pagination.
@@ -21,11 +22,11 @@ Une fois terminée, aucun nouveau balayage périodique n'était lancé.
 
 ## Prévention des régressions
 - Le différentiel utilise le **même verrou Durable Object** et le **même compteur journalier /game** que le collecteur initial. Il ne peut donc pas dépasser ou contourner ses limites.
-- Maximum **12 traitements par passage** (les reprises journalisées ne consomment pas de GET Scopely), sous le plafond `/game` existant de **9 000 GET/jour UTC**. Arrêt immédiat et une heure de pause en cas de HTTP 429. Le deuxième rendez-vous hebdomadaire n'augmente pas ce budget.
+- Maximum **12 traitements par passage** (les reprises journalisées ne consomment pas de GET Scopely), sous le plafond `/game` existant de **9 000 GET/jour UTC**. Arrêt immédiat et une heure de pause en cas de HTTP 429. Ces deux rendez-vous hebdomadaires n'augmentent pas ce budget.
 - OAuth `client_credentials` de l'application seulement. Aucun accès au roster, aux membres, aux données `/player`, ni aux secrets exposés côté navigateur.
 - Ne provoque **aucun appel Scopely à l'ouverture de l'administration**.
 - Le bilan global `Vue d’ensemble` affiche la dernière date de changement, le statut, les changements, les inchangés et les échecs. `GET /admin/api/game-differential` expose seulement les compteurs R2 sous Cloudflare Access.
-- L'état expose désormais `scheduleTrigger`, `weeklyCompletedAt`, `lastFridaySlot` et `fridaySchedule`. Le champ `nextRunAt` continue à indiquer **l'échéance des 7 jours**, et non le vendredi supplémentaire.
+- L'état expose `scheduleTrigger`, `lastScheduledSlot`, `schedule` et `intervalHours: 84`. `nextRunAt` indique le prochain créneau fixe au format UTC. Les anciens champs `weeklyCompletedAt`, `lastFridaySlot` et `fridaySchedule` ne pilotent plus le planificateur. Les états R2 existants sont migrés au prochain créneau sans réinitialiser l'archive.
 
 ## Limites à signaler honnêtement
 - Pas de paramètre universel `since`/ETag démontré par la spécification OpenAPI beta 0.2.1 pour toutes les familles : les réponses sont effectivement relues et comparées localement, pas sollicitées via un hypothétique filtre serveur.
