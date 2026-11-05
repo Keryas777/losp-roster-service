@@ -23,6 +23,23 @@ async function latest(bucket){
   const record=JSON.parse(await object.text());
   return validSnapshot(record)?record:null;
 }
+// Private guest latest is independent of the LoSP latest pointer.
+// Filter against CURRENT approvals on every GET (revoked guests stay hidden).
+async function latestApprovedGuests(bucket,env){
+  const current=await readCollectibleApprovals(env);
+  if(current.status==="invalid-registry")throw Error("invalid-approvals");
+  const allowed=new Set((current.guestAlliances||[]).map(x=>x.fingerprint));
+  if(!allowed.size)return null;
+  const item=await bucket.get(GUEST_PREFIX+"latest.json");
+  if(!item)return null;
+  const raw=await item.text();
+  if(raw.length>200000)return null;
+  let value;
+  try{value=JSON.parse(raw);}catch{return null;}
+  if(!validSnapshot(value))return null;
+  const alliances=value.alliances.filter(a=>allowed.has(a.allianceFingerprint));
+  return alliances.length?{...value,alliances,connectedAlliances:alliances.length}:null;
+}
 export async function handleAllianceSeasonRanks(request,env,fetchImpl=fetch,now=Date.now()){
   if(!["GET","POST"].includes(request.method))
     return respond({error:"method-not-allowed"},405);
@@ -32,9 +49,11 @@ export async function handleAllianceSeasonRanks(request,env,fetchImpl=fetch,now=
   if(new URL(request.url).search)return respond({error:"unsupported-query"},400);
   if(request.method==="GET"){
     try{
-      const record=await latest(bucket);
-      return respond(record?{status:"captured",snapshot:record}:
-        {status:"not-captured",snapshot:null});
+      const [record,guestSnapshot]=await Promise.all([
+        latest(bucket),latestApprovedGuests(bucket,env)
+      ]);
+      return respond({status:record||guestSnapshot?"captured":"not-captured",
+        snapshot:record,guestSnapshot});
     }catch{return respond({error:"snapshot-unavailable"},503);}
   }
   if(new URL(request.url).origin!==ORIGIN||
@@ -49,7 +68,8 @@ export async function handleAllianceSeasonRanks(request,env,fetchImpl=fetch,now=
     if(previous&&Number.isFinite(Date.parse(previous.capturedAt))&&
       now-Date.parse(previous.capturedAt)>=0&&
       now-Date.parse(previous.capturedAt)<COOLDOWN)
-      return respond({status:"recent-capture",snapshot:previous});
+      return respond({status:"recent-capture",snapshot:previous,
+        guestSnapshot:await latestApprovedGuests(bucket,env)});
     const approval=await readApproval(env);
     if(approval.status!=="configured"||!approval.alliances.length)
       return respond({error:"no-approved-alliances"},409);
@@ -92,6 +112,8 @@ export async function handleAllianceSeasonRanks(request,env,fetchImpl=fetch,now=
       }catch{guestStatus="unavailable";}
     }
     return respond({status:snapshot.completeSessionScan?"captured":"partial-capture",
-      snapshot,guestStatus,retention:"existing-roster-batches-7-days"});
+      snapshot,guestStatus,
+      guestSnapshot:await latestApprovedGuests(bucket,env),
+      retention:"existing-roster-batches-7-days"});
   }catch{return respond({error:"capture-unavailable"},503);}
 }
