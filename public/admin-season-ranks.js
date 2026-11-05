@@ -13,33 +13,39 @@
    const item=document.createElement(tag);item.textContent=String(text??"—");return item;
  };
  const displayName=s=>String(s||"").replace(/<#[0-9a-f]{6}>/gi,"")
-   .replace(/\s+/g," ").trim();
+   .replace(/<\\/?color(?:=[^<>]{1,32})?>/gi,"")\n   .replace(/\\s+/g," ").trim();
  function render(data){
-   current=data.snapshot||null;
-   copy.disabled=!current;
+   current={losp:data.snapshot||null,guests:data.guestSnapshot||null};
+   copy.disabled=!current.losp&&!current.guests;
    table.replaceChildren();
-   if(!current){
-     status.textContent="Aucune capture enregistrée. Utilise le bouton de capture avant la fin de saison.";
+   if(!current.losp&&!current.guests){
+     status.textContent="Aucune capture pour les alliances actuellement autorisées.";
      return;
    }
-   const s=current,when=new Date(s.capturedAt);
-   status.textContent=(data.status==="partial-capture"?"Capture partielle. ":
-     "Capture disponible. ")+s.connectedAlliances+" alliance(s) connectée(s), "+
-     s.unavailableSessions+" session(s) indisponible(s). Relevé : "+
-     (Number.isNaN(when.getTime())?s.capturedAt:when.toLocaleString("fr-FR"))+
-     ". Aucun ID de saison retourné par Scopely. Conservation R2 : 7 jours.";
-   const grid=document.createElement("table"),header=document.createElement("tr");
-   for(const v of ["Alliance","Guerre","Raid","Trophées guerre","Ligue"])
-     header.append(cell("th",v));
-   grid.append(header);
-   for(const a of s.alliances||[]){
-     const row=document.createElement("tr");
-     const league=a.warLeague?.name||a.warLeague?.id||"—";
-     for(const v of [displayName(a.name),a.warRank,a.raidRank,
-       a.warTrophies,league])row.append(cell("td",v));
-     grid.append(row);
+   function renderScope(label,s){
+     table.append(cell("h3",label));
+     if(!s){table.append(cell("p","Aucune capture disponible."));return;}
+     const when=new Date(s.capturedAt);
+     table.append(cell("p",(s.connectedAlliances||0)+" alliance(s) · relevé "+(
+       Number.isNaN(when.getTime())?s.capturedAt:when.toLocaleString("fr-FR"))+
+       (s.completeSessionScan===false?" · capture partielle":"")));
+     const grid=document.createElement("table"),header=document.createElement("tr");
+     for(const v of ["Alliance","Guerre","Raid","Trophées guerre","Ligue"])
+       header.append(cell("th",v));
+     grid.append(header);
+     for(const a of s.alliances||[]){
+       const row=document.createElement("tr"),league=a.warLeague?.name||
+         a.warLeague?.id||"—";
+       for(const v of [displayName(a.name),a.warRank,a.raidRank,
+         a.warTrophies,league])row.append(cell("td",v));
+       grid.append(row);
+     }
+     table.append(grid);
    }
-   table.append(grid);
+   status.textContent="Captures R2 privées · aucune donnée d'une invitée révoquée. "+
+     "Aucun ID de saison fourni par Scopely · conservation 7 jours.";
+   renderScope("Alliances LoSP",current.losp);
+   renderScope("Alliances invitées autorisées",current.guests);
    const note=cell("p","Important : warTrophies ≠ points de saison guerre. "+
      "Les points de saison raid ne sont pas exposés ici. "+
      "Vérifie la saison affichée dans le jeu avant de qualifier cette capture.");
