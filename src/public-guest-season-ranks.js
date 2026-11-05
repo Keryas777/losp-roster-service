@@ -127,8 +127,9 @@ export async function publicGuestSeasonRanks(request,env,now=Date.now()){
     {status:400,headers:HEADERS});
   try{
     const bucket=env.CAPTAIN_BUCKET;
-    const [history,guests,losp,trophies]=await Promise.all([
-      read(bucket,KEY),readGuestApprovals(env),readApproval(env),
+    const [history,latest,guests,losp,trophies]=await Promise.all([
+      read(bucket,KEY),read(bucket,GUEST_LATEST),
+      readGuestApprovals(env),readApproval(env),
       read(bucket,TROPHIES,600000)]);
     if(history&&!validArchive(history))throw Error("invalid-history");
     if(guests.status==="invalid-registry"||losp.status==="invalid-registry")
@@ -139,8 +140,46 @@ export async function publicGuestSeasonRanks(request,env,now=Date.now()){
     const ids=trophies?.version===1&&
       trophies.kind==="connected-alliance-trophy-history"&&
       trophies.ids&&typeof trophies.ids==="object"?trophies.ids:{};
-    const snapshots=(history?.snapshots||[]).filter(s=>
-      s.collectionDayUtc>=minDay(now)&&s.collectionDayUtc<=dayOf(now))
+    // The latest PRIVATE AllianceCard can predate deployment of the rolling
+    // publisher. Project it read-only now; the next existing scheduled capture
+    // persists it. Never write to R2 from a public request.
+    const eligible=(history?.snapshots||[]).filter(s=>
+      s.collectionDayUtc>=minDay(now)&&s.collectionDayUtc<=dayOf(now));
+    if(latest?.version===1&&latest.source==="/player/v1/alliance/card"&&
+       date(latest.capturedAt)&&
+       Date.parse(latest.capturedAt)<=now+60000&&
+       now-Date.parse(latest.capturedAt)<=DAY_MS&&
+       Array.isArray(latest.alliances)&&latest.alliances.length<=30){
+      const day=dayOf(Date.parse(latest.capturedAt));
+      const previous=eligible.find(s=>s.collectionDayUtc===day);
+      const merged=new Map((previous?.alliances||[])
+        .map(a=>[a.fingerprint,a]));
+      for(const a of latest.alliances){
+        if(!FP.test(a?.allianceFingerprint||"")||!name(a.name)||
+           !rank(a.warRank)||!rank(a.raidRank))continue;
+        const prior=merged.get(a.allianceFingerprint);
+        if(prior?.manualSeasonId)continue;
+        if(!prior||Date.parse(prior.capturedAt||previous.capturedAt)<=
+          Date.parse(latest.capturedAt))
+          merged.set(a.allianceFingerprint,{
+            fingerprint:a.allianceFingerprint,nameAtCapture:a.name,
+            warRank:a.warRank,raidRank:a.raidRank,
+            capturedAt:latest.capturedAt});
+      }
+      if(merged.size){
+        const projected={collectionDayUtc:day,
+          capturedAt:previous?.capturedAt>latest.capturedAt?
+            previous.capturedAt:latest.capturedAt,
+          completeSessionScan:previous?.completeSessionScan===true||
+            latest.completeSessionScan===true,
+          alliances:[...merged.values()]};
+        const index=eligible.findIndex(s=>s.collectionDayUtc===day);
+        if(index>=0)eligible[index]=projected;
+        else eligible.push(projected);
+      }
+    }
+    const snapshots=eligible.sort((a,b)=>
+      a.collectionDayUtc.localeCompare(b.collectionDayUtc))
       .map(s=>({collectionDayUtc:s.collectionDayUtc,capturedAt:s.capturedAt,
         coverage:{complete:s.completeSessionScan===true},
         alliances:s.alliances.flatMap(a=>{
