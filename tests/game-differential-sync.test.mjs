@@ -112,6 +112,36 @@ test("verified scheduled differential automatically publishes new awakened icons
     key==="game-archive/v1/materials/public/v1/differential.json"));
 });
 
+test("R2 scan indexes 64 source receipts per minute without skipping cursor entries",async()=>{
+  const f=fixture();await f.seed();
+  const original=RUN+"objects/"+("a".repeat(64))+".json";
+  for(let i=0;i<96;i++){
+    f.store.set(RUN+"receipts/scan-"+String(i).padStart(5,"0")+".json",
+      JSON.stringify({version:1,status:200,
+        path:"/game/v1/characters/SCAN_"+String(i),
+        objectKey:original,sha256:"a".repeat(64),
+        capturedAt:"2026-10-20T00:00:00.000Z"}));
+  }
+  const first=await runGameDifferentialTick(f.env,f.provider,NOW);
+  assert.equal(first.status,"scanning");
+  const key="game-archive/v1/diff/state.json";
+  let state=JSON.parse(f.store.get(key));
+  assert.equal(state.scanPhase,"base");
+  assert.equal(state.queued,64,"one indexed R2 batch per scheduled tick");
+  assert.equal(f.calls.length,0,"scanning never calls Scopely");
+
+  await runGameDifferentialTick(f.env,f.provider,NOW+60000);
+  state=JSON.parse(f.store.get(key));
+  assert.equal(state.scanPhase,"latest");
+  assert.equal(state.queued,97,"the remaining 33 receipts are not dropped");
+  const batches=[...f.store.entries()].filter(([k])=>
+    k.startsWith("game-archive/v1/diff/runs/"+state.runId+"/tasks/"));
+  const paths=batches.flatMap(([,raw])=>JSON.parse(raw).map(t=>t.path));
+  assert.equal(paths.length,97);
+  assert.equal(new Set(paths).size,97,"cursor and seen shards prevent duplicates");
+  assert.equal(f.calls.length,0);
+});
+
 test("no initial archive or unfinished baseline: zero /game requests",async()=>{
   const f=fixture();
   assert.equal((await runGameDifferentialTick(f.env,f.provider,NOW)).status,
