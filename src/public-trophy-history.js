@@ -71,7 +71,7 @@ function validHistory(x){
     Array.isArray(x.snapshots)&&x.snapshots.length<=30&&
     x.ids&&typeof x.ids==="object"&&!Array.isArray(x.ids);
 }
-function publicHistory(archive,now){
+function publicHistory(archive,now,allowedIds){
   const snapshots=validHistory(archive)?archive.snapshots.filter(row=>
     isTrophyDay(row?.collectionDayUtc)&&row.collectionDayUtc>=minDay(now)&&
     Array.isArray(row.alliances)&&row.alliances.length<=30).map(row=>({
@@ -83,7 +83,7 @@ function publicHistory(archive,now){
       alliances:row.alliances.map(a=>({
         publicId:a.publicId,nameAtCapture:a.nameAtCapture,
         capturedAt:a.capturedAt,warTrophies:a.warTrophies
-      })).filter(a=>UUID.test(a.publicId)&&safeName(a.nameAtCapture)&&
+      })).filter(a=>allowedIds.has(a.publicId)&&UUID.test(a.publicId)&&safeName(a.nameAtCapture)&&
         validNumber(a.warTrophies)&&Number.isFinite(asDate(a.capturedAt)))
     })).filter(row=>row.alliances.length):[];
   return {status:"ok",version:1,kind:"connected-alliance-trophy-history",
@@ -97,7 +97,13 @@ export async function publicTrophyHistory(request,env,now=Date.now()){
   try{
     const archive=await read(env.CAPTAIN_BUCKET,KEY);
     if(archive&&!validHistory(archive))throw Error("invalid-trophy-history");
-    return Response.json(publicHistory(archive,now),{headers:HEADERS});
+    // Revocations take effect at the next GET, not only on the next Cron:
+    // refuse access to any published identity no longer approved.
+    const approved=await readCollectibleApprovals(env);
+    if(approved.status==="invalid-registry")throw Error("invalid-approvals");
+    const allowedIds=new Set((approved.alliances||[])
+      .map(a=>archive?.ids?.[a.fingerprint]).filter(id=>UUID.test(id||"")));
+    return Response.json(publicHistory(archive,now,allowedIds),{headers:HEADERS});
   }catch{return Response.json({status:"unavailable",snapshots:[]},
     {status:503,headers:HEADERS});}
 }
