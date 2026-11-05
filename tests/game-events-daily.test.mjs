@@ -1,6 +1,7 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {runGameDailyEventsTick} from "../src/game-events-daily.js";
+import {runGameDailyEventsTick,markGameEventsDirty,EVENTS_DIRTY_KEY} from "../src/game-events-daily.js";
+import {dispatchGameEventsToGithub} from "../src/game-events-github-dispatch.js";
 import {buildPublicEvents,DAILY_EVENTS_KEY,
   buildDailyPublicEvents} from "../src/public-events.js";
 
@@ -41,7 +42,8 @@ function fixture({failPage=null,rateLimit=false}={}){
       "acquired":"released"});
   }})};
   const env={CAPTAIN_BUCKET:bucket,ROSTER_BATCH_LOCK:binding,
-    GAME_DIFF_ENABLED:"true",SCOPELY_CLIENT_ID:"test",
+    GAME_DIFF_ENABLED:"true",ROSTER_GITHUB_DISPATCH_TOKEN:"test-github-token",
+    SCOPELY_CLIENT_ID:"test",
     SCOPELY_CLIENT_SECRET:"test"};
   const fetchImpl=async url=>{
     calls.push(url);
@@ -131,4 +133,60 @@ test("provider 429 does not publish and respects a one-hour cooldown",async()=>{
   assert.equal(f.objects.has(DAILY_EVENTS_KEY),false);
   assert.equal((await runGameDailyEventsTick(f.env,f.fetchImpl,
     NOW+30*60000)).status,"cooldown");
+});
+
+test("a differential event revision refreshes the R2 catalogue on the same day",async()=>{
+  const f=fixture();
+  const first=await runGameDailyEventsTick(f.env,f.fetchImpl,NOW);
+  assert.equal(first.status,"completed");
+  assert.equal(first.trigger,undefined); // Public status remains backward compatible.
+  assert.equal(f.calls.filter(x=>x.startsWith(API)).length,4);
+  const next=NOW+90*60000;
+  await markGameEventsDirty(f.bucket,next);
+  assert.equal(JSON.parse(f.objects.get(EVENTS_DIRTY_KEY)).changedAt,
+    new Date(next).toISOString());
+  const again=await runGameDailyEventsTick(f.env,f.fetchImpl,next+60000);
+  assert.equal(again.status,"completed");
+  assert.equal(f.calls.filter(x=>x.startsWith(API)).length,8);
+  const state=JSON.parse(f.objects.get(ROOT+"events-daily/state.json"));
+  assert.equal(state.trigger,"differential");
+  assert.equal(state.dirtyAt,new Date(next).toISOString());
+  assert.equal((await runGameDailyEventsTick(f.env,f.fetchImpl,next+120000)).status,
+    "up-to-date");
+});
+
+test("verified daily and differential collections wake the GitHub JSON publisher exactly once",async()=>{
+  const f=fixture();
+  const github=[];
+  const submit=async(url,options)=>{
+    github.push({url,options});
+    return new Response(null,{status:204});
+  };
+  assert.equal(await dispatchGameEventsToGithub(f.env,submit,NOW),"not-ready");
+  await runGameDailyEventsTick(f.env,f.fetchImpl,NOW);
+  assert.equal(await dispatchGameEventsToGithub(f.env,submit,NOW),
+    "dispatched");
+  assert.equal(await dispatchGameEventsToGithub(f.env,submit,NOW),
+    "already-dispatched");
+  assert.equal(github.length,1);
+  assert.equal(JSON.parse(github[0].options.body).inputs.reason,"daily");
+  assert.match(github[0].url,/publish-events-r2\.yml\/dispatches$/);
+  await markGameEventsDirty(f.bucket,NOW+3600000);
+  await runGameDailyEventsTick(f.env,f.fetchImpl,NOW+3600000+1000);
+  assert.equal(await dispatchGameEventsToGithub(
+    f.env,submit,NOW+3600000+1000),"dispatched");
+  assert.equal(github.length,2);
+  assert.equal(JSON.parse(github[1].options.body).inputs.reason,"differential");
+});
+
+test("failed GitHub dispatch is retryable without recollecting Scopely",async()=>{
+  const f=fixture();
+  await runGameDailyEventsTick(f.env,f.fetchImpl,NOW);
+  const total=f.calls.filter(x=>x.startsWith(API)).length;
+  const fail=async()=>new Response(null,{status:503});
+  assert.equal(await dispatchGameEventsToGithub(f.env,fail,NOW),
+    "github-unavailable");
+  assert.equal(await dispatchGameEventsToGithub(f.env,async()=>new Response(
+    null,{status:204}),NOW+1000),"dispatched");
+  assert.equal(f.calls.filter(x=>x.startsWith(API)).length,total);
 });
