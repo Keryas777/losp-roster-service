@@ -5,10 +5,53 @@
    refresh=document.getElementById("season-ranks-refresh"),
    copy=document.getElementById("season-ranks-copy"),
    status=document.getElementById("season-ranks-status"),
-   table=document.getElementById("season-ranks-table");
+   table=document.getElementById("season-ranks-table"),
+   backfillAlliance=document.getElementById("guest-rank-backfill-alliance"),
+   backfillStart=document.getElementById("guest-rank-backfill-start"),
+   backfillEnd=document.getElementById("guest-rank-backfill-end"),
+   backfillConfirm=document.getElementById("guest-rank-backfill-confirm"),
+   backfillButton=document.getElementById("guest-rank-backfill-publish"),
+   backfillStatus=document.getElementById("guest-rank-backfill-status");
  if(!capture||!refresh||!copy||!status||!table)return;
  const url="/admin/api/alliance-season-ranks";
  let current=null,busy=false;
+ const updateBackfill=()=>{
+   if(!backfillButton||!backfillAlliance)return;
+   const captured=current?.guests?.capturedAt;
+   const fresh=Number.isFinite(Date.parse(captured))&&
+     Date.now()-Date.parse(captured)>=0&&
+     Date.now()-Date.parse(captured)<=24*3600000;
+   const start=Date.parse((backfillStart?.value||"")+"T00:00:00Z"),
+     end=Date.parse((backfillEnd?.value||"")+"T00:00:00Z");
+   const length=(end-start)/86400000;
+   const confirmedSeason=Number.isFinite(length)&&length>=7&&length<=60&&
+     Number.isFinite(Date.parse(captured))&&
+     Date.parse(captured)>=end+86400000&&
+     Date.parse(captured)<end+(end-start);
+   backfillButton.disabled=busy||!fresh||!confirmedSeason||
+     !backfillAlliance.value||!backfillConfirm?.checked;
+ };
+ function fillGuestChoices(){
+   if(!backfillAlliance)return;
+   const previous=backfillAlliance.value;
+   backfillAlliance.replaceChildren();
+   const empty=document.createElement("option");
+   empty.value="";empty.textContent="Choisir une alliance";backfillAlliance.append(empty);
+   const records=current?.guests?.alliances||[];
+   for(const a of records){
+     if(typeof a.allianceFingerprint!=="string"||
+       !Number.isSafeInteger(a.warRank)||!Number.isSafeInteger(a.raidRank))continue;
+     const option=document.createElement("option");
+     option.value=a.allianceFingerprint;
+     option.textContent=displayName(a.name)+" — guerre "+a.warRank+
+       ", raid "+a.raidRank+" — "+a.allianceFingerprint.slice(-6);
+     backfillAlliance.append(option);
+   }
+   backfillAlliance.value=records.some(a=>a.allianceFingerprint===previous)?
+     previous:records.length===1?records[0].allianceFingerprint:"";
+   if(backfillConfirm)backfillConfirm.checked=false;
+   updateBackfill();
+ }
  const cell=(tag,text)=>{
    const item=document.createElement(tag);item.textContent=String(text??"—");return item;
  };
@@ -19,6 +62,7 @@
  function render(data){
    current={losp:data.snapshot||null,guests:data.guestSnapshot||null};
    copy.disabled=!current.losp&&!current.guests;
+   fillGuestChoices();
    table.replaceChildren();
    if(!current.losp&&!current.guests){
      status.textContent="Aucune capture pour les alliances actuellement autorisées.";
@@ -70,7 +114,46 @@
    }catch(error){
      status.textContent="Capture indisponible : "+
        (error instanceof Error?error.message:"erreur");
-   }finally{busy=false;capture.disabled=false;refresh.disabled=false;}
+   }finally{busy=false;capture.disabled=false;refresh.disabled=false;updateBackfill();}
+ }
+ for(const input of [backfillAlliance,backfillStart,backfillEnd,backfillConfirm])
+   input?.addEventListener("change",updateBackfill);
+ if(backfillButton){
+   backfillButton.addEventListener("click",async()=>{
+     if(busy||backfillButton.disabled)return;
+     const selected=current?.guests?.alliances?.find(a=>
+       a.allianceFingerprint===backfillAlliance.value);
+     if(!selected||!backfillConfirm.checked)return;
+     busy=true;backfillButton.disabled=true;
+     capture.disabled=true;refresh.disabled=true;
+     backfillStatus.textContent="Validation du relevé existant dans R2…";
+     try{
+       const response=await fetch("/admin/api/guest-season-rank-backfill",{
+         method:"POST",credentials:"same-origin",cache:"no-store",
+         headers:{"Content-Type":"application/json",Accept:"application/json"},
+         body:JSON.stringify({
+           allianceFingerprint:selected.allianceFingerprint,
+           sourceCapturedAt:current.guests.capturedAt,
+           seasonId:backfillStart.value+"/"+backfillEnd.value,
+           confirmation:"verified-in-game"
+         })
+       });
+       const result=await response.json();
+       if(!response.ok)throw Error(result.error||"HTTP "+response.status);
+       backfillStatus.textContent=(result.status==="recorded"?
+         "Rattrapage enregistré : ":"Relevé déjà enregistré : ")+
+         "saison "+result.seasonId.replace("/"," au ")+
+         " — Guerre "+result.warRank+", Raid "+result.raidRank+
+         ". La projection publique reste soumise aux autorisations.";
+       backfillConfirm.checked=false;
+     }catch(error){
+       backfillStatus.textContent="Rattrapage impossible : "+
+         (error instanceof Error?error.message:"erreur");
+     }finally{
+       busy=false;capture.disabled=false;refresh.disabled=false;
+       updateBackfill();
+     }
+   });
  }
  capture.addEventListener("click",()=>void call(true));
  refresh.addEventListener("click",()=>void call(false));
