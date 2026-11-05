@@ -730,3 +730,29 @@ test("guest collection shares the existing cron without blocking LoSP-only GitHu
  assert.ok(github[0].includes("pull-rosters-r2.yml"));
 });
 
+
+test("full-alliance mode needs one scheduled tick and idles after completion",async()=>{
+ const f=fixture();
+ f.env.ROSTER_FULL_COLLECTION_ENABLED="true";
+ const first=await runRosterAutoTick(f.env,controller("2026-11-05T02:00:00Z"),f.fetchImpl);
+ assert.equal(first.status,"complete");
+ assert.equal(first.alliancesProcessed,1);
+ assert.ok(first.requestsThisTick<=44);
+ const latest=JSON.parse(f.store.get(completeKey(fp)));
+ assert.equal(latest.total,3);
+ assert.equal(latest.coMembers,2);
+ const before=f.calls.length;
+ const repeat=await runRosterAutoTick(f.env,controller("2026-11-05T02:01:00Z"),f.fetchImpl);
+ assert.equal(repeat.status,"up-to-date");
+ assert.equal(repeat.requestsThisTick,0);
+ assert.equal(f.calls.length,before);
+});
+
+test("full mode can opt into a larger paid-Worker provider budget explicitly",async()=>{
+ const f=fixture();
+ f.env.ROSTER_FULL_COLLECTION_ENABLED="true";
+ f.env.ROSTER_FULL_COLLECTION_REQUEST_BUDGET="300";
+ const res=await runRosterAutoTick(f.env,controller("2026-11-05T14:00:00Z"),f.fetchImpl);
+ assert.equal(res.status,"complete");
+ assert.ok(res.requestsThisTick>0&&res.requestsThisTick<=300);
+});

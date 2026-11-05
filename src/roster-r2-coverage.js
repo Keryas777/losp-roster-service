@@ -167,6 +167,7 @@ export async function handleRosterR2Coverage(request,env,now=Date.now()){
     }
     return respond({status:"ok",source:"private-r2-only",scope:full?"full":"summary",
       checkedAt:new Date(now).toISOString(),registryStatus:registry.status,
+      fullCollectionEnabled:env?.ROSTER_FULL_COLLECTION_ENABLED==="true",
       approvedCount:registry.alliances.length,alliances,
       note:full?"Fichiers vérifiés par HEAD R2, sans validation du contenu des rosters.":
         "Pour vérifier tous les fichiers d'une alliance, fournir son fingerprint."});

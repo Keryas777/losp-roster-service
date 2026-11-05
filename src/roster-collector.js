@@ -42,7 +42,7 @@ function headerFor(token) {
 }
 
 async function request(path, token, budget, fetchImpl) {
-  if (budget.used >= MAX_REQUESTS) return { status: "request-budget" };
+  if (budget.used >= (budget.maxRequests ?? MAX_REQUESTS)) return { status: "request-budget" };
   budget.used++;
   let response;
   try {
@@ -225,13 +225,18 @@ async function collectMember(memberId, token, budget, fetchImpl, withInfo = fals
 export async function collectAllianceRosterSample(token, fetchImpl = fetch, options = {}) {
   if (typeof token !== "string" || !token) return { status: "missing-token" };
   const maxMembers = options.maxMembers === undefined ? MAX_PILOT_MEMBERS : options.maxMembers;
+  // The private automatic collector may use a larger invocation budget on
+  // Workers Paid. Reserve one call for the final membership verification.
+  const maxRequests=options.maxRequests===undefined?MAX_REQUESTS:options.maxRequests;
   const withInfo = options.charInfo === true;
   const startIndex=options.startIndex===undefined?0:options.startIndex;
   if (!Number.isInteger(maxMembers) || maxMembers < 1 || maxMembers > MAX_ALLIANCE_MEMBERS ||
-      !Number.isInteger(startIndex) || startIndex < 0 || startIndex > MAX_ALLIANCE_MEMBERS) {
+      !Number.isInteger(startIndex) || startIndex < 0 || startIndex > MAX_ALLIANCE_MEMBERS ||
+      !Number.isInteger(maxRequests) || maxRequests < 3 || maxRequests > 300) {
     return { status: "invalid-configuration" };
   }
-  const budget = { used: 0 };
+  const budget = {used:0,maxRequests:maxRequests-
+    (options.requireStableMembership===true?1:0)};
   const response = await request("/player/v1/alliance/members", token, budget, fetchImpl);
   if (response.status !== "ok") return { status: response.status, requests: budget.used };
   const members = response.payload.data;
@@ -308,11 +313,20 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
   };
   const concurrency=options.parallelMembers===true?3:1;
   await Promise.all(Array.from({length:Math.min(concurrency,selected.length)},runner));
-  const failure=results.find(item=>item&&item.result.status!=="ok");
-  if(failure||results.some(item=>!item))
-    return {status:failure?.result.status||"incomplete",
+  const failure=results.find(item=>item&&item.result.status!=="ok"&&
+    item.result.status!=="request-budget");
+  if(failure)return {status:failure.result.status,...summary,requests:budget.used};
+  const firstUnfinished=results.findIndex(item=>!item||item.result.status!=="ok");
+  if(firstUnfinished!==-1&&!options.partialOnBudget)
+    return {status:results[firstUnfinished]?.result.status||"incomplete",
       ...summary,requests:budget.used};
-  for(const {candidate,result} of results){
+  // At a budget boundary keep only the consecutive complete prefix: never
+  // skip an index even when concurrent member requests finish out of order.
+  if(firstUnfinished===0)
+    return {status:"request-budget",...summary,requests:budget.used};
+  const accepted=firstUnfinished===-1?results.length:firstUnfinished;
+  summary.selectedCount=accepted;
+  for(const {candidate,result} of results.slice(0,accepted)){
     rosters.push({memberId:candidate.id,name:candidate.card.name,
       chars:result.roster,asOf:result.asOf,unchanged:result.unchanged===true,
       ...(options.includeSourcePayload===true?{
@@ -328,6 +342,7 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
     // A memberId is volatile when the alliance roster version changes.
     // Re-read membership *after* every collected page and reject changes
     // of roster sharing or membership: no partial records may escape.
+    budget.maxRequests=maxRequests; // reserved final verification GET
     const check=await request("/player/v1/alliance/members",token,budget,fetchImpl);
     if(check.status!=="ok")return {status:check.status,requests:budget.used};
     sourceMembershipAfter=check.payload;
@@ -347,6 +362,7 @@ export async function collectAllianceRosterSample(token, fetchImpl = fetch, opti
       return {status:"changed-during-read",requests:budget.used};
   }
   return { status: "complete", ...summary, requests: budget.used, rosters,
+    budgetDeferred:accepted<selected.length,
     ...(options.includeMembershipDigest===true?{membershipDigest:initialDigest}:{}),
     ...(options.startIndex!==undefined?{startIndex}:{} ),
     // Include BOTH immutable validated read envelopes only by opt-in.

@@ -15,6 +15,10 @@ const BATCH_SIZE=2;
 // Large /player rosters can need up to 10 pages each. Keep each Cron
 // microbatch inside its existing 24-GET bound, even without a usable cache.
 const AUTOMATIC_BATCH_SIZE=1;
+// Fast mode processes an entire normal 24-member alliance in one invocation
+// when the actual provider-request budget permits, without keeping 100 rosters
+// in Worker memory. Oversized responses fall back to checked R2 checkpoints.
+const FULL_ALLIANCE_BATCH_SIZE=24;
 // A changing membership must not cause endless automatic full-roster restarts.
 const MAX_AUTOMATIC_RESTARTS=2;
 const answer=(v,status=200)=>Response.json(v,{status,headers:{
@@ -314,13 +318,23 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     const status=await lock(env,fp,"acquire",holder);
     if(status!=="acquired")return answer({status:status==="busy"?"busy":"lock-unavailable"},409);
     acquired=true;
-    const campaign=typeof internal?.campaign==="string"&&
+    let campaign=typeof internal?.campaign==="string"&&
       /^\d{4}-\d{2}-\d{2}-(?:am|pm)$/.test(internal.campaign)?
       internal.campaign:null;
+    const fullMode=campaign&&env.ROSTER_FULL_COLLECTION_ENABLED==="true";
     let previous=restart?null:await readState(env,fp);
-    if(campaign&&previous?.campaign!==campaign)previous=null;
-    if(previous&&Date.parse(previous.expiresAt)<=now)
-      return answer({...publicState(previous,now),status:"expired-restart-required"},409);
+    // Complete the previous unfinished AM/PM campaign before starting a new
+    // generation. The same runId and member indexes remain immutable.
+    if(campaign&&previous?.campaign!==campaign){
+      if(fullMode&&previous?.campaign&&previous.selfCompleted!==true)
+        campaign=previous.campaign;
+      else previous=null;
+    }
+    if(previous&&Date.parse(previous.expiresAt)<=now){
+      if(fullMode)previous=null; // expired automatic checkpoint: fresh run
+      else return answer({...publicState(previous,now),
+        status:"expired-restart-required"},409);
+    }
     if(refresh&&(!previous||previous.completed!==previous.totalEligible))
       return answer({status:"refresh-requires-complete-run"},409);
     if(campaign&&previous?.lastAutoTick===internal.tick)
@@ -345,7 +359,8 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     if(selected.status!=="ok")return answer({status:selected.status},409);
     // This is independent of roster pages and survives their later failures.
     // Failure of this auxiliary archive must not compromise roster collection.
-    try{await storeEarlyTrophyCard(env,fp,campaign,selected.sourcePayload,now);}
+    try{await storeEarlyTrophyCard(env,fp,internal.campaign||campaign,
+      selected.sourcePayload,now);}
     catch{/* The next scheduled tick may try again. */}
     if(campaign&&previous&&previous.completed===previous.totalEligible){
       const finalPrevious=internal.manualRecovery===true?
@@ -353,6 +368,9 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
       const response=await finishSelf(env,fp,finalPrevious,selected,baseline,now,fetchImpl,internal.tick);
       if(response.status!==409)return response;
       const {status}=await response.clone().json();
+      if(fullMode&&status==="request-budget")
+        return answer({...publicState(previous,now),status:"complete-co-members",
+          deferredPersonal:true},200);
       return await scheduleAutomaticRestart(env,fp,previous,campaign,status)||response;
     }
     const startIndex=previous?.completed||0;
@@ -372,8 +390,17 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
         return {asOf:old.asOf,chars:old.characters};
       }catch{return null;}
     };
+    const remainingRequests=fullMode&&typeof fetchImpl.remainingRequests==="function"?
+      fetchImpl.remainingRequests():null;
+    // Leave one provider call for the independent final alliance validation.
+    if(fullMode&&remainingRequests!==null&&remainingRequests<5)
+      return answer({...publicState(previous,now),status:"budget-deferred"},200);
     const options={
-      maxMembers:campaign?AUTOMATIC_BATCH_SIZE:BATCH_SIZE,startIndex,charInfo:true,
+      maxMembers:fullMode?FULL_ALLIANCE_BATCH_SIZE:
+        campaign?AUTOMATIC_BATCH_SIZE:BATCH_SIZE,startIndex,charInfo:true,
+      ...(fullMode?{partialOnBudget:true,
+        ...(remainingRequests!==null?{
+          maxRequests:Math.min(300,remainingRequests-1)}:{})}:{}),
       parallelMembers:Boolean(campaign),
       preferSinglePage:true,cachedForMember,
       requireCurrentMembership:true,requireStableMembership:true,
@@ -393,6 +420,8 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
         ...options,cachedForMember:undefined,expectedMembershipDigest:undefined
       });
     }
+    if(result.status==="request-budget"&&fullMode)
+      return answer({...publicState(previous,now),status:"budget-deferred"},200);
     if(result.status!=="complete")
       return await scheduleAutomaticRestart(env,fp,previous,campaign,result.status)||
         answer({status:result.status},409);
@@ -471,6 +500,23 @@ export async function handleRosterMicrobatch(request,env,fetchImpl=fetch,now=Dat
     await env.CAPTAIN_BUCKET.put(stateKey(fp),JSON.stringify(updated),{
       httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
     });
+    // The captain's personal roster can be finalized immediately in the same
+    // invocation. If the Cloudflare budget runs out, keep the complete member
+    // prefix in R2 and finish only the missing work on the next scheduled tick.
+    if(fullMode&&updated.completed===updated.totalEligible){
+      const finished=await finishSelf(env,fp,updated,selected,baseline,
+        now,fetchImpl,internal.tick);
+      if(finished.ok){
+        const payload=await finished.json();
+        return answer({...payload,
+          savedThisBatch:result.selectedCount+(payload.savedThisBatch||0),
+          charactersThisBatch:result.characterCount+
+            (payload.charactersThisBatch||0)});
+      }
+      const {status}=await finished.clone().json();
+      if(status!=="request-budget")
+        return await scheduleAutomaticRestart(env,fp,updated,campaign,status)||finished;
+    }
     return answer({...publicState(updated,now),
       savedThisBatch:result.selectedCount,charactersThisBatch:result.characterCount,
       pagesThisBatch:result.pages,unchangedThisBatch:result.unchangedCount,

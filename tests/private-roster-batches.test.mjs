@@ -628,3 +628,112 @@ test("a failed R2 completion receipt write never publishes mutable completed poi
  assert.equal(recovered.status,200);
  assert.ok(f.store.has(campaignCompleteKey(fingerprint,"2026-10-26-pm")));
 });
+
+test("full mode archives an entire 24-member alliance and captain in one pass",async()=>{
+ const members=Array.from({length:23},(_,i)=>"m"+String(i).padStart(2,"0"));
+ const f=fixture({members,noOptout:true});
+ f.env.ROSTER_FULL_COLLECTION_ENABLED="true";
+ const now=Date.UTC(2026,10,5,2,0,0),tick="2026-11-05T02:00Z";
+ let used=0;
+ const bounded=async(url,opts)=>{
+   if(used>=44)throw Error("scopely-invocation-limit");
+   used++;return f.api(url,opts);
+ };
+ bounded.remainingRequests=()=>44-used;
+ const res=await handleRosterMicrobatch(request(),f.env,bounded,now,{
+   campaign:"2026-11-05-am",tick
+ });
+ assert.equal(res.status,200);
+ const body=await res.json();
+ assert.equal(body.status,"complete");
+ assert.equal(body.completed,23);
+ assert.equal(body.personalRosterCollected,true);
+ assert.ok(used<=44);
+ const latest=JSON.parse(f.store.get(BATCH_PREFIX+fingerprint+"/latest-complete.json"));
+ assert.equal(latest.total,24);
+ assert.equal(latest.coMembers,23);
+ for(let i=0;i<23;i++)
+   assert.ok(f.store.has(BATCH_PREFIX+fingerprint+"/"+latest.runId+"/member-"+i+".json"));
+ assert.ok(f.store.has(BATCH_PREFIX+fingerprint+"/"+latest.runId+"/member-self.json"));
+});
+
+test("full mode keeps the verified AM prefix when PM finishes the same run",async()=>{
+ const members=Array.from({length:23},(_,i)=>"m"+String(i).padStart(2,"0"));
+ const f=fixture({members,noOptout:true});
+ f.env.ROSTER_FULL_COLLECTION_ENABLED="true";
+ const bounded=limit=>{
+   let used=0;
+   const fn=async(url,opts)=>{
+     if(used>=limit)throw Error("scopely-invocation-limit");
+     used++;return f.api(url,opts);
+   };
+   fn.remainingRequests=()=>limit-used;
+   return fn;
+ };
+ const am=await handleRosterMicrobatch(request(),f.env,bounded(12),
+   Date.UTC(2026,10,5,2,0),{campaign:"2026-11-05-am",tick:"2026-11-05T02:00Z"});
+ assert.equal(am.status,200);
+ const partial=await am.json();
+ assert.equal(partial.status,"in-progress");
+ assert.ok(partial.completed>0&&partial.completed<23,JSON.stringify(partial));
+ const progressKey=BATCH_PREFIX+fingerprint+"/progress.json";
+ const saved=JSON.parse(f.store.get(progressKey));
+ assert.equal(saved.campaign,"2026-11-05-am");
+ const first=Array.from({length:saved.completed},(_,i)=>
+   f.store.get(BATCH_PREFIX+fingerprint+"/"+saved.runId+"/member-"+i+".json"));
+ const previousCalls=f.counters.calls;
+ const pm=await handleRosterMicrobatch(request(),f.env,bounded(44),
+   Date.UTC(2026,10,5,14,0),{campaign:"2026-11-05-pm",tick:"2026-11-05T14:00Z"});
+ assert.equal(pm.status,200);
+ const finished=await pm.json();
+ assert.equal(finished.status,"complete");
+ assert.equal(finished.completed,23);
+ const finalState=JSON.parse(f.store.get(progressKey));
+ assert.equal(finalState.runId,saved.runId);
+ assert.equal(finalState.campaign,"2026-11-05-am",
+   "no silent PM restart of an unfinished AM generation");
+ for(let i=0;i<first.length;i++)
+   assert.equal(f.store.get(BATCH_PREFIX+fingerprint+"/"+saved.runId+"/member-"+i+".json"),first[i]);
+ assert.ok(f.counters.calls>previousCalls);
+ const receipt=JSON.parse(f.store.get(campaignCompleteKey(fingerprint,"2026-11-05-am")));
+ assert.equal(receipt.manifest.total,24);
+});
+
+test("full mode persists a verified prefix when 472 forces multi-page rosters",async()=>{
+ const members=Array.from({length:23},(_,i)=>"m"+String(i).padStart(2,"0"));
+ const f=fixture({members,noOptout:true});
+ f.env.ROSTER_FULL_COLLECTION_ENABLED="true";
+ const provider=async(url,opts)=>{
+   if(url.includes("/roster/member/")&&
+      !new URL(url).searchParams.has("page"))
+     return new Response(null,{status:472});
+   return f.api(url,opts);
+ };
+ const bounded=limit=>{
+   let used=0;
+   const fn=async(url,opts)=>{
+     if(used>=limit)throw Error("scopely-invocation-limit");
+     used++;return provider(url,opts);
+   };
+   fn.remainingRequests=()=>limit-used;
+   return fn;
+ };
+ const first=await handleRosterMicrobatch(request(),f.env,bounded(44),
+   Date.UTC(2026,10,5,2,0),{campaign:"2026-11-05-am",tick:"2026-11-05T02:00Z"});
+ assert.equal(first.status,200);
+ const a=await first.json();
+ assert.equal(a.status,"in-progress");
+ assert.ok(a.completed>0&&a.completed<23,JSON.stringify(a));
+ const original=JSON.parse(f.store.get(BATCH_PREFIX+fingerprint+"/progress.json"));
+ const saved=f.store.get(BATCH_PREFIX+fingerprint+"/"+original.runId+"/member-0.json");
+ const next=await handleRosterMicrobatch(request(),f.env,bounded(44),
+   Date.UTC(2026,10,5,2,1),{campaign:"2026-11-05-am",tick:"2026-11-05T02:01Z"});
+ assert.equal(next.status,200);
+ const b=await next.json();
+ assert.equal(b.status,"complete");
+ assert.equal(b.completed,23);
+ const finished=JSON.parse(f.store.get(BATCH_PREFIX+fingerprint+"/latest-complete.json"));
+ assert.equal(finished.runId,original.runId);
+ assert.equal(finished.total,24);
+ assert.equal(f.store.get(BATCH_PREFIX+fingerprint+"/"+original.runId+"/member-0.json"),saved);
+});
