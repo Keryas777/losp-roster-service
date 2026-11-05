@@ -1,0 +1,45 @@
+name: Validate invited alliance administration
+on:
+  pull_request:
+    paths:
+      - "src/admin-arena-coverage.js"
+      - "src/admin-routes.js"
+      - "src/member-info-reward.js"
+      - "src/alliance-season-ranks.js"
+      - "src/collection-overview.js"
+      - "public/admin-arena-coverage.js"
+      - "public/admin-reward-info-manual.js"
+      - "public/admin-season-ranks.js"
+      - "public/admin-collection-dashboard.js"
+      - "public/admin-navigation.js"
+      - "tests/admin-arena-coverage.test.mjs"
+      - "tests/member-info-reward-manual.test.mjs"
+      - "tests/alliance-season-ranks.test.mjs"
+      - "tests/collection-overview.test.mjs"
+      - ".github/workflows/validate-guest-admin.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Syntax checks and existing collector regressions
+        run: |
+          node --check src/admin-arena-coverage.js
+          node --check src/admin-routes.js
+          node --check src/member-info-reward.js
+          node --check src/alliance-season-ranks.js
+          node --check src/collection-overview.js
+          node --check public/admin-arena-coverage.js
+          node --check public/admin-season-ranks.js
+          node --check public/admin-reward-info-manual.js
+          node --check public/admin-collection-dashboard.js
+          node --check public/admin-navigation.js
+          node --test tests/admin-arena-coverage.test.mjs tests/member-info-reward-manual.test.mjs tests/member-info-reward.test.mjs tests/alliance-season-ranks.test.mjs tests/public-arena-history.test.mjs tests/collection-overview.test.mjs tests/roster-r2-coverage.test.mjs tests/guest-alliance-approvals.test.mjs
