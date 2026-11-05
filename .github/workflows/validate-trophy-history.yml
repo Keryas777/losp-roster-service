@@ -3,8 +3,16 @@ on:
   pull_request:
     paths:
       - "src/public-trophy-history.js"
+      - "src/public-guest-season-ranks.js"
+      - "src/alliance-season-ranks.js"
+      - "src/guest-alliance-approvals.js"
+      - "src/connected-alliance-index.js"
+      - "public/admin-roster-preflight.js"
       - "src/index.js"
       - "tests/public-trophy-history.test.mjs"
+      - "tests/public-guest-season-ranks.test.mjs"
+      - "tests/guest-alliance-approvals.test.mjs"
+      - "tests/alliance-season-ranks.test.mjs"
       - ".github/workflows/validate-trophy-history.yml"
   workflow_dispatch:
 
@@ -22,5 +30,7 @@ jobs:
       - name: Check syntax and regression tests
         run: |
           node --check src/public-trophy-history.js
+          node --check src/public-guest-season-ranks.js
+          node --check public/admin-roster-preflight.js
           node --check src/index.js
-          node --test tests/public-trophy-history.test.mjs tests/trophy-github-dispatch.test.mjs tests/guest-alliance-approvals.test.mjs
+          node --test tests/public-trophy-history.test.mjs tests/public-guest-season-ranks.test.mjs tests/trophy-github-dispatch.test.mjs tests/guest-alliance-approvals.test.mjs tests/alliance-season-ranks.test.mjs
