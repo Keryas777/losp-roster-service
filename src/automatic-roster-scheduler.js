@@ -1,7 +1,7 @@
 // Opt-in private roster scheduler. No public snapshots, WebApp pushes or Sheets writes.
 import {captainConfigReady} from "./captain-vault.js";
 import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
-import {handleRosterMicrobatch} from "./private-roster-batches.js";
+import {handleRosterMicrobatch,BATCH_PREFIX} from "./private-roster-batches.js";
 import {dispatchCompleteRosterCampaign} from "./roster-github-dispatch.js";
 import {dispatchCompleteTrophyCards} from "./trophy-github-dispatch.js";
 import {rosterAttemptKey,rosterCooldownKey,rosterAttemptRecord}
@@ -12,6 +12,8 @@ export const ROSTER_CRON="* 2-3,14-15 * * *";
 // Cloudflare Workers Free limit of 50 external subrequests per invocation.
 export const TICK_API_BUDGET=24;
 export const ALLIANCES_PER_TICK=2;
+const FREE_FULL_API_BUDGET=44; // leaves headroom beneath Workers Free 50
+const PAID_MAX_API_BUDGET=300; // opt-in only after the paid plan is confirmed
 const ROOT="roster-auto/v1/";
 const GLOBAL_LOCK="f".repeat(64); // A separate Durable Object from the alliance locks.
 const BASE_URL="https://losp-roster-service.deliriousfan7.workers.dev";
@@ -189,6 +191,22 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
     if(approval.status!=="configured"||!approval.alliances.length)
       return {status:"no-approved-alliances"};
     const alliances=approval.alliances.map(a=>a.fingerprint).sort();
+    const fullMode=env.ROSTER_FULL_COLLECTION_ENABLED==="true";
+    const configured=Number(env.ROSTER_FULL_COLLECTION_REQUEST_BUDGET);
+    const tickBudget=fullMode&&Number.isSafeInteger(configured)&&
+      configured>=FREE_FULL_API_BUDGET&&configured<=PAID_MAX_API_BUDGET?
+      configured:fullMode?FREE_FULL_API_BUDGET:TICK_API_BUDGET;
+    // A full-alliance pass receives the entire invocation budget. Completed
+    // campaigns should not waste future minutes when many guests are approved.
+    const candidates=[];
+    for(const fp of alliances){
+      if(fullMode&&!target){
+        const state=await read(bucket,BATCH_PREFIX+fp+"/progress.json");
+        if(state?.campaign===slot.campaign&&state.selfCompleted===true)
+          continue;
+      }
+      candidates.push(fp);
+    }
     if(new Set(alliances).size!==alliances.length||
        alliances.includes(GLOBAL_LOCK))return {status:"invalid-approvals"};
     // Invalid/unapproved selections must never consume a slot or query Scopely.
@@ -201,8 +219,11 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
     });
     const selected=[];
     if(target)selected.push(target);
-    else for(let i=0;i<Math.min(manual?1:ALLIANCES_PER_TICK,alliances.length);i++)
-      selected.push(alliances[(slot.tick*(manual?1:ALLIANCES_PER_TICK)+i)%alliances.length]);
+    else{
+      const perTick=fullMode?1:manual?1:ALLIANCES_PER_TICK;
+      for(let i=0;i<Math.min(perTick,candidates.length);i++)
+        selected.push(candidates[(slot.tick*perTick+i)%candidates.length]);
+    }
     let used=0;
     const outcomes=[];
     for(const fp of selected){
@@ -212,11 +233,12 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
          Date.parse(pause.until)<=timestamp){
         const limitedFetch=async(url,fetchOptions)=>{
           if(new URL(url).hostname==="api.marvelstrikeforce.com"){
-            if(count>=TICK_API_BUDGET)throw Error("scopely-invocation-limit");
+            if(count>=tickBudget)throw Error("scopely-invocation-limit");
             count++;
           }
           return fetchImpl(url,fetchOptions);
         };
+        limitedFetch.remainingRequests=()=>Math.max(0,tickBudget-count);
         const req=new Request(BASE_URL+"/admin/api/roster-batch",{
           method:"POST",headers:{Origin:BASE_URL,"Content-Type":"application/json"},
           body:JSON.stringify({fingerprint:fp})
@@ -251,7 +273,8 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
       used+=count;
       outcomes.push({fingerprint:fp,status:outcome,httpStatus:statusCode,requests:count});
     }
-    const outcome=outcomes.length===1?outcomes[0].status:"processed";
+    const outcome=outcomes.length===1?outcomes[0].status:
+      outcomes.length===0?"up-to-date":"processed";
     await write(bucket,dayKey(slot.date),{
       date:slot.date,used:d.used+used,ticks:d.ticks+1,
       lastTick:slot.stamp,lastOutcome:outcome,
