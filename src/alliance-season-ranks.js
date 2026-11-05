@@ -4,6 +4,7 @@
 import {scanPrivateAllianceRanks} from "./alliance-coverage.js";
 import {readApproval} from "./roster-sync-preflight.js";
 import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
+import {archiveGuestSeasonRankSample} from "./public-guest-season-ranks.js";
 
 const PREFIX="roster-batches/v1/season-ranks/";
 const LATEST=PREFIX+"latest.json";
@@ -97,7 +98,7 @@ export async function handleAllianceSeasonRanks(request,env,fetchImpl=fetch,now=
     await bucket.put(key,bytes,options);
     await bucket.put(LATEST,bytes,options);
     // Guest rankings remain private and separate from LoSP's GitHub imports.
-    let guestStatus="not-configured";
+    let guestStatus="not-configured",guestHistoryStatus="not-sampled";
     if(guestFingerprints.size){
       try{
         const guest=select(guestFingerprints);
@@ -108,11 +109,15 @@ export async function handleAllianceSeasonRanks(request,env,fetchImpl=fetch,now=
           await bucket.put(guestKey,payload,options);
           await bucket.put(GUEST_PREFIX+"latest.json",payload,options);
           guestStatus=guest.completeSessionScan?"captured":"partial-capture";
+          // Persist a rank-only, consented sample only at the existing Monday
+          // 03:15 capture. No extra provider request or duplicate season point.
+          const projection=await archiveGuestSeasonRankSample(env,guest,now);
+          guestHistoryStatus=projection.status;
         }else guestStatus="no-connected-guests";
       }catch{guestStatus="unavailable";}
     }
     return respond({status:snapshot.completeSessionScan?"captured":"partial-capture",
-      snapshot,guestStatus,
+      snapshot,guestStatus,guestHistoryStatus,
       guestSnapshot:await latestApprovedGuests(bucket,env),
       retention:"existing-roster-batches-7-days"});
   }catch{return respond({error:"capture-unavailable"},503);}
