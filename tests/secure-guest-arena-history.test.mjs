@@ -176,3 +176,46 @@ test("missing trusted service binding fails closed before any R2 read",async()=>
   assert.equal((await res.json()).status,"auth-unavailable");
   assert.equal(f.reads.length,0);
 });
+
+test("signed admin dynamically sees only approved and bound guests (no ENDGAME placeholder)",async()=>{
+  const f=create();
+  f.records.set(key(guest),receipt(guest,"MΛЯIΠΣƧ",
+    Array.from({length:24},(_,i)=>({name:"Marine "+(i+1),rank:i+1}))));
+  const signedAdmin=validAuth("admin",[
+    "zeus","marines","endgame-revolution-red","endgame-revolution-orange"],"all");
+  const res=await secureGuestArenaHistory(
+    request("approved"),f.env,now,auth(signedAdmin));
+  assert.equal(res.status,200);
+  const data=await res.json();
+  assert.equal(data.snapshots.length,1);
+  assert.equal(data.snapshots[0].players.length,24);
+  assert.ok(data.snapshots[0].players.every(p=>p.alliance==="marines"));
+  assert.ok(!JSON.stringify(data).includes(guest));
+});
+test("signed admin approved selector responds only with the currently approved list",async()=>{
+  const f=create();
+  f.records.set(key(guest),receipt(guest,"MARINES",[{name:"Ranked",rank:20}]));
+  f.records.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[]}));
+  const res=await secureGuestArenaHistory(request("approved"),f.env,now,
+    auth(validAuth("admin",["marines"],"all")));
+  assert.equal(res.status,200);
+  const data=await res.json();
+  assert.deepEqual(data.snapshots,[]);
+  assert.ok(f.reads.every(k=>!k.includes("/campaigns/")));
+});
+test("guest sessions cannot enumerate every approved alliance",async()=>{
+  const f=create();
+  const res=await secureGuestArenaHistory(request("approved"),f.env,now,
+    auth(validAuth("guest",["marines"],"marines")));
+  assert.equal(res.status,403);
+  assert.equal(f.reads.length,0);
+});
+test("admin list is intersected with actual signed allowedAlliances, not browser preview",async()=>{
+  const f=create();
+  f.records.set(key(guest),receipt(guest,"MARINES",[{name:"Ranked",rank:20}]));
+  const res=await secureGuestArenaHistory(request("approved"),f.env,now,
+    auth(validAuth("admin",["zeus"],"all")));
+  assert.equal(res.status,200);
+  const body=await res.json();
+  assert.deepEqual(body.snapshots,[]);
+});
