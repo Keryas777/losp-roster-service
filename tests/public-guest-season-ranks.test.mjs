@@ -2,7 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {createHash,webcrypto} from "node:crypto";
 import {archiveGuestSeasonRankSample,publicGuestSeasonRanks,
-  publishVerifiedGuestSeasonRanks}
+  publishVerifiedGuestSeasonRanks,reconcileLatestGuestSeasonRanks}
   from "../src/public-guest-season-ranks.js";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 import {GUEST_APPROVAL_KEY} from "../src/guest-alliance-approvals.js";
