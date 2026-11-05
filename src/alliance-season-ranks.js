@@ -66,11 +66,12 @@ export async function handleAllianceSeasonRanks(request,env,fetchImpl=fetch,now=
     if(raw.length>64||JSON.parse(raw)?.action!=="capture")
       return respond({error:"invalid-action"},400);
     const previous=await latest(bucket);
-    if(previous&&Number.isFinite(Date.parse(previous.capturedAt))&&
-      now-Date.parse(previous.capturedAt)>=0&&
-      now-Date.parse(previous.capturedAt)<COOLDOWN)
+    const previousGuests=await latestApprovedGuests(bucket,env);
+    const latestAt=Math.max(...[previous?.capturedAt,previousGuests?.capturedAt]
+      .map(value=>Date.parse(value)).filter(Number.isFinite),-Infinity);
+    if(Number.isFinite(latestAt)&&now-latestAt>=0&&now-latestAt<COOLDOWN)
       return respond({status:"recent-capture",snapshot:previous,
-        guestSnapshot:await latestApprovedGuests(bucket,env)});
+        guestSnapshot:previousGuests});
     const approval=await readApproval(env);
     if(approval.status!=="configured"||!approval.alliances.length)
       return respond({error:"no-approved-alliances"},409);
@@ -85,7 +86,8 @@ export async function handleAllianceSeasonRanks(request,env,fetchImpl=fetch,now=
       return {...shared,alliances,connectedAlliances:alliances.length};
     };
     const snapshot=select(lospFingerprints);
-    if(!snapshot.connectedAlliances)
+    const guest=select(guestFingerprints);
+    if(!snapshot.connectedAlliances&&!guest.connectedAlliances)
       return respond({error:"no-connected-alliances",scannedSessions:snapshot.scannedSessions,
         unavailableSessions:snapshot.unavailableSessions},409);
     // Immutable source snapshot for this capture, plus an admin latest pointer.
@@ -94,14 +96,15 @@ export async function handleAllianceSeasonRanks(request,env,fetchImpl=fetch,now=
       "-"+crypto.randomUUID()+".json";
     const options={httpMetadata:{contentType:"application/json",
       cacheControl:"private, no-store"}};
-    const bytes=JSON.stringify(snapshot);
-    await bucket.put(key,bytes,options);
-    await bucket.put(LATEST,bytes,options);
+    if(snapshot.connectedAlliances){
+      const bytes=JSON.stringify(snapshot);
+      await bucket.put(key,bytes,options);
+      await bucket.put(LATEST,bytes,options);
+    }
     // Guest rankings remain private and separate from LoSP's GitHub imports.
     let guestStatus="not-configured",guestHistoryStatus="not-sampled";
     if(guestFingerprints.size){
       try{
-        const guest=select(guestFingerprints);
         if(guest.connectedAlliances){
           const payload=JSON.stringify(guest);
           const guestKey=GUEST_PREFIX+"captures/"+
@@ -116,8 +119,8 @@ export async function handleAllianceSeasonRanks(request,env,fetchImpl=fetch,now=
         }else guestStatus="no-connected-guests";
       }catch{guestStatus="unavailable";}
     }
-    return respond({status:snapshot.completeSessionScan?"captured":"partial-capture",
-      snapshot,guestStatus,guestHistoryStatus,
+    return respond({status:shared.completeSessionScan?"captured":"partial-capture",
+      snapshot:snapshot.connectedAlliances?snapshot:null,guestStatus,guestHistoryStatus,
       guestSnapshot:await latestApprovedGuests(bucket,env),
       retention:"existing-roster-batches-7-days"});
   }catch{return respond({error:"capture-unavailable"},503);}
