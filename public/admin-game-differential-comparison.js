@@ -1,13 +1,14 @@
-// Manual, durable, R2-only comparison audit. Never auto-fetches on load.
+// Manual, durable, R2-only comparison audit. Restore stored progress on reload.
 (()=>{
   "use strict";
   const $=id=>document.getElementById(id);
   const button=$("game-diff-comparison-start");
   const copy=$("game-diff-comparison-copy");
+  const restart=$("game-diff-comparison-restart");
   const status=$("game-diff-comparison-status");
   const summary=$("game-diff-comparison-summary");
   const results=$("game-diff-comparison-results");
-  if(!button||!copy||!status||!summary||!results)return;
+  if(!button||!copy||!restart||!status||!summary||!results)return;
   const API="/admin/api/game-differential-comparison-audit";
   const labels={
     "false-change":"Même contenu utile mais classé modifié",
@@ -39,13 +40,21 @@
     x.includes("mismatch")||x.includes("inconsistent");
   function draw(){
     if(!report)return;
+    if(report.status==="not-started"){
+      status.textContent="Aucun diagnostic R2 enregistré.";
+      button.textContent="Démarrer le diagnostic R2";
+      restart.hidden=true;copy.disabled=true;
+      summary.replaceChildren();results.replaceChildren();
+      return;
+    }
     const completed=report.status==="snapshot-complete";
     status.textContent=(completed?"Analyse terminée":"Analyse en cours")+
       " · "+(report.sampled||0)+" / "+(report.limit||24)+
       " URL examinées · "+(report.scanned||0)+" pointeurs parcourus."+
       (report.sourceChanged?" Attention : la campagne source a évolué pendant la lecture.":"");
-    button.textContent=completed?"Relancer le diagnostic R2":
+    button.textContent=completed?"Actualiser le rapport sauvegardé":
       "Actualiser l'état du diagnostic R2";
+    restart.hidden=!completed;
     copy.disabled=!completed;
     summary.replaceChildren();results.replaceChildren();
     const counts=el("div",undefined,summary,"health-card");
@@ -107,16 +116,40 @@
     busy=true;button.disabled=true;
     try{
       const existing=await load();
-      report=existing.status==="not-started"?
-        await submit("start"):existing.status==="snapshot-complete"?
-          await submit("restart"):existing;
+      // Consulting a finished report must NEVER restart or erase it.
+      report=existing.status==="not-started"?await submit("start"):existing;
       started=true;draw();
     }catch(err){
       status.textContent="Diagnostic indisponible : "+
         (err instanceof Error?err.message:"erreur");
     }finally{busy=false;button.disabled=false;}
   }
+  // A restart is deliberately separated from read-only consultation.
+  async function restartExplicit(){
+    if(busy||report?.status!=="snapshot-complete")return;
+    if(!window.confirm("Recommencer le diagnostic R2 ? Le rapport terminé sera remplacé."))return;
+    busy=true;button.disabled=true;restart.disabled=true;
+    try{
+      report=await submit("restart");started=true;draw();
+    }catch(err){
+      status.textContent="Relance indisponible : "+
+        (err instanceof Error?err.message:"erreur");
+    }finally{busy=false;button.disabled=false;restart.disabled=false;}
+  }
+  // Read R2 only: restoring a tab never launches a new audit or calls Scopely.
+  async function restore(){
+    if(busy)return;
+    busy=true;button.disabled=true;
+    try{
+      report=await load();
+      started=report.status!=="not-started";
+      draw();
+    }catch{
+      if(!report)status.textContent="Récupération du diagnostic R2 indisponible.";
+    }finally{busy=false;button.disabled=false;}
+  }
   button.addEventListener("click",()=>void click());
+  restart.addEventListener("click",()=>void restartExplicit());
   copy.addEventListener("click",()=>{
     if(report?.status==="snapshot-complete"&&navigator.clipboard?.writeText)
       void navigator.clipboard.writeText(JSON.stringify(report,null,2))
@@ -132,9 +165,8 @@
       .finally(()=>{busy=false;});
   },15000);
   document.addEventListener("visibilitychange",()=>{
-    if(!started||document.hidden||busy||report?.status!=="running")return;
-    busy=true;
-    void load().then(data=>{report=data;draw();})
-      .catch(()=>{}).finally(()=>{busy=false;});
+    if(!document.hidden)void restore();
   });
+  // Safari may reload a background tab: recover its persisted R2 checkpoint.
+  void restore();
 })();

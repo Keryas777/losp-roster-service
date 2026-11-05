@@ -149,6 +149,23 @@ test("compares two verified versions, including a false change on meta.asOf",asy
   assert.equal(again.status,"running");assert.equal(again.sampled,0);
 });
 
+test("saved comparison report survives page reload and read-only consultation",async()=>{
+  const f=fixture();
+  await add(f,"/game/v1/items/Retained",
+    {data:{power:1}},{data:{power:2}});
+  await post(f);
+  const completed=await runToEnd(f);
+  assert.equal(completed.status,"snapshot-complete");
+  const saved=f.stored.get(PROGRESS),writesBefore=f.calls.filter(x=>x[0]==="put").length;
+  const restored=await (await get(f)).json();
+  assert.deepEqual(restored.rows,completed.rows);
+  const consulted=await (await post(f,"start")).json();
+  assert.equal(consulted.status,"snapshot-complete");
+  assert.equal(consulted.sampled,completed.sampled);
+  assert.equal(f.stored.get(PROGRESS),saved,"consulting must not overwrite R2");
+  assert.equal(f.calls.filter(x=>x[0]==="put").length,writesBefore);
+});
+
 test("missing historical linkage, invalid receipt and corrupted bytes are not mislabelled as changes",async()=>{
   const f=fixture();
   // Different URLs can legitimately share a content-addressed R2 object.
@@ -234,6 +251,13 @@ test("wiring: existing Cron, protected endpoint, manual-only mobile UI, no inner
   assert.match(nav,/archives[\s\S]*game-diff-comparison-start/);
   assert.match(ui,/button\.addEventListener\("click"/);
   assert.match(ui,/if\(!started\|\|busy/);
+  assert.match(routes,/game-diff-comparison-restart/);
+  assert.match(ui,/restart\.addEventListener\("click"/);
+  assert.match(ui,/void restore\(\)/,"restore saved R2 checkpoint on page load");
+  assert.match(ui,/existing\.status==="not-started"\?await submit\("start"\):existing/,
+    "consulting an existing report is read-only");
+  assert.doesNotMatch(ui,/existing\.status==="snapshot-complete"\?[\s\S]{0,100}submit\("restart"\)/);
+  assert.match(ui,/window\.confirm\(/,"an explicit restart needs confirmation");
   assert.doesNotMatch(ui,/\.innerHTML\s*=/);
   assert.match(source,/export const gameSemanticHash=semantic/);
 });

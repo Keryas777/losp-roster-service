@@ -173,7 +173,8 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<section><h2>Comparer les versions différentielles · échantillon R2</h2>'+
 '<p>Contrôle manuel d’environ 24 URL déjà archivées : reçus liés, empreintes SHA-256 et champs différents. Le Cron existant poursuit l’audit si la page est fermée. Aucun appel Scopely.</p>'+
 '<button id="game-diff-comparison-start" type="button">Démarrer / consulter le diagnostic R2</button>'+
-'<button id="game-diff-comparison-copy" type="button" disabled>Copier le rapport JSON</button>'+
+'<button id="game-diff-comparison-copy" type="button" disabled>Copier le rapport JSON</button>'+ 
+'<button id="game-diff-comparison-restart" type="button" hidden>Recommencer un nouvel échantillon</button>'+
 '<p id="game-diff-comparison-status" role="status">Diagnostic non lancé. Aucune lecture R2 automatique.</p>'+
 '<div id="game-diff-comparison-summary" class="health-cards"></div>'+
 '<div id="game-diff-comparison-results" class="scroll"></div></section>'+
