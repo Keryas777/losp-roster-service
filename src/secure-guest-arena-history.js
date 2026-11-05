@@ -20,6 +20,15 @@ const MAX_HISTORY=2100000,MAX_RECEIPT=240000;
 const rank=n=>Number.isSafeInteger(n)&&n>0;
 const safe=s=>typeof s==="string"&&s.trim().length>0&&s.length<=140;
 const time=s=>typeof s==="string"&&Number.isFinite(Date.parse(s));
+// Same strict asset host/path as the existing static Arena component. Never
+// forward arbitrary URLs, member IDs, profile metadata, or private R2 fields.
+const arenaAsset=s=>typeof s==="string"&&s.length<=320&&
+  /^https:\/\/assets\.marvelstrikeforce\.com\/imgs\/[A-Za-z0-9_.%-]+$/.test(s)?
+  s:null;
+function visualFields(value){
+  const icon=arenaAsset(value?.icon),frame=arenaAsset(value?.frame);
+  return {...(icon?{icon}:{}),...(frame?{frame}:{})};
+}
 function dateAtParis(ms){
   const items=new Intl.DateTimeFormat("en-GB",{
     timeZone:"Europe/Paris",year:"numeric",month:"2-digit",day:"2-digit"
@@ -74,7 +83,8 @@ function receiptRows(source,fp,day,now){
         observed.set(p.name,p.at);
   const rows=source.rows.filter(x=>safe(x?.name)&&rank(x.latestArena))
     .map(x=>({name:x.name,arenaRank:x.latestArena,
-      ...(observed.has(x.name)?{observedAt:observed.get(x.name)}:{})}));
+      ...(observed.has(x.name)?{observedAt:observed.get(x.name)}:{}),
+      ...visualFields(x)}));
   if(!rows.length)return null;
   return {name:source.allianceName,rows,capturedAt:source.capturedAt};
 }
@@ -137,7 +147,19 @@ export function selectApproved(guest,losp,keys){
 }
 function playerPublic(p,allianceKey){
   return {name:p.name,alliance:allianceKey,arenaRank:p.arenaRank,
-    ...(time(p.observedAt)?{observedAt:p.observedAt}:{})};
+    ...(time(p.observedAt)?{observedAt:p.observedAt}:{}),
+    ...visualFields(p)};
+}
+// Media is a separate current profile, never a synthetic rank/history point.
+// Key on the authorized tenant and exact player name: identical names in
+// different alliances must never share another tenant's avatar or frame.
+function addProfiles(target,source,allianceKey){
+  for(const row of source?.rows||[]){
+    const media=visualFields(row);
+    if(!Object.keys(media).length)continue;
+    const id=allianceKey+"\u0000"+row.name;
+    target.set(id,{name:row.name,alliance:allianceKey,...media});
+  }
 }
 async function verifiedReceipt(bucket,fp,day,now){
   try{
@@ -270,11 +292,15 @@ export async function secureGuestArenaHistory(request,env,now=Date.now(),
     }
     // Serve today's VERIFIED receipts immediately even before the periodic
     // private archive. This read-only fallback never triggers Scopely calls.
+    // All permitted guest alliances use the same code path, without names
+    // or fingerprints hardcoded in the Web-app.
     const today=currentDay(now);
+    const profiles=new Map();
     const latest=[],seen=new Set();
     for(const a of approved){
       const sourceData=await source(a.fingerprint,today);
       if(!sourceData)continue;
+      addProfiles(profiles,sourceData,a.allianceKey);
       for(const row of sourceData.rows){
         const id=a.allianceKey+":"+row.name;
         if(seen.has(id))continue;
@@ -290,10 +316,28 @@ export async function secureGuestArenaHistory(request,env,now=Date.now(),
         attribution:"after-daily-arena-rewards",
         players:[...merged.values()]});
     }
+    // Before 17:01, today's reward receipts may not exist. Recover media
+    // from the most recent real, still-valid archived reward source day.
+    // One additional R2 receipt per approved alliance at most, never Scopely.
+    const latestArchiveDay=(archive?.snapshots||[])
+      .filter(s=>s?.sourceKind==="reward"&&validDate(s.sourceDay||s.date,now))
+      .map(s=>s.sourceDay||s.date).sort().at(-1);
+    if(latestArchiveDay&&latestArchiveDay!==today){
+      for(const a of approved){
+        // Avoid extra R2 reads when today's genuine reward receipt exists.
+        if(await source(a.fingerprint,today))continue;
+        const recent=await source(a.fingerprint,latestArchiveDay);
+        for(const row of recent?.rows||[]){
+          const id=a.allianceKey+"\u0000"+row.name;
+          if(!profiles.has(id))addProfiles(profiles,{rows:[row]},a.allianceKey);
+        }
+      }
+    }
     const snapshots=[...byDay.values()]
       .sort((a,b)=>a.date.localeCompare(b.date));
     return respond(request,{status:"ok",version:1,
       kind:"authorized-guest-arena-history",retentionDays:DAYS,snapshots,
+      alliances:keys,profiles:[...profiles.values()],
       ...(archiveWarning?{archiveWarning}:{})});
   }catch{
     // Return a stable, non-identifying error code; never expose R2 object

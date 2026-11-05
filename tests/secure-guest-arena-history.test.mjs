@@ -32,7 +32,9 @@ const receipt=(fp,alliance,people)=>JSON.stringify({
   campaign:date+"-reward",allianceName:alliance,
   capturedAt:date+"T16:05:19Z",expiresAt:"2026-11-12T16:05:19Z",
   observedAt:people.map(p=>({name:p.name,at:date+"T16:05:17Z"})),
-  rows:people.map(p=>({name:p.name,latestArena:p.rank})),
+  rows:people.map(p=>({name:p.name,latestArena:p.rank,
+    ...(p.icon!==undefined?{icon:p.icon}:{}),
+    ...(p.frame!==undefined?{frame:p.frame}:{})})),
   accessToken:secret
 });
 const key=(fp,day=date)=>"roster-batches/v1/"+fp+
@@ -314,4 +316,99 @@ test("service binding invocation throw remains fail-closed before reading privat
   assert.equal(res.status,503);
   assert.equal((await res.json()).reason,"auth-service-unreachable");
   assert.equal(f.reads.length,0);
+});
+
+
+const portrait="https://assets.marvelstrikeforce.com/imgs/Portrait_Test_0123abcd.png";
+const frame="https://assets.marvelstrikeforce.com/imgs/ICON_FRAME_Test_aabbcc11.png";
+test("MARINES gets original Scopely portrait/frame for all 24 Arena members",async()=>{
+  const f=create();
+  f.records.set(key(guest),receipt(guest,"MΛЯIΠΣƧ",
+    Array.from({length:24},(_,i)=>({
+      name:"Marine "+i,rank:i+1,icon:portrait,frame
+    }))));
+  const response=await secureGuestArenaHistory(request(),f.env,now,auth());
+  assert.equal(response.status,200);
+  const data=await response.json();
+  assert.deepEqual(data.alliances,["marines"]);
+  assert.equal(data.snapshots[0].players.length,24);
+  assert.equal(data.profiles.length,24);
+  for(const p of data.profiles){
+    assert.equal(p.alliance,"marines");
+    assert.equal(p.icon,portrait);
+    assert.equal(p.frame,frame);
+    assert.ok(!Object.hasOwn(p,"arenaRank"),"Only media is in profiles");
+  }
+  assert.equal(data.snapshots[0].players[0].icon,portrait);
+  assert.equal(data.snapshots[0].players[0].frame,frame);
+  const raw=JSON.stringify(data);
+  for(const forbidden of ["allianceFingerprint","accessToken",secret,
+    guest,losp,"roster-batches/v1/"]){
+    assert.ok(!raw.includes(forbidden),forbidden);
+  }
+});
+test("only the official asset host and safe images path can appear in guest profile",async()=>{
+  const f=create();
+  f.records.set(key(guest),receipt(guest,"MARINES",[
+    {name:"Valid",rank:1,icon:portrait,frame},
+    {name:"Offhost",rank:2,icon:"https://attacker.test/imgs/Portrait.png",
+      frame:"javascript:alert(1)"},
+    {name:"PathTraversal",rank:3,
+      icon:"https://assets.marvelstrikeforce.com/../../secrets",
+      frame:"https://assets.marvelstrikeforce.com/imgs/a/b.png"},
+    {name:"One",rank:4,icon:portrait,frame:""}
+  ]));
+  const data=await(await secureGuestArenaHistory(request(),f.env,now,auth())).json();
+  assert.equal(data.profiles.length,2);
+  assert.ok(data.profiles.every(p=>p.name==="Valid"||p.name==="One"));
+  assert.equal(data.profiles.find(p=>p.name==="One").frame,undefined);
+  assert.ok(data.snapshots[0].players.every(p=>p.name!=="Offhost"||!p.icon));
+  assert.doesNotMatch(JSON.stringify(data),/attacker\.test|javascript:|secrets/);
+});
+test("admin sees separate profiles for two invited tenants with identical player names",async()=>{
+  const f=create();
+  f.records.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
+    {fingerprint:guest,allianceKey:"marines"},
+    {fingerprint:other,allianceKey:"future-alliance"}
+  ]}));
+  f.records.set(key(guest),receipt(guest,"MARINES",[
+    {name:"Same Name",rank:5,icon:portrait,frame}]));
+  f.records.set(key(other),receipt(other,"FUTURE",[
+    {name:"Same Name",rank:6,icon:"https://assets.marvelstrikeforce.com/imgs/Portrait_Future_abcdef00.png",
+      frame:"https://assets.marvelstrikeforce.com/imgs/ICON_FRAME_Future_123abc00.png"}]));
+  const data=await(await secureGuestArenaHistory(request("approved"),f.env,now,
+    auth(validAuth("admin",["marines","future-alliance"],"all")))).json();
+  assert.deepEqual(data.alliances,["future-alliance","marines"]);
+  assert.equal(data.profiles.length,2);
+  const marine=data.profiles.find(p=>p.alliance==="marines");
+  const future=data.profiles.find(p=>p.alliance==="future-alliance");
+  assert.equal(marine.icon,portrait);
+  assert.notEqual(future.icon,marine.icon);
+  assert.equal(data.snapshots[0].players.length,2);
+  const guestOnly=await(await secureGuestArenaHistory(request("marines"),f.env,now,
+    auth(validAuth("guest",["marines"],"marines")))).json();
+  assert.deepEqual(guestOnly.alliances,["marines"]);
+  assert.deepEqual(guestOnly.profiles.map(p=>p.alliance),["marines"]);
+  assert.doesNotMatch(JSON.stringify(guestOnly),/Portrait_Future|future-alliance/);
+});
+test("before the next daily reward collection, latest real R2 reward receipt supplies portraits",async()=>{
+  const f=create(),tomorrow=Date.parse("2026-11-06T15:15:00Z");
+  f.records.set(key(guest),receipt(guest,"MARINES",[
+    {name:"Yesterday",rank:14,icon:portrait,frame}]));
+  f.records.set("roster-batches/v1/guest-arena-history/rolling.json",JSON.stringify({
+    version:1,snapshots:[{date,sourceDay:date,sourceKind:"reward",
+      players:[{name:"Yesterday",arenaRank:14,alliance:"MARINES",
+        allianceKey:"marines"}]}]
+  }));
+  const data=await(await secureGuestArenaHistory(request(),f.env,tomorrow,
+    auth())).json();
+  assert.equal(data.snapshots.length,1);
+  assert.equal(data.snapshots[0].date,date);
+  assert.equal(data.profiles.length,1);
+  assert.deepEqual(data.profiles[0],{name:"Yesterday",alliance:"marines",
+    icon:portrait,frame});
+  assert.equal(data.snapshots[0].players[0].icon,undefined,
+    "An old archived point remains immutable; media is separate");
+  assert.ok(f.reads.includes(key(guest)));
+  assert.ok(!f.reads.some(k=>k.includes("/player/v1")));
 });
