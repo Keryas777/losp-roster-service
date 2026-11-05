@@ -13,6 +13,7 @@ import {runRosterRecoveryTick} from "./roster-auto-recovery.js";
 import {runMemberInfoAutoTick} from "./member-info-scheduler.js";
 import {runRewardInfoAutoTick} from "./member-info-reward.js";
 import {publicArenaHistory,archiveArenaHistory} from "./public-arena-history.js";
+import {publicTrophyHistory,archiveTrophyHistory} from "./public-trophy-history.js";
 import {GAME_ARCHIVE_CRON,runGameArchiveTick} from "./game-catalog-archive.js";
 import {runGameArchiveSchemaAuditTick} from "./game-archive-schema-audit.js";
 import {runGameMaterialAuditTick} from "./game-material-audit.js";
@@ -213,6 +214,23 @@ export default {
       const arenaHistory=await archiveArenaHistory(env,controller.scheduledTime);
       if(!["outside-window","unchanged"].includes(arenaHistory.status))
         console.info("arena-history-cron",JSON.stringify(arenaHistory));
+      // Trophy projection is R2-only: use the existing minute Cron, never
+      // depend on GitHub Action scheduling or make another Scopely GET.
+      // Keep checking after the 02:00-04:00 UTC campaign for late arrivals.
+      const utcDay=slot.toISOString().slice(0,10);
+      const utcHour=slot.getUTCHours();
+      const interval=utcHour<4?5:15;
+      if([4,6].includes(slot.getUTCDay())&&utcHour>=2&&utcHour<14&&
+         slot.getUTCMinutes()%interval===0){
+        try{
+          const trophy=await archiveTrophyHistory(env,
+            {date:utcDay,campaign:utcDay+"-am"},scheduled);
+          if(!["unchanged","awaiting-cards"].includes(trophy.status))
+            console.info("trophy-history-cron",JSON.stringify(trophy));
+        }catch{
+          console.warn("trophy-history-cron",JSON.stringify({status:"unavailable"}));
+        }
+      }
       // An approved R2 recovery queue can run while Safari is closed.
       // Skip slots already using Scopely for the independent Info collectors,
       // and the 20:17 / 22:17 Paris arena snapshots. One alliance per tick.
@@ -359,6 +377,8 @@ export default {
       return publicAwakenedMaterials(request,env);
     if(url.pathname==="/api/public/arena-history")
       return publicArenaHistory(request,env);
+    if(url.pathname==="/api/public/trophy-history")
+      return publicTrophyHistory(request,env);
 
     if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
       return handleAdmin(request, env);
