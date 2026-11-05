@@ -23,7 +23,8 @@ function create(){
       {size:records.get(key).length,text:async()=>records.get(key)}:null;},
     put:async()=>{throw Error("read-only guest API must never write");}
   };
-  const env={CAPTAIN_BUCKET:bucket};
+  const env={CAPTAIN_BUCKET:bucket,
+    LOSP_AUTH:{fetch:async()=>{throw Error("tests inject signed auth mock");}}};
   return {records,reads,bucket,env};
 }
 const receipt=(fp,alliance,people)=>JSON.stringify({
@@ -165,4 +166,13 @@ test("strict GET/CORS, no token in URL, and admin preview still verifies real si
   const admin=await secureGuestArenaHistory(request(),f.env,now,
     auth(validAuth("admin",["zeus","marines"],"all")));
   assert.equal(admin.status,200);
+});
+
+test("missing trusted service binding fails closed before any R2 read",async()=>{
+  const f=create();
+  delete f.env.LOSP_AUTH;
+  const res=await secureGuestArenaHistory(request(),f.env,now,auth());
+  assert.equal(res.status,503);
+  assert.equal((await res.json()).status,"auth-unavailable");
+  assert.equal(f.reads.length,0);
 });
