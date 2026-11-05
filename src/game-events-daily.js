@@ -98,7 +98,7 @@ function pageCount(first){
 // A failed collection leaves the last fully verified R2 object untouched.
 // The daily key is replaced atomically after all EN pages pass validation.
 export async function runGameDailyEventsTick(env,fetchImpl=fetch,now=Date.now()){
-  if(env?.GAME_DIFF_ENABLED!=="true")return {status:"disabled"};
+  if(env?.GAME_EVENTS_DAILY_ENABLED==="false")return {status:"disabled"};
   if(!env?.CAPTAIN_BUCKET?.get||!env.CAPTAIN_BUCKET.put||
      !env.ROSTER_BATCH_LOCK?.get)return {status:"storage-unavailable"};
   const date=day(now),clock=new Date(now);
