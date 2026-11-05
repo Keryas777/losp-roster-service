@@ -289,5 +289,5 @@ export async function secureGuestArenaHistory(request,env,now=Date.now(),
     // paths, player names, fingerprints or the incoming auth credential.
     return respond(request,{status:"unavailable",
       reason:"private-r2-read-failed"},503);
-  }}
+  }
 }
