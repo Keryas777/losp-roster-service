@@ -95,12 +95,12 @@ export async function verifiedDiscord(request,fetchImpl){
     response=await fetchImpl(AUTH_URL,{method:"GET",
       headers:{"Authorization":auth,"Accept":"application/json"},
       redirect:"error",cache:"no-store"});
-  }catch{return {status:"auth-unavailable"};}
+  }catch{return {status:"auth-unavailable",reason:"auth-service-unreachable"};}
   if(!response||response.status===401||response.status===403)
     return {status:"unauthorized"};
-  if(!response.ok)return {status:"auth-unavailable"};
+  if(!response.ok)return {status:"auth-unavailable",reason:"auth-service-error"};
   let data;
-  try{data=await response.json();}catch{return {status:"auth-unavailable"};}
+  try{data=await response.json();}catch{return {status:"auth-unavailable",reason:"auth-invalid-response"};}
   if(data?.ok!==true||data.signedSession!==true||
      !["admin","guest"].includes(data.role)||
      !Array.isArray(data.allowedAlliances)||data.allowedAlliances.length>100||
@@ -145,7 +145,7 @@ export async function secureGuestArenaHistory(request,env,now=Date.now(),
      request.headers.get("Origin")!==SITE_ORIGIN)
     return respond(request,{status:"forbidden-origin"},403);
   if(!Number.isFinite(now)||!env?.CAPTAIN_BUCKET?.get)
-    return respond(request,{status:"unavailable"},503);
+    return respond(request,{status:"unavailable",reason:"r2-binding-missing"},503);
   const requestUrl=new URL(request.url);
   // An administrator may request only the bound, currently approved guests,
   // without hardcoding their names or requesting unconnected registry entries.
@@ -157,12 +157,13 @@ export async function secureGuestArenaHistory(request,env,now=Date.now(),
   // A Workers Service Binding is mandatory: never relay a private session
   // to an arbitrary external URL or fall back to unsigned /me.
   if(!env?.LOSP_AUTH?.fetch)
-    return respond(request,{status:"auth-unavailable"},503);
+    return respond(request,{status:"auth-unavailable",reason:"auth-binding-missing"},503);
   const signedFetch=fetchImpl===fetch?
     (...args)=>env.LOSP_AUTH.fetch(...args):fetchImpl;
   const auth=await verifiedDiscord(request,signedFetch);
   if(auth.status!=="ok")
-    return respond(request,{status:auth.status},
+    return respond(request,{status:auth.status,
+      ...(auth.reason?{reason:auth.reason}:{})},
       auth.status==="unauthorized"?401:503);
   if(allApproved&&auth.role!=="admin")
     return respond(request,{status:"forbidden"},403);
@@ -173,7 +174,7 @@ export async function secureGuestArenaHistory(request,env,now=Date.now(),
       readGuestApprovals(env),readApproval(env)
     ]);
     if(guests.status==="invalid-registry"||losp.status==="invalid-registry")
-      throw Error("invalid-approvals");
+      return respond(request,{status:"unavailable",reason:"approval-registry-invalid"},503);
     const keys=allApproved?
       [...new Set((guests.alliances||[])
         .map(a=>a.allianceKey)
@@ -184,9 +185,20 @@ export async function secureGuestArenaHistory(request,env,now=Date.now(),
     if(!approved)return respond(request,
       {status:"alliance-not-bound-or-not-approved"},409);
     const bucket=env.CAPTAIN_BUCKET;
-    const archive=await read(bucket,ARCHIVE,MAX_HISTORY);
-    if(archive&&(archive.version!==1||!Array.isArray(archive.snapshots)||
-      archive.snapshots.length>35))throw Error("invalid-history");
+    // Historical R2 is an optimization. A damaged/unavailable archive must
+    // not suppress today's independently verified original reward receipts.
+    // Never derive archived ranks from malformed or unverified records.
+    let archive=null,archiveWarning=null;
+    try{
+      archive=await read(bucket,ARCHIVE,MAX_HISTORY);
+      if(archive&&(archive.version!==1||!Array.isArray(archive.snapshots)||
+        archive.snapshots.length>35)){
+        archive=null;
+        archiveWarning="archive-invalid";
+      }
+    }catch{
+      archiveWarning="archive-unavailable";
+    }
     const byDay=new Map(),sourceCache=new Map();
     // Older archives predate tenant-key stamping. The only safe legacy
     // attribution is a *single* globally approved guest, cross-checked
@@ -270,6 +282,12 @@ export async function secureGuestArenaHistory(request,env,now=Date.now(),
     const snapshots=[...byDay.values()]
       .sort((a,b)=>a.date.localeCompare(b.date));
     return respond(request,{status:"ok",version:1,
-      kind:"authorized-guest-arena-history",retentionDays:DAYS,snapshots});
-  }catch{return respond(request,{status:"unavailable"},503);}
+      kind:"authorized-guest-arena-history",retentionDays:DAYS,snapshots,
+      ...(archiveWarning?{archiveWarning}:{})});
+  }catch{
+    // Return a stable, non-identifying error code; never expose R2 object
+    // paths, player names, fingerprints or the incoming auth credential.
+    return respond(request,{status:"unavailable",
+      reason:"private-r2-read-failed"},503);
+  }
 }
