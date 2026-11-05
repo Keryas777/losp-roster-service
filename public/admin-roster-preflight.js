@@ -202,6 +202,46 @@ async function loadConnectedAlliances(){
           }
         });
         parent.append(guest,guestStatus);
+        if(alliance.guestApproved){
+          const identity=document.createElement("label");
+          identity.textContent="Clé WebApp autorisée (docs/data/alliances.json) : ";
+          const field=document.createElement("input");
+          field.type="text";field.autocomplete="off";field.spellcheck=false;
+          field.placeholder="ex. endgame-revolution-red";
+          field.value=alliance.guestAllianceKey||"";
+          field.maxLength=64;
+          identity.append(field);
+          const bind=document.createElement("button");
+          bind.type="button";bind.textContent="Associer à la WebApp";
+          const identityStatus=document.createElement("p");
+          identityStatus.setAttribute("role","status");
+          bind.addEventListener("click",async()=>{
+            const key=field.value.trim();
+            if(key&&!/^[a-z][a-z0-9-]{1,63}$/.test(key)){
+              identityStatus.textContent="Clé invalide : utiliser la clé exacte du registre WebApp.";
+              return;
+            }
+            bind.disabled=true;
+            try{
+              const response=await fetch("/admin/api/guest-alliance-approval",{
+                method:"POST",credentials:"same-origin",cache:"no-store",
+                headers:{"Content-Type":"application/json",Accept:"application/json"},
+                body:JSON.stringify({fingerprint:alliance.fingerprint,
+                  action:key?"bind":"unbind",...(key?{allianceKey:key}:{})})
+              });
+              const result=await response.json();
+              if(!response.ok)throw Error(result.error||"binding-unavailable");
+              identityStatus.textContent="Association enregistrée. Les prochains relevés réels "+
+                "de saisons terminées apparaîtront automatiquement.";
+              void loadConnectedAlliances();
+            }catch(error){
+              identityStatus.textContent="Association impossible : "+
+                (error.message||"indisponible");
+              bind.disabled=false;
+            }
+          });
+          parent.append(identity,bind,identityStatus);
+        }
       }
       if(!alliance.approved&&!alliance.guestApproved){
         const enable=document.createElement("button");
