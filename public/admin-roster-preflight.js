@@ -149,7 +149,7 @@ async function showRosterAutoStatus(){
 }
 // Read-only directory; first visit backfills older consenting accounts.
 // The list never approves a new alliance or starts a roster collection.
-async function loadConnectedAlliances(){
+async function loadConnectedAlliances(bindingFeedback=null){
   const status=rosterEl("roster-connected-status");
   const parent=rosterEl("roster-connected-list");
   const button=rosterEl("roster-connected-refresh");
@@ -215,6 +215,20 @@ async function loadConnectedAlliances(){
           bind.type="button";bind.textContent="Associer à la WebApp";
           const identityStatus=document.createElement("p");
           identityStatus.setAttribute("role","status");
+          identityStatus.setAttribute("aria-live","polite");
+          // The connected-alliance directory is refreshed after a binding
+          // write. Render confirmation in the NEW DOM, only if the GET
+          // confirms the exact key persisted in R2.
+          if(bindingFeedback?.fingerprint===alliance.fingerprint){
+            identityStatus.textContent=
+              (alliance.guestAllianceKey||"")===bindingFeedback.expectedKey?
+                (bindingFeedback.expectedKey?
+                  "Association confirmée : "+bindingFeedback.expectedKey+
+                    " (enregistrée dans R2).":
+                  "Association WebApp supprimée (confirmée dans R2)."):
+                "Association non confirmée dans R2. Actualise les alliances "+
+                  "connectées avant de réessayer.";
+          }
           bind.addEventListener("click",async()=>{
             const key=field.value.trim();
             if(key&&!/^[a-z][a-z0-9-]{1,63}$/.test(key)){
@@ -230,10 +244,14 @@ async function loadConnectedAlliances(){
                   action:key?"bind":"unbind",...(key?{allianceKey:key}:{})})
               });
               const result=await response.json();
-              if(!response.ok)throw Error(result.error||"binding-unavailable");
-              identityStatus.textContent="Association enregistrée. Les prochains relevés réels "+
-                "de saisons terminées apparaîtront automatiquement.";
-              void loadConnectedAlliances();
+              if(!response.ok||
+                 !["bound","already-bound","unbound","already-unbound"]
+                   .includes(result.status))
+                throw Error(result.error||result.status||"binding-unavailable");
+              identityStatus.textContent="Enregistrement effectué ; confirmation R2…";
+              await loadConnectedAlliances({
+                fingerprint:alliance.fingerprint,expectedKey:key
+              });
             }catch(error){
               identityStatus.textContent="Association impossible : "+
                 (error.message||"indisponible");
