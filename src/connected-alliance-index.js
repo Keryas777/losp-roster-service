@@ -165,9 +165,13 @@ export async function listConnectedAlliances(env,fetchImpl=fetch,now=Date.now())
   const approved=new Set(registry.alliances.map(x=>x.fingerprint));
   const guestApproved=guests.status==="configured"?
     new Set(guests.alliances.map(x=>x.fingerprint)):new Set();
+  const guestKeys=new Map((guests.status==="configured"?guests.alliances:[])
+    .filter(x=>x.allianceKey).map(x=>[x.fingerprint,x.allianceKey]));
   const alliances=[...groups.values()].map(a=>({
     ...a,approved:approved.has(a.fingerprint),
-    guestApproved:!approved.has(a.fingerprint)&&guestApproved.has(a.fingerprint)
+    guestApproved:!approved.has(a.fingerprint)&&guestApproved.has(a.fingerprint),
+    ...(!approved.has(a.fingerprint)&&guestKeys.has(a.fingerprint)?
+      {guestAllianceKey:guestKeys.get(a.fingerprint)}:{})
   })).sort((a,b)=>a.name.localeCompare(b.name,"fr"));
   return {status:"ok",source:"private-r2-captain-consent",
     connectedSessions:connected,unresolvedSessions:unresolved,

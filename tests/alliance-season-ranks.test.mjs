@@ -204,3 +204,28 @@ test("GET admin rank capture shows guests separately and never shows revoked gue
   assert.equal(revoked.guestSnapshot,null);
   assert.deepEqual(revoked.snapshot.alliances.map(a=>a.name),["Zeus"]);
 });
+
+test("approved guest ranks are collected even if no LoSP OAuth session is currently available",async()=>{
+  const f=fixture();
+  const kronos=createHash("sha256").update("kronos").digest("hex");
+  const unavailable=createHash("sha256").update("unconnected-losp").digest("hex");
+  f.db.set(ROSTER_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
+    {fingerprint:unavailable,name:"Unavailable LoSP"}]}));
+  f.db.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
+    {fingerprint:kronos,allianceKey:"guest-test"}]}));
+  const now=Date.parse("2026-11-09T03:15:00.000Z");
+  const result=await(await f.post(now)).json();
+  assert.equal(result.status,"captured");
+  assert.equal(result.snapshot,null,"do not invent an LoSP snapshot");
+  assert.equal(result.guestStatus,"captured");
+  assert.equal(result.guestHistoryStatus,"updated");
+  assert.equal(f.db.has(PREFIX+"latest.json"),false);
+  assert.ok(f.db.has("roster-batches/v1/guest-season-ranks/rolling.json"));
+  const latest=await(await f.get()).json();
+  assert.equal(latest.snapshot,null);
+  assert.deepEqual(latest.guestSnapshot.alliances.map(x=>x.name),["Kronos"]);
+  assert.equal(f.calls.length,3,"no additional provider scan");
+  const repeat=await(await f.post(now+60000)).json();
+  assert.equal(repeat.status,"recent-capture");
+  assert.equal(f.calls.length,3,"guest-only cooldown avoids duplicate Scopely calls");
+});

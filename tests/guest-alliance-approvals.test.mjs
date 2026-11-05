@@ -110,3 +110,44 @@ test("LoSP always wins if the same fingerprint is present in both registries",as
   assert.equal(merged.alliances.length,2);
   assert.deepEqual(merged.guestAlliances.map(a=>a.fingerprint),[guest]);
 });
+
+test("an approved guest can be bound to exactly one stable WebApp key",async()=>{
+  const f=fixture();
+  await handleGuestAllianceApproval(f.request(guest),f.env,f.provider);
+  const action=(fingerprint,mode,allianceKey)=>new Request(origin+
+    "/admin/api/guest-alliance-approval",{
+      method:"POST",headers:{Origin:origin,"Content-Type":"application/json"},
+      body:JSON.stringify({fingerprint,action:mode,
+        ...(allianceKey?{allianceKey}:{})})
+    });
+  const beforeCalls=f.calls.length;
+  let response=await handleGuestAllianceApproval(
+    action(guest,"bind","endgame-revolution-red"),f.env,f.provider);
+  assert.equal(response.status,200);
+  assert.equal((await response.json()).status,"bound");
+  assert.equal(f.calls.length,beforeCalls,"binding needs no new Scopely scan");
+  assert.deepEqual((await readGuestApprovals(f.env)).alliances,
+    [{fingerprint:guest,allianceKey:"endgame-revolution-red"}]);
+  const second=hash("another-invited-aid");
+  f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
+    {fingerprint:guest,allianceKey:"endgame-revolution-red"},
+    {fingerprint:second}]}));
+  response=await handleGuestAllianceApproval(
+    action(second,"bind","endgame-revolution-red"),f.env,f.provider);
+  assert.equal(response.status,409);
+  assert.equal((await response.json()).error,"alliance-key-already-bound");
+  response=await handleGuestAllianceApproval(
+    action(guest,"bind","endgame-revolution-orange"),f.env,f.provider);
+  assert.equal((await response.json()).status,"bound");
+  assert.equal((await readGuestApprovals(f.env)).alliances[0].allianceKey,
+    "endgame-revolution-orange");
+  response=await handleGuestAllianceApproval(
+    action(guest,"unbind"),f.env,f.provider);
+  assert.equal((await response.json()).status,"unbound");
+  assert.deepEqual((await readGuestApprovals(f.env)).alliances[0],
+    {fingerprint:guest});
+  assert.equal((await handleGuestAllianceApproval(
+    action(second,"bind","zeus !!"),f.env,f.provider)).status,400);
+  assert.deepEqual((await readApproval(f.env)).alliances,
+    [{fingerprint:losp,name:"Zeus"}]);
+});
