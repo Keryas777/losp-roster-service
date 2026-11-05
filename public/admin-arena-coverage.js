@@ -7,7 +7,8 @@
   const output=document.getElementById("arena-coverage-report");
   if(!button||!status||!output)return;
   const words={
-    valid:"Reçu valide",missing:"Aucun reçu du jour",invalid:"Reçu non conforme",
+    valid:"Reçu valide",missing:"Aucun reçu du jour",
+    "not-due":"Collecte prévue à partir de 17h01",invalid:"Reçu non conforme",
     expired:"Reçu expiré",present:"Archivé", "missing-day":"Date absente",
     "partial-or-unmatched":"Écart entre reçu et historique",
     unverifiable:"Non vérifiable", unavailable:"Indisponible"
