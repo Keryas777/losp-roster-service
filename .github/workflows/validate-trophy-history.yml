@@ -4,6 +4,8 @@ on:
     paths:
       - "src/public-trophy-history.js"
       - "src/public-guest-season-ranks.js"
+      - "src/admin-routes.js"
+      - "public/admin-season-ranks.js"
       - "src/alliance-season-ranks.js"
       - "src/guest-alliance-approvals.js"
       - "src/connected-alliance-index.js"
@@ -31,6 +33,7 @@ jobs:
         run: |
           node --check src/public-trophy-history.js
           node --check src/public-guest-season-ranks.js
+          node --check public/admin-season-ranks.js
           node --check public/admin-roster-preflight.js
           node --check src/index.js
           node --test tests/public-trophy-history.test.mjs tests/public-guest-season-ranks.test.mjs tests/trophy-github-dispatch.test.mjs tests/guest-alliance-approvals.test.mjs tests/alliance-season-ranks.test.mjs
