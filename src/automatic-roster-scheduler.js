@@ -202,8 +202,15 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
     for(const fp of alliances){
       if(fullMode&&!target){
         const state=await read(bucket,BATCH_PREFIX+fp+"/progress.json");
-        if(state?.campaign===slot.campaign&&state.selfCompleted===true)
-          continue;
+        if(state?.campaign===slot.campaign&&state.selfCompleted===true){
+          const receipt=await read(bucket,BATCH_PREFIX+fp+"/latest-complete.json");
+          // Never skip a nominally complete progress marker without its
+          // matching, unexpired R2 completion receipt.
+          if(receipt?.runId===state.runId&&
+             receipt?.membershipDigest===state.membershipDigest&&
+             Number.isFinite(Date.parse(receipt.expiresAt))&&
+             Date.parse(receipt.expiresAt)>timestamp)continue;
+        }
       }
       candidates.push(fp);
     }
