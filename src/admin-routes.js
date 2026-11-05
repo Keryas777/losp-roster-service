@@ -20,6 +20,7 @@ import {handleGameOrphanAudit} from "./game-archive-orphan-audit.js";
 import {handleGameProvenanceReconcile} from "./game-archive-provenance-reconcile.js";
 import {handleGameArchiveSchemaAudit} from "./game-archive-schema-audit.js";
 import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
+import {publishVerifiedGuestSeasonRanks} from "./public-guest-season-ranks.js";
 import {handlePlayerExtraArchive} from "./player-extras-archive.js";
 import {handlePlayerCampaignAdmin} from "./player-campaign.js";
 import {handleRewardInfoManual} from "./member-info-reward.js";
@@ -59,7 +60,15 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<button id="season-ranks-refresh" type="button">Voir la dernière capture</button>'+
 '<button id="season-ranks-copy" type="button" disabled>Copier la capture JSON</button>'+
 '<p id="season-ranks-status" role="status"></p>'+
-'<div id="season-ranks-table" class="scroll"></div></section>'+
+'<div id="season-ranks-table" class="scroll"></div>'+
+'<div id="guest-rank-backfill"><h3>Rattrapage d’une saison terminée — alliance invitée</h3>'+
+'<p>Après une capture récente, vérifie dans le jeu que les deux rangs affichés concernent bien la saison choisie. Cette validation manuelle ne fait aucun nouvel appel API.</p>'+
+'<label>Alliance invitée<select id="guest-rank-backfill-alliance"></select></label>'+
+'<label>Début de saison (jour UTC)<input id="guest-rank-backfill-start" type="date"></label>'+
+'<label>Fin de saison (jour UTC)<input id="guest-rank-backfill-end" type="date"></label>'+
+'<label><input id="guest-rank-backfill-confirm" type="checkbox"> Je confirme avoir vérifié dans le jeu la saison des rangs Guerre et Raid affichés.</label>'+
+'<button type="button" id="guest-rank-backfill-publish" disabled>Enregistrer ces rangs pour la saison confirmée</button>'+
+'<p id="guest-rank-backfill-status" role="status"></p></div></section>'+
 '<section id="connected-alliance-directory"><h2>Alliances connectées automatiquement</h2>'+
 '<p>Les alliances des joueurs connectés via Scopely apparaissent ici automatiquement. Leur approbation pour les collectes LoSP ou invitées est explicite et distincte.</p>'+
 '<button id="roster-connected-refresh" type="button">Actualiser les alliances connectées</button>'+
@@ -256,7 +265,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-navigation.js" defer></script>'+ 
 '<script src="/admin-collection-dashboard.js" defer></script>'+
 '<script src="/admin-explorer.js" defer></script>'+
-'<script src="/admin-season-ranks.js" defer></script>'+
+'<script src="/admin-season-ranks.js?v=2" defer></script>'+
 '<script src="/admin-pid-diagnostic.js" defer></script>'+
 '<script src="/admin-roster-preflight.js" defer></script>'+ 
 '<script src="/admin-roster-r2-coverage.js" defer></script>'+ 
@@ -293,7 +302,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
         "/admin/api/game-provenance-reconcile",
         "/admin/api/game-differential-failure-audit",
         "/admin/api/game-differential-comparison-audit",
-        "/admin/api/alliance-season-ranks","/admin/api/player-extras",
+        "/admin/api/alliance-season-ranks","/admin/api/guest-season-rank-backfill","/admin/api/player-extras",
          "/admin/api/player-campaign", "/admin/api/reward-infos-manual"].includes(endpoint)))
     return new Response("Method Not Allowed",{status:405});
   if(!adminReady(env))return new Response("Administration désactivée",{
@@ -376,6 +385,8 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     return handleGameProvenanceReconcile(request,env);
   if(pathname==="/admin/api/alliance-season-ranks")
     return handleAllianceSeasonRanks(request,env,fetchImpl);
+  if(pathname==="/admin/api/guest-season-rank-backfill")
+    return publishVerifiedGuestSeasonRanks(request,env);
   if(pathname==="/admin/api/player-extras")
     return handlePlayerExtraArchive(request,env,fetchImpl);
   if(pathname==="/admin/api/player-r2-explorer")
