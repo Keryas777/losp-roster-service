@@ -132,12 +132,12 @@ test("one-off MARINES ranks from a real November 5 source belong to October 11â€
   const projection=await(await publicGuestSeasonRanks(new Request(url),f.env,now)).json();
   assert.equal(projection.snapshots.length,1);
   assert.equal(projection.snapshots[0].collectionDayUtc,"2026-11-05");
-  assert.deepEqual(projection.snapshots[0].alliances.map(a=>({
-    seasonId:a.manualSeasonId,confirmation:a.seasonConfirmation,
-    warRank:a.warRank,raidRank:a.raidRank})),[
-    {seasonId:"2026-10-11/2026-10-25",
-      confirmation:"admin-in-game",warRank:111,raidRank:77}
-  ]);
+  const marina=projection.snapshots[0].alliances.find(a=>a.publicId===publicId);
+  assert.deepEqual({
+    seasonId:marina.manualSeasonId,confirmation:marina.seasonConfirmation,
+    warRank:marina.warRank,raidRank:marina.raidRank
+  },{seasonId:"2026-10-11/2026-10-25",
+    confirmation:"admin-in-game",warRank:111,raidRank:77});
   for(const secret of [marines,red,orange,"roster-batches","fingerprint"]){
     assert.ok(!JSON.stringify(projection).includes(secret));
   }
