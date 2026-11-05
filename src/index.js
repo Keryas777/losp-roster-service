@@ -185,14 +185,24 @@ export default {
           status:reward.status,requests:reward.requests||0,
           ...(reward.members?{members:reward.members}:{})
         }));
-      // An existing receipt was already complete: this tick uses zero
-      // Scopely requests and has budget to archive all currently-ready
-      // scopes directly from R2. Retry on the next quiet minute if needed.
-      // Do not add archive reads to a tick that just fetched member cards.
-      if(reward.status==="complete"&&!(reward.requests>0)){
+      const scheduled=controller.scheduledTime;
+      const slot=new Date(scheduled);
+      const parts=Object.fromEntries(new Intl.DateTimeFormat("en-GB",{
+        timeZone:"Europe/Paris",hour:"2-digit",minute:"2-digit",hourCycle:"h23"
+      }).formatToParts(slot).filter(p=>p.type==="hour"||p.type==="minute")
+        .map(p=>[p.type,Number(p.value)]));
+      // When the existing 17:01 collector is quiet, persist genuine R2
+      // receipts immediately. After its 17:30 window, retry R2-only every
+      // five minutes (including after a late deploy) until the fallback.
+      // Never stack archive reads on a tick that just used Scopely GETs.
+      const quietReward=reward.status==="complete"&&!(reward.requests>0);
+      const afterWindow=reward.status==="outside-window"&&
+        (parts.hour===17&&parts.minute>=31||
+         parts.hour===18||parts.hour===19||
+         parts.hour===20&&parts.minute<17)&&parts.minute%5===0;
+      if(quietReward||afterWindow){
         try{
-          const ready=await archiveArenaHistoryWhenReady(
-            env,controller.scheduledTime);
+          const ready=await archiveArenaHistoryWhenReady(env,scheduled);
           if(["updated","unavailable"].includes(ready.status)||
              ["updated","unavailable"].includes(ready.guestStatus))
             console.info("arena-history-ready",JSON.stringify(ready));
@@ -201,12 +211,6 @@ export default {
             status:"unavailable"}));
         }
       }
-      const scheduled=controller.scheduledTime;
-      const slot=new Date(scheduled);
-      const parts=Object.fromEntries(new Intl.DateTimeFormat("en-GB",{
-        timeZone:"Europe/Paris",hour:"2-digit",minute:"2-digit",hourCycle:"h23"
-      }).formatToParts(slot).filter(p=>p.type==="hour"||p.type==="minute")
-        .map(p=>[p.type,Number(p.value)]));
       if(parts.minute===10&&parts.hour%3===0){
         try{
           const token=env?.ROSTER_GITHUB_DISPATCH_TOKEN;
