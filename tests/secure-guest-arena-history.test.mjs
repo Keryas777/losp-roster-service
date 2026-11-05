@@ -45,10 +45,15 @@ function request(alliances="marines",bearer=signed,origin=SITE){
 function validAuth(role="guest",keys=["marines"],group="marines"){
   return {ok:true,signedSession:true,role,groupKey:group,allowedAlliances:keys};
 }
-const auth=(data=validAuth(),spy=[])=>async(url,options)=>{
-  spy.push({url,options});
-  assert.equal(url,"https://losp-auth.deliriousfan7.workers.dev/signed-access");
-  assert.equal(options.headers.Authorization,"Bearer "+signed);
+const auth=(data=validAuth(),spy=[])=>async(internalRequest)=>{
+  assert.ok(internalRequest instanceof Request,
+    "Service binding must receive a full internal Request");
+  spy.push(internalRequest);
+  assert.equal(internalRequest.url,"https://losp-auth.internal/signed-access");
+  assert.equal(internalRequest.method,"GET");
+  assert.equal(internalRequest.headers.get("Authorization"),"Bearer "+signed);
+  assert.equal(internalRequest.headers.get("Accept"),"application/json");
+  assert.equal(internalRequest.redirect,"manual");
   return Response.json(data);
 };
 test("signed Discord MARINES gets only its 24 actual ranks, before archived R2 history",async()=>{
@@ -261,16 +266,17 @@ test("R2 registry faults return an actionable safe reason without exposing ident
 });
 test("trusted Worker binding is used for an actual signed-access request",async()=>{
   const f=create(),calls=[];
-  f.env.LOSP_AUTH={fetch:async(url,options)=>{
-    calls.push({url,options});
+  f.env.LOSP_AUTH={fetch:async(internalRequest)=>{
+    assert.ok(internalRequest instanceof Request);
+    calls.push(internalRequest);
     return Response.json(validAuth());
   }};
   const res=await secureGuestArenaHistory(request(),f.env,now);
   assert.equal(res.status,200);
   assert.equal(calls.length,1);
-  assert.equal(calls[0].url,
-    "https://losp-auth.deliriousfan7.workers.dev/signed-access");
-  assert.equal(calls[0].options.headers.Authorization,"Bearer "+signed);
+  assert.equal(calls[0].url,"https://losp-auth.internal/signed-access");
+  assert.equal(calls[0].headers.get("Authorization"),"Bearer "+signed);
+  assert.equal(calls[0].redirect,"manual");
 });
 test("upstream auth service failure is distinguishable from a missing R2 receipt",async()=>{
   const f=create();
@@ -280,5 +286,32 @@ test("upstream auth service failure is distinguishable from a missing R2 receipt
   const body=await res.json();
   assert.equal(body.status,"auth-unavailable");
   assert.equal(body.reason,"auth-service-error");
+  assert.equal(f.reads.length,0);
+});
+
+test("service binding never contacts the public workers.dev endpoint or exposes a token in URL",async()=>{
+  const f=create(),seen=[];
+  f.env.LOSP_AUTH={fetch:async request=>{
+    seen.push(request);
+    return Response.json(validAuth());
+  }};
+  const result=await secureGuestArenaHistory(request(),f.env,now);
+  assert.equal(result.status,200);
+  assert.equal(seen.length,1);
+  assert.equal(new URL(seen[0].url).hostname,"losp-auth.internal");
+  assert.equal(new URL(seen[0].url).pathname,"/signed-access");
+  assert.ok(!seen[0].url.includes(signed));
+  assert.equal(seen[0].headers.get("Origin"),null);
+  assert.equal(seen[0].headers.get("Cookie"),null);
+});
+test("service binding invocation throw remains fail-closed before reading private R2",async()=>{
+  const f=create();
+  f.env.LOSP_AUTH={fetch:async request=>{
+    assert.ok(request instanceof Request);
+    throw new TypeError("synthetic binding failure");
+  }};
+  const res=await secureGuestArenaHistory(request(),f.env,now);
+  assert.equal(res.status,503);
+  assert.equal((await res.json()).reason,"auth-service-unreachable");
   assert.equal(f.reads.length,0);
 });
