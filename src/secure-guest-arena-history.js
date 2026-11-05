@@ -148,7 +148,13 @@ export async function secureGuestArenaHistory(request,env,now=Date.now(),
     return respond(request,{status:"unavailable"},503);
   const keys=parseKeys(new URL(request.url));
   if(!keys)return respond(request,{status:"invalid-query"},400);
-  const auth=await verifiedDiscord(request,fetchImpl);
+  // A Workers Service Binding is mandatory: never relay a private session
+  // to an arbitrary external URL or fall back to unsigned /me.
+  if(!env?.LOSP_AUTH?.fetch)
+    return respond(request,{status:"auth-unavailable"},503);
+  const signedFetch=fetchImpl===fetch?
+    (...args)=>env.LOSP_AUTH.fetch(...args):fetchImpl;
+  const auth=await verifiedDiscord(request,signedFetch);
   if(auth.status!=="ok")
     return respond(request,{status:auth.status},
       auth.status==="unauthorized"?401:503);
