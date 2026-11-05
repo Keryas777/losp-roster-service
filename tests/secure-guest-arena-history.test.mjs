@@ -173,7 +173,9 @@ test("missing trusted service binding fails closed before any R2 read",async()=>
   delete f.env.LOSP_AUTH;
   const res=await secureGuestArenaHistory(request(),f.env,now,auth());
   assert.equal(res.status,503);
-  assert.equal((await res.json()).status,"auth-unavailable");
+  const failure=await res.json();
+  assert.equal(failure.status,"auth-unavailable");
+  assert.equal(failure.reason,"auth-binding-missing");
   assert.equal(f.reads.length,0);
 });
 
@@ -218,4 +220,65 @@ test("admin list is intersected with actual signed allowedAlliances, not browser
   assert.equal(res.status,200);
   const body=await res.json();
   assert.deepEqual(body.snapshots,[]);
+});
+
+test("unavailable old archive never blocks validated 24 latest MARINES receipts",async()=>{
+  const f=create();
+  f.records.set(key(guest),receipt(guest,"MΛЯIΠΣƧ",
+    Array.from({length:24},(_,i)=>({name:"Marine "+i,rank:i+1}))));
+  f.records.set("roster-batches/v1/guest-arena-history/rolling.json",
+    "{corrupt archive");
+  const response=await secureGuestArenaHistory(request(),f.env,now,auth());
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.archiveWarning,"archive-unavailable");
+  assert.equal(body.snapshots.length,1);
+  assert.equal(body.snapshots[0].players.length,24);
+  assert.ok(body.snapshots[0].players.every(p=>p.alliance==="marines"));
+  assert.equal(body.snapshots[0].date,date);
+});
+test("invalid archive shape is ignored without accepting unverified historical ranks",async()=>{
+  const f=create();
+  f.records.set(key(guest),receipt(guest,"MARINES",[{name:"Today",rank:4}]));
+  f.records.set("roster-batches/v1/guest-arena-history/rolling.json",
+    JSON.stringify({version:2,snapshots:[{date:"2026-11-01",
+      players:[{name:"Invented",allianceKey:"marines",arenaRank:1}]}]}));
+  const body=await(await secureGuestArenaHistory(request(),f.env,now,auth())).json();
+  assert.equal(body.archiveWarning,"archive-invalid");
+  assert.deepEqual(body.snapshots.map(s=>s.date),[date]);
+  assert.deepEqual(body.snapshots[0].players.map(p=>p.name),["Today"]);
+  assert.doesNotMatch(JSON.stringify(body),/Invented/);
+});
+test("R2 registry faults return an actionable safe reason without exposing identifiers",async()=>{
+  const f=create();
+  f.records.set(GUEST_APPROVAL_KEY,JSON.stringify({version:2,alliances:[]}));
+  const res=await secureGuestArenaHistory(request("approved"),f.env,now,
+    auth(validAuth("admin",["marines"],"all")));
+  assert.equal(res.status,503);
+  const body=await res.json();
+  assert.equal(body.reason,"approval-registry-invalid");
+  assert.doesNotMatch(JSON.stringify(body),new RegExp(guest));
+});
+test("trusted Worker binding is used for an actual signed-access request",async()=>{
+  const f=create(),calls=[];
+  f.env.LOSP_AUTH={fetch:async(url,options)=>{
+    calls.push({url,options});
+    return Response.json(validAuth());
+  }};
+  const res=await secureGuestArenaHistory(request(),f.env,now);
+  assert.equal(res.status,200);
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].url,
+    "https://losp-auth.deliriousfan7.workers.dev/signed-access");
+  assert.equal(calls[0].options.headers.Authorization,"Bearer "+signed);
+});
+test("upstream auth service failure is distinguishable from a missing R2 receipt",async()=>{
+  const f=create();
+  f.env.LOSP_AUTH={fetch:async()=>new Response(null,{status:503})};
+  const res=await secureGuestArenaHistory(request(),f.env,now);
+  assert.equal(res.status,503);
+  const body=await res.json();
+  assert.equal(body.status,"auth-unavailable");
+  assert.equal(body.reason,"auth-service-error");
+  assert.equal(f.reads.length,0);
 });
