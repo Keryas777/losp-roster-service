@@ -192,11 +192,15 @@ export async function secureGuestArenaHistory(request,env,now=Date.now(),
       if(!validDate(snap?.date,now)||!Array.isArray(snap.players)||
          snap.players.length>500)continue;
       const byName=new Map(),duplicateNames=new Set();
-      for(const a of approved){
-        const record=await source(a.fingerprint,snap.sourceDay||snap.date);
-        if(!record)continue;
-        if(byName.has(record.name))duplicateNames.add(record.name);
-        else byName.set(record.name,{key:a.allianceKey,record});
+      // Already tagged archives need no additional reads. Older (untagged)
+      // entries can be verified only against their original R2 receipt.
+      if(allowLegacyUntagged&&snap.players.some(p=>!p?.allianceKey)){
+        for(const a of approved){
+          const record=await source(a.fingerprint,snap.sourceDay||snap.date);
+          if(!record)continue;
+          if(byName.has(record.name))duplicateNames.add(record.name);
+          else byName.set(record.name,{key:a.allianceKey,record});
+        }
       }
       const players=[],seen=new Set();
       for(const p of snap.players){
