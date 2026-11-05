@@ -26,7 +26,7 @@ function dateAtParis(ms){
     .map(x=>[x.type,x.value]));
   return p.year+"-"+p.month+"-"+p.day;
 }
-function headers(request){
+export function headers(request){
   const origin=request.headers.get("Origin");
   return {
     ...(origin===SITE_ORIGIN?{"Access-Control-Allow-Origin":SITE_ORIGIN,
@@ -85,7 +85,7 @@ function parseKeys(url){
     new Set(keys).size!==keys.length)return null;
   return keys;
 }
-async function verifiedDiscord(request,fetchImpl){
+export async function verifiedDiscord(request,fetchImpl){
   const auth=request.headers.get("Authorization")||"";
   // Signed HMAC session only. Existing auth worker rechecks Discord roles.
   if(!/^Bearer v1\.[A-Za-z0-9_-]{12,4096}\.[A-Za-z0-9_-]{40,80}$/.test(auth))
@@ -110,7 +110,7 @@ async function verifiedDiscord(request,fetchImpl){
     return {status:"unauthorized"};
   return {status:"ok",role:data.role,allowed:new Set(data.allowedAlliances)};
 }
-function selectApproved(guest,losp,keys){
+export function selectApproved(guest,losp,keys){
   if(guest.status==="invalid-registry"||losp.status==="invalid-registry")
     throw Error("invalid-approvals");
   const owned=new Set((losp.alliances||[]).map(a=>a.fingerprint));
