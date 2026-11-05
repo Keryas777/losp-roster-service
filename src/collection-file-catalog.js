@@ -88,7 +88,7 @@ function activityMonitors(env,state){
     !["completed","completed-with-gaps"].includes(state.game?.status)?
       "awaiting-initial-archive":differential.status||"unavailable";
   const game={
-    id:"game",title:"/game — différentiel hebdomadaire",status:diffStatus,
+    id:"game",title:"/game — différentiel 2 fois/semaine",status:diffStatus,
     progress:diffEnabled&&["checking","completed","partial"].includes(diffStatus)?
       boundedProgress(differential.checked,differential.queued):null,
     lastAt:timestamp(differential.lastCheckedAt||differential.completedAt),
@@ -134,8 +134,8 @@ export async function buildCollectionFileCatalog(env,state){
   const rosterOn=env?.ROSTER_AUTO_ENABLED==="true"&&
     env?.ROSTER_RETENTION_CONFIRMED==="true";
   // Inventory shows the ongoing collection, NOT the historical one-off full archive.
-  // The weekly differential is initiated automatically once the full archive is complete.
-  const gameWhen="Automatique : première passe après clôture de l’archive initiale et de sa phase 2 ; puis tous les 7 jours après la fin de la passe précédente";
+  // The scheduled differential starts automatically once the full archive is complete.
+  const gameWhen="Automatique : première passe après clôture de l’archive initiale et de sa phase 2 ; puis lundi 01:00 et jeudi 13:00 Europe/Paris";
   const gameEvidence="Différentiel : "+(state.gameDifferential?.status||"indisponible")+
     " ; archive de référence : "+(state.game?.status||"indisponible")+
     " ; présence de ce fichier non vérifiée individuellement";

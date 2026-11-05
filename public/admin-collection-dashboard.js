@@ -111,8 +111,8 @@
       "Actualiser la vue après un passage Cron pour lire le nouveau checkpoint.",
       parent,"collection-caveat");
     node("p","« Automatique ? » décrit les collectes programmées en fonctionnement courant. "+
-      "Pour /game, l’archive initiale manuelle est historique : le différentiel est automatique tous les 7 jours. "+
-      "Chemins entre {accolades} = modèles de fichiers ; horaires UTC.",parent,"collection-caveat");
+      "Pour /game, l’archive initiale manuelle est historique : le différentiel est automatique le lundi à 01:00 et le jeudi à 13:00 (Europe/Paris). "+
+      "Chemins entre {accolades} = modèles de fichiers ; autres horaires UTC.",parent,"collection-caveat");
     const controls=node("div",null,parent,"controls");
     const searchLabel=node("label","Recherche",controls);
     const search=node("input",null,searchLabel);

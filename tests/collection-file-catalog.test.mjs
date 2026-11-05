@@ -61,10 +61,10 @@ test("file catalogue covers collector declarations and exposes cadence without p
   const game=list.find(r=>r.id==="game-characters");
   assert.equal(game.enabled,true);
   assert.equal(game.automatic,true);
-  assert.match(game.when,/tous les 7 jours/);
+  assert.match(game.when,/lundi 01:00 et jeudi 13:00 Europe\/Paris/);
   assert.match(game.file,/game-archive\/v1\/diff\/runs/);
   assert.ok(list.filter(r=>r.group==="/game").every(r=>r.automatic===true&&r.enabled===true),
-    "Each /game family has automatic weekly differential maintenance after its one-off archive");
+    "Each /game family has automatic twice-weekly differential maintenance after its one-off archive");
   assert.equal(roster.automatic,true);
   assert.equal(player.automatic,true);
   assert.match(game.evidence,/non vérifiée individuellement/);
@@ -101,7 +101,7 @@ test("file catalogue covers collector declarations and exposes cadence without p
 test("disabled collectors are not described as running",async()=>{
   const {env}=fixture();
   env.GAME_DIFF_ENABLED="false";
-  env.GAME_ARCHIVE_AUTO_ENABLED="true"; // Weekly diff must be off even when manual archive is enabled.
+  env.GAME_ARCHIVE_AUTO_ENABLED="true"; // Scheduled diff must be off even when manual archive is enabled.
   env.PLAYER_AUTO_ENABLED="false";
   env.ROSTER_AUTO_ENABLED="false";
   const rows=(await buildCollectionFileCatalog(env,state)).rows;
@@ -110,7 +110,7 @@ test("disabled collectors are not described as running",async()=>{
   assert.equal(rows.find(r=>r.id==="player-personal-roster").enabled,false);
   assert.equal(rows.find(r=>r.id==="alliance-coverage").enabled,false);
   assert.equal(rows.find(r=>r.id==="game-characters").automatic,true);
-  assert.match(rows.find(r=>r.id==="game-characters").when,/7 jours/);
+  assert.match(rows.find(r=>r.id==="game-characters").when,/lundi 01:00 et jeudi 13:00 Europe\/Paris/);
 });
 
 test("inventory frontend is vanilla JS and has no additional API calls",async()=>{
