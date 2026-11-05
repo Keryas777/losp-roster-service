@@ -14,6 +14,7 @@ import {runMemberInfoAutoTick} from "./member-info-scheduler.js";
 import {runRewardInfoAutoTick} from "./member-info-reward.js";
 import {publicArenaHistory,archiveArenaHistory} from "./public-arena-history.js";
 import {publicTrophyHistory,archiveTrophyHistory} from "./public-trophy-history.js";
+import {publicGuestSeasonRanks} from "./public-guest-season-ranks.js";
 import {GAME_ARCHIVE_CRON,runGameArchiveTick} from "./game-catalog-archive.js";
 import {runGameArchiveSchemaAuditTick} from "./game-archive-schema-audit.js";
 import {runGameMaterialAuditTick} from "./game-material-audit.js";
@@ -379,6 +380,8 @@ export default {
       return publicArenaHistory(request,env);
     if(url.pathname==="/api/public/trophy-history")
       return publicTrophyHistory(request,env);
+    if(url.pathname==="/api/public/guest-season-ranks")
+      return publicGuestSeasonRanks(request,env);
 
     if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
       return handleAdmin(request, env);
