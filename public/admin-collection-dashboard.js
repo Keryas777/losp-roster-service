@@ -195,14 +195,16 @@
     const eligible=f.reduce((n,x)=>n+(x.eligible||0),0);
     tile(cards,"Arène après récompenses (LoSP + invitées)",
       arena.status==="ok"?
-        count(arenaSummary.receipts)+"/"+count(arenaSummary.total)+" reçus vérifiés":
+        !arena.due?"Collecte prévue à 17h01":
+          count(arenaSummary.receipts)+"/"+count(arenaSummary.total)+" reçus vérifiés":
         "Diagnostic indisponible",
       "Alliances approuvées : "+count(arenaSummary.losp)+" LoSP et "+
         count(arenaSummary.guests)+" invitée(s)."+
         " Historique LoSP : "+label(arena.history?.losp)+
         " · invitées : "+label(arena.history?.guests)+
         ". Diagnostic détaillé dans l’onglet Rosters. Aucun nouvel appel Scopely.",
-      arena.status==="ok"&&arenaSummary.total>0&&
+      arena.status==="ok"&&!arena.due?"neutral":
+        arena.status==="ok"&&arenaSummary.total>0&&
         arenaSummary.receipts===arenaSummary.total?"ok":"warn");
         tile(cards,"Données /player personnelles",
       archives+"/"+(pers.status==="ok"?eligible:"—")+" familles vérifiées",
