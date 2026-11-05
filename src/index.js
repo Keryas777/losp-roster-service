@@ -12,7 +12,7 @@ import { ROSTER_CRON, runRosterAutoTick } from "./automatic-roster-scheduler.js"
 import {runRosterRecoveryTick} from "./roster-auto-recovery.js";
 import {runMemberInfoAutoTick} from "./member-info-scheduler.js";
 import {runRewardInfoAutoTick} from "./member-info-reward.js";
-import {publicArenaHistory,archiveArenaHistory} from "./public-arena-history.js";
+import {publicArenaHistory,archiveArenaHistory,archiveArenaHistoryWhenReady} from "./public-arena-history.js";
 import {publicTrophyHistory,archiveTrophyHistory} from "./public-trophy-history.js";
 import {publicGuestSeasonRanks} from "./public-guest-season-ranks.js";
 import {GAME_ARCHIVE_CRON,runGameArchiveTick} from "./game-catalog-archive.js";
@@ -185,6 +185,22 @@ export default {
           status:reward.status,requests:reward.requests||0,
           ...(reward.members?{members:reward.members}:{})
         }));
+      // An existing receipt was already complete: this tick uses zero
+      // Scopely requests and has budget to archive all currently-ready
+      // scopes directly from R2. Retry on the next quiet minute if needed.
+      // Do not add archive reads to a tick that just fetched member cards.
+      if(reward.status==="complete"&&!(reward.requests>0)){
+        try{
+          const ready=await archiveArenaHistoryWhenReady(
+            env,controller.scheduledTime);
+          if(["updated","unavailable"].includes(ready.status)||
+             ["updated","unavailable"].includes(ready.guestStatus))
+            console.info("arena-history-ready",JSON.stringify(ready));
+        }catch{
+          console.warn("arena-history-ready",JSON.stringify({
+            status:"unavailable"}));
+        }
+      }
       const scheduled=controller.scheduledTime;
       const slot=new Date(scheduled);
       const parts=Object.fromEntries(new Intl.DateTimeFormat("en-GB",{
@@ -212,10 +228,11 @@ export default {
           console.warn("msf-characters-dispatch",JSON.stringify({status:"unavailable"}));
         }
       }
-      // R2-only rolling arena history, at 20:17/22:17 Paris.
-      // No new cron, no provider calls, no roster pipeline changes.
+      // R2-only scheduled backup at 20:17/22:17 Paris.
+      // Ready-to-publish snapshots are already handled after quiet ticks.
       const arenaHistory=await archiveArenaHistory(env,controller.scheduledTime);
-      if(!["outside-window","unchanged"].includes(arenaHistory.status))
+      if(!["outside-window","unchanged"].includes(arenaHistory.status)||
+         ["updated","unavailable"].includes(arenaHistory.guestStatus))
         console.info("arena-history-cron",JSON.stringify(arenaHistory));
       // Trophy projection is R2-only: use the existing minute Cron, never
       // depend on GitHub Action scheduling or make another Scopely GET.
