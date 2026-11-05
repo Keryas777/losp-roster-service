@@ -18,6 +18,18 @@
     return new Date(v).toLocaleString("fr-FR");
   };
   const count=x=>Number.isSafeInteger(x)?String(x):"—";
+  const beforeArenaArchive=checkedAt=>{
+    const at=Date.parse(checkedAt||"");
+    if(!Number.isFinite(at))return false;
+    const local=new Intl.DateTimeFormat("en-GB",{
+      timeZone:"Europe/Paris",hour:"2-digit",minute:"2-digit",hourCycle:"h23"
+    }).format(new Date(at)).split(":").map(Number);
+    return local.length===2&&local.every(Number.isFinite)&&
+      local[0]*60+local[1]<20*60+17;
+  };
+  const arenaHistoryLabel=(value,checkedAt)=>
+    ["missing","missing-day"].includes(value)&&beforeArenaArchive(checkedAt)?
+      "Archivage prévu à 20h17":label(value);
   function tile(parent,title,headline,detail,kind="neutral"){
     const card=node("article",null,parent,"collection-tile collection-"+kind);
     node("strong",title,card);
@@ -195,13 +207,13 @@
     const eligible=f.reduce((n,x)=>n+(x.eligible||0),0);
     tile(cards,"Arène après récompenses (LoSP + invitées)",
       arena.status==="ok"?
-        !arena.due?"Collecte prévue à 17h01":
+        !arena.due?"Collecte non commencée (prévue à 17h01)":
           count(arenaSummary.receipts)+"/"+count(arenaSummary.total)+" reçus vérifiés":
         "Diagnostic indisponible",
       "Alliances approuvées : "+count(arenaSummary.losp)+" LoSP et "+
         count(arenaSummary.guests)+" invitée(s)."+
-        " Historique LoSP : "+label(arena.history?.losp)+
-        " · invitées : "+label(arena.history?.guests)+
+        " Historique LoSP : "+arenaHistoryLabel(arena.history?.losp,arena.checkedAt)+
+        " · invitées : "+arenaHistoryLabel(arena.history?.guests,arena.checkedAt)+
         ". Diagnostic détaillé dans l’onglet Rosters. Aucun nouvel appel Scopely.",
       arena.status==="ok"&&!arena.due?"neutral":
         arena.status==="ok"&&arenaSummary.total>0&&
