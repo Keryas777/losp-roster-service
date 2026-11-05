@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {handleRewardInfoManual,rewardManualStatus,runRewardInfoAutoTick}
   from "../src/member-info-reward.js";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
+import {GUEST_APPROVAL_KEY} from "../src/guest-alliance-approvals.js";
 import {handleAdmin} from "../src/admin-routes.js";
 
 const fp1="1".repeat(64),fp2="2".repeat(64),fp3="3".repeat(64);
@@ -202,4 +203,27 @@ test("manual burst cannot run after 45 minute expiry",async()=>{
   );
   assert.equal(response.status,409);
   assert.equal(calls,0);
+});
+
+test("admin Arena progress and explicit manual recovery include currently approved guests",async()=>{
+  const f=fixture(),guest="4".repeat(64),now=at("2026-11-01T17:42:00Z");
+  f.files.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,
+    alliances:[{fingerprint:guest}]}));
+  const initial=await rewardManualStatus(f.env,now);
+  assert.equal(initial.alliancesTotal,4);
+  assert.equal(initial.alliancesComplete,0);
+  await handleRewardInfoManual(post(),f.env,now);
+  const collected=[];
+  const result=await handleRewardInfoManual(
+    post(JSON.stringify({action:"collect",index:3})),f.env,now+1000,
+    fetch,async(_env,fp)=>{collected.push(fp);return {status:"complete",requests:4,members:24};});
+  assert.equal(result.status,200);
+  assert.deepEqual(collected,[guest]);
+  // A revocation is effective immediately for both status and indexed actions.
+  f.files.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[]}));
+  assert.equal((await rewardManualStatus(f.env,now)).alliancesTotal,3);
+  const denied=await handleRewardInfoManual(
+    post(JSON.stringify({action:"collect",index:3})),f.env,now+2000,
+    fetch,async()=>{throw Error("revoked guest must never be collected");});
+  assert.equal(denied.status,400);
 });

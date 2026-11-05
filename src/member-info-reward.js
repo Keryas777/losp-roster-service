@@ -278,7 +278,7 @@ export async function rewardManualStatus(env,now=Date.now()){
   if(!captainConfigReady(env))return {status:"storage-unavailable"};
   const today=parisRewardDay(now);
   if(!today)return {status:"invalid-time"};
-  const fps=await approvedRewardFingerprints(env);
+  const fps=await approvedRewardFingerprints(env,true);
   if(!fps)return {status:"no-approved-alliances",day:today.day};
   const intent=await read(env.CAPTAIN_BUCKET,manualKey(today.day),3000);
   let complete=0;
@@ -322,7 +322,7 @@ export async function collectManualRewardIndex(env,index,now=Date.now(),
      !Number.isFinite(started)||!Number.isFinite(until)||
      started>now||now>=until||until-started>MANUAL_TTL_MS)
     return {status:"no-active-manual-intent"};
-  const fps=await approvedRewardFingerprints(env);
+  const fps=await approvedRewardFingerprints(env,true);
   if(!fps||index>=fps.length)return {status:"invalid-index"};
   const slot={day:local.day,tick:index,
     stamp:new Date(now).toISOString().slice(0,16)+"Z"};
@@ -404,8 +404,9 @@ export async function runRewardInfoAutoTick(env,scheduledTime,fetchImpl=fetch,
     const automatic=rewardWindow(scheduledTime);
     const slot=automatic||await manualTickSlot(env,scheduledTime);
     if(!slot)return {status:"outside-window"};
-    // Automatic campaigns include guests. Explicit manual imports stay LoSP-only.
-    const fps=await approvedRewardFingerprints(env,Boolean(automatic));
+    // Both automatic and explicit admin-resumed campaigns include only
+    // currently approved LoSP + guest alliances, checked again per micro-lot.
+    const fps=await approvedRewardFingerprints(env,true);
     if(!fps)return {status:"no-approved-alliances"};
     return await collectImpl(env,fps[slot.tick%fps.length],slot,fetchImpl);
   }catch{return {status:"unavailable"};}

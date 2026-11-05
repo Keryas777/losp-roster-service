@@ -184,3 +184,23 @@ test("guest season ranks are written to separate R2 keys, never into LoSP latest
  assert.equal(f.calls.length,3,"one provider scan shared by both scopes");
 });
 
+
+test("GET admin rank capture shows guests separately and never shows revoked guest snapshots",async()=>{
+  const f=fixture();
+  const zeus=createHash("sha256").update("zeus").digest("hex");
+  const kronos=createHash("sha256").update("kronos").digest("hex");
+  f.db.set(ROSTER_APPROVAL_KEY,JSON.stringify({version:1,
+    alliances:[{fingerprint:zeus,name:"Zeus"}]}));
+  f.db.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,
+    alliances:[{fingerprint:kronos}]}));
+  await f.post(Date.parse("2026-11-04T03:15:00Z"));
+  const reads=f.calls.length;
+  const initial=await(await f.get()).json();
+  assert.deepEqual(initial.snapshot.alliances.map(a=>a.name),["Zeus"]);
+  assert.deepEqual(initial.guestSnapshot.alliances.map(a=>a.name),["Kronos"]);
+  assert.equal(f.calls.length,reads,"GET must not call Scopely");
+  f.db.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[]}));
+  const revoked=await(await f.get()).json();
+  assert.equal(revoked.guestSnapshot,null);
+  assert.deepEqual(revoked.snapshot.alliances.map(a=>a.name),["Zeus"]);
+});
