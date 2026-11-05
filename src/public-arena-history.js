@@ -4,7 +4,7 @@
 // Rolling history uses the SAME lifecycle prefix, is trimmed to 30 dates,
 // and is archived from completed receipts, with 20:17 / 22:17 fallback.
 import {readApproval} from "./roster-sync-preflight.js";
-import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
+import {readCollectibleApprovals,readGuestApprovals} from "./guest-alliance-approvals.js";
 
 const ROOT="roster-batches/v1/";
 const HISTORY_KEY=ROOT+"arena-history/rolling.json";
@@ -80,7 +80,7 @@ function sanitizeReceipt(receipt,fp,day,kind,now){
   }
   return {rows,capturedAt:receipt.capturedAt||null};
 }
-async function snapshot(bucket,fps,sourceDay,kind,now){
+async function snapshot(bucket,fps,sourceDay,kind,now,guestKeys=null){
   if(!validDay(sourceDay))return null;
   const receipts=await Promise.all(fps.map(async fp=>{
     try{
@@ -91,7 +91,11 @@ async function snapshot(bucket,fps,sourceDay,kind,now){
   }));
   // Never label a date as complete if even one alliance has no valid receipt.
   if(receipts.some(x=>!x))return null;
-  const players=receipts.flatMap(x=>x.rows);
+  // Private guest archive ONLY: tag each real receipt with the approved
+  // stable alliance key. This prevents lookalike/duplicate names from
+  // allowing a different guest's rank to cross tenant boundaries.
+  const players=receipts.flatMap((x,i)=>x.rows.map(row=>
+    guestKeys?.get(fps[i])?{...row,allianceKey:guestKeys.get(fps[i])}:row));
   if(!players.length||players.length>500)return null;
   const day=kind==="am"?INITIAL_DAY:sourceDay;
   return {date:day,sourceDay,
@@ -123,6 +127,9 @@ export async function buildArenaHistory(env,now=Date.now(),scope="losp"){
   const today=parisParts(now).day;
   const fps=await fingerprints(env,scope);
   if(!fps||!fps.length)throw Error("no-approved-alliances");
+  const guestKeys=scope==="guest"?
+    new Map((await readGuestApprovals(env)).alliances
+      .filter(a=>a.allianceKey).map(a=>[a.fingerprint,a.allianceKey])):null;
   const previous=await json(bucket,scope==="guest"?GUEST_HISTORY_KEY:HISTORY_KEY,2400000);
   if(previous&&(previous.version!==1||!Array.isArray(previous.snapshots)))
     throw Error("invalid-existing-history");
@@ -131,13 +138,13 @@ export async function buildArenaHistory(env,now=Date.now(),scope="losp"){
   // 2026-10-31, NOT represented as an observation made on October 31.
   if(today>=FIRST_SOURCE_DAY&&today<=dateOffset(FIRST_SOURCE_DAY,6)&&
      !(previous?.snapshots||[]).some(s=>s.date===INITIAL_DAY)){
-    const base=await snapshot(bucket,fps,FIRST_SOURCE_DAY,"am",now);
+    const base=await snapshot(bucket,fps,FIRST_SOURCE_DAY,"am",now,guestKeys);
     if(base)incoming.push(base);
   }
   for(const day of [dateOffset(today,-1),today]){
     if(day<FIRST_SOURCE_DAY||day>today)continue;
     if((previous?.snapshots||[]).some(s=>s.date===day))continue;
-    const point=await snapshot(bucket,fps,day,"reward",now);
+    const point=await snapshot(bucket,fps,day,"reward",now,guestKeys);
     if(point)incoming.push(point);
   }
   return mergeArenaHistory(previous,incoming,today);
