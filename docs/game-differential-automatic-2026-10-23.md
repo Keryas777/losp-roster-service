@@ -33,3 +33,14 @@ Une fois terminée, aucun nouveau balayage périodique n'était lancé.
 - La vérification de toutes les URL connues peut s'étaler sur plusieurs jours en présence de nombreuses routes et de plafonds Scopely. Le tableau indique « checking », jamais « synchronisé » prématurément.
 - Le balayage n'est pas une preuve de complétude absolue : routes non découvertes, sources initialement absentes et fichiers non indexables restent des lacunes explicites.
 - Aucun accès direct au R2 de production pendant cette PR ; les dates et chiffres réels ne sont connus qu'après fusion/déploiement.
+
+## Événements : collecte quotidienne indépendante (5 novembre 2026)
+
+- Le catalogue public `/game/v1/events` est vérifié chaque jour à partir de **03:17 UTC**, indépendamment des passes générales de 7 jours et du vendredi. Les passages ne s'exécutent pas en double le même jour.
+- Le Cron Cloudflare `* * * * *`, OAuth `client_credentials`, le verrou Durable Object et le budget global `/game` de 9 000 GET/jour sont réutilisés. Aucune nouvelle tâche planifiée, clé ni accès `/player`.
+- Récupération complète de toutes les pages anglaises (100 éléments/page, maximum 10 pages), puis tentative de récupération des pages françaises. Toute page anglaise invalide ou manquante bloque la publication ; les textes français incomplets retombent sur un **catalogue anglais complet de la même collecte**.
+- Un **seul objet R2** `game-archive/v1/events-daily/current.json` est remplacé après vérification de l'ensemble, avec empreinte SHA-256. Aucune mise à jour partielle ni snapshot GitHub Pages ; la publication publique privilégie cet objet atomique.
+- En cas d'échec, le dernier catalogue R2 complet demeure consultable pendant au plus **48 heures** depuis sa vérification, puis `/api/public/events` répond 503 plutôt que d'afficher des données périmées. Un échec HTTP 429 impose une pause d'une heure ; les autres échecs, quinze minutes.
+- Seule la période de migration sans objet quotidien accepte les anciennes pages R2 hebdomadaires si leur **dernière vérification date de moins de 48 heures**. Jamais de fichier JSON statique embarqué dans le navigateur.
+- `GAME_EVENTS_DAILY_ENABLED=false` peut désactiver ce collecteur indépendamment du différentiel en cas d'incident, sans ajouter de configuration obligatoire en fonctionnement normal.
+- Les événements privés ou conditionnés au compte ne sont pas récupérés : l'API `/player/v1/events` nécessite OAuth personnel et consentement, hors périmètre de cette fonctionnalité.

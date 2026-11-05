@@ -24,6 +24,7 @@ import {runGameOrphanAuditTick} from "./game-archive-orphan-audit.js";
 import {runGameProvenanceReconcileTick} from "./game-archive-provenance-reconcile.js";
 import {runPlayerCampaignTick} from "./player-campaign.js";
 import {runGameDifferentialTick} from "./game-differential-sync.js";
+import {runGameDailyEventsTick} from "./game-events-daily.js";
 import {runGameDifferentialFailureAuditTick} from "./game-differential-failure-audit.js";
 import {runGameDifferentialComparisonAuditTick} from "./game-differential-comparison-audit.js";
 import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
@@ -261,6 +262,13 @@ export default {
         console.info("game-differential-cron",JSON.stringify({
           status:differential.status,changed:differential.changed||0,
           unchanged:differential.unchanged||0,failed:differential.failed||0
+        }));
+      // Daily events: 03:17 UTC, same shared lock and Scopely budget.
+      const dailyEvents=await runGameDailyEventsTick(env);
+      if(!["disabled","not-due","up-to-date","cooldown","busy"].includes(dailyEvents.status))
+        console.info("game-events-daily-cron",JSON.stringify({
+          status:dailyEvents.status,count:dailyEvents.count||0,
+          reason:dailyEvents.reason||null
         }));
       // Three /player actions (<= 30 provider GETs) + <= 12 /game GETs
       // fit the SAME Free Worker invocation (< 50 external subrequests).
