@@ -109,3 +109,13 @@ test("unapproved guest is excluded; no collection or private provider requests o
   assert.equal((await publicTrophyHistory(new Request(url+"?fingerprint=foo"),f.env,NOW)).status,400);
   assert.equal((await publicTrophyHistory(new Request(url,{method:"POST"}),f.env,NOW)).status,405);
 });
+
+test("guest approval revocation hides earlier readings immediately without a cron",async()=>{
+  const f=fixture();
+  add(f,source(losp,"aid-zeus","Zeus",3000),losp);
+  add(f,source(guest,"aid-marines","MARINES",2280),guest);
+  assert.equal((await archiveTrophyHistory(f.env,slot,NOW)).observed,2);
+  f.data.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[]}));
+  const response=await (await publicTrophyHistory(new Request(url),f.env,NOW)).json();
+  assert.deepEqual(response.snapshots[0].alliances.map(a=>a.nameAtCapture),["Zeus"]);
+});
