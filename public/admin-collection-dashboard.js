@@ -173,6 +173,7 @@
     const f=Array.isArray(pers.families)?pers.families:[];
     const g=data.game||{},o=data.oauth||{};
     const diff=data.gameDifferential||{};
+    const arena=data.arena||{},arenaSummary=arena.summary||{};
     const cards=node("div",null,output,"collection-grid");
     tile(cards,"Rosters des alliances",
       authorizedDone+"/"+count(r.approvedCount)+" collectes accessibles terminées",
@@ -192,7 +193,18 @@
       authorizedDone&&authorizedDone===r.approvedCount?"ok":"warn");
     const archives=f.reduce((n,x)=>n+(x.archived||0),0);
     const eligible=f.reduce((n,x)=>n+(x.eligible||0),0);
-    tile(cards,"Données /player personnelles",
+    tile(cards,"Arène après récompenses (LoSP + invitées)",
+      arena.status==="ok"?
+        count(arenaSummary.receipts)+"/"+count(arenaSummary.total)+" reçus vérifiés":
+        "Diagnostic indisponible",
+      "Alliances approuvées : "+count(arenaSummary.losp)+" LoSP et "+
+        count(arenaSummary.guests)+" invitée(s)."+
+        " Historique LoSP : "+label(arena.history?.losp)+
+        " · invitées : "+label(arena.history?.guests)+
+        ". Diagnostic détaillé dans l’onglet Rosters. Aucun nouvel appel Scopely.",
+      arena.status==="ok"&&arenaSummary.total>0&&
+        arenaSummary.receipts===arenaSummary.total?"ok":"warn");
+        tile(cards,"Données /player personnelles",
       archives+"/"+(pers.status==="ok"?eligible:"—")+" familles vérifiées",
       "Campagne complémentaire : "+label(player.status)+
         " · comptes OAuth actifs en R2 : "+count(pers.accountsActive),
