@@ -34,6 +34,9 @@
   "r2_buckets": [
     { "binding": "CAPTAIN_BUCKET", "bucket_name": "losp-roster-sessions" }
   ],
+  "services": [
+    { "binding": "LOSP_AUTH", "service": "losp-auth" }
+  ],
   "durable_objects": {
     "bindings": [
       { "name": "CAPTAIN_REFRESH_COORDINATOR", "class_name": "CaptainRefreshCoordinator" },
