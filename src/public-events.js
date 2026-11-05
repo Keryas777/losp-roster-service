@@ -4,6 +4,9 @@
 const ROOT="game-archive/v1/";
 const LATEST=ROOT+"diff/latest/";
 const PATH="/game/v1/events";
+// One atomic R2 object for the independently collected daily events catalogue.
+export const DAILY_EVENTS_KEY=ROOT+"events-daily/current.json";
+const DAILY_MAX_AGE=48*3600000;
 const PER_PAGE=100,MAX_PAGES=10,MAX_BYTES=1500000;
 const MAX_AGE=30*86400000;
 const SHA=/^[a-f0-9]{64}$/;
@@ -230,9 +233,104 @@ async function frenchCatalog(bucket,englishPages,events,now){
   return {events:merged,locale:"fr",localizationStatus:"verified",
     localizedFields:changed,localizedAt};
 }
+// Build a single, complete daily publication from exact official list pages.
+// This function never fetches Scopely; the collector owns all provider GETs.
+export function buildDailyPublicEvents(englishPages,frenchPages=null,now=Date.now()){
+  if(!Array.isArray(englishPages)||englishPages.length<1||
+     englishPages.length>MAX_PAGES)throw Error("invalid-daily-pages");
+  const first=englishPages[0]?.meta;
+  const total=first?.perTotal;
+  if(!Number.isSafeInteger(total)||total<1||total>MAX_PAGES*PER_PAGE||
+     englishPages.length!==Math.ceil(total/PER_PAGE))
+    throw Error("invalid-daily-total");
+  const seen=new Set(),events=[];
+  let revision=first.hashes?.events||null;
+  for(let i=0;i<englishPages.length;i++){
+    const page=englishPages[i],meta=page?.meta;
+    const expected=Math.min(PER_PAGE,total-i*PER_PAGE);
+    if(meta?.page!==i+1||meta?.perPage!==PER_PAGE||
+       meta?.perTotal!==total||!Array.isArray(page.data)||
+       page.data.length!==expected||
+       !/^[a-f0-9]{10,64}$/.test(meta.hashes?.events||""))
+      throw Error("invalid-daily-page");
+    if(meta.hashes.events!==revision)revision=null;
+    for(const raw of page.data){
+      const item=project(raw);
+      if(seen.has(item.id))throw Error("duplicate-daily-event");
+      seen.add(item.id);events.push(item);
+    }
+  }
+  let localized=events,locale="en",localizedFields=0;
+  let localizationStatus="awaiting-daily-french-collection";
+  if(Array.isArray(frenchPages)&&frenchPages.length===englishPages.length){
+    try{
+      const translations=new Map();
+      for(let i=0;i<frenchPages.length;i++){
+        const page=frenchPages[i],meta=page?.meta;
+        if(meta?.page!==i+1||meta?.perPage!==PER_PAGE||
+           meta?.perTotal!==total||!Array.isArray(page.data)||
+           page.data.length!==englishPages[i].data.length)
+          throw Error("daily-french-page-mismatch");
+        for(const raw of page.data){
+          const item=project(raw);
+          if(translations.has(item.id))throw Error("duplicate-daily-french-event");
+          translations.set(item.id,item);
+        }
+      }
+      if(translations.size!==events.length)
+        throw Error("incomplete-daily-french-catalog");
+      localized=events.map(base=>{
+        const fr=translations.get(base.id);
+        if(!fr||fr.type!==base.type||fr.startTime!==base.startTime||
+           fr.endTime!==base.endTime)
+          throw Error("daily-french-identity-mismatch");
+        const translated=overlayEvent(base,fr);
+        localizedFields+=countTranslationChanges(base,translated);
+        return translated;
+      });
+      localizationStatus=localizedFields?"verified":"no-translated-text";
+      if(localizedFields)locale="fr";
+    }catch{
+      localized=events;localizedFields=0;
+      localizationStatus="awaiting-daily-french-collection";
+    }
+  }
+  return {schemaVersion:1,status:"ok",source:"verified-daily-game-events",
+    updatedAt:new Date(now).toISOString(),revision,total,count:events.length,
+    pages:englishPages.length,events:localized,locale,localizationStatus,
+    localizedFields,localizedAt:locale==="fr"?new Date(now).toISOString():null};
+}
+
+// The full catalogue is replaced in ONE R2 PUT; a failed daily fetch does not
+// expose half an update. SHA and age are checked at every public read.
+async function dailyCatalog(bucket,now){
+  const entry=await bucket.get(DAILY_EVENTS_KEY);
+  if(!entry)return null; // Safe migration from the pre-daily R2 pipeline.
+  if(Number.isFinite(entry.size)&&entry.size>MAX_BYTES*MAX_PAGES)
+    throw Error("oversized-daily-catalog");
+  const raw=await entry.text();
+  if(new TextEncoder().encode(raw).byteLength>MAX_BYTES*MAX_PAGES)
+    throw Error("oversized-daily-catalog");
+  const envelope=JSON.parse(raw),catalog=envelope?.catalog;
+  if(envelope?.version!==1||!SHA.test(envelope?.sha256||"")||
+     await sha256(JSON.stringify(catalog))!==envelope.sha256||
+     catalog?.status!=="ok"||catalog?.schemaVersion!==1||
+     catalog?.source!=="verified-daily-game-events"||
+     !Array.isArray(catalog.events)||!catalog.events.length||
+     catalog.events.length!==catalog.count||catalog.total!==catalog.count||
+     new Set(catalog.events.map(x=>x.id)).size!==catalog.count)
+    throw Error("invalid-daily-catalog");
+  const time=stamp(catalog.updatedAt,now);
+  if(time===null||now-time>=DAILY_MAX_AGE)throw Error("stale-daily-catalog");
+  return catalog;
+}
+
 export async function buildPublicEvents(env,now=Date.now()){
   const bucket=env?.CAPTAIN_BUCKET;
   if(!bucket?.get)throw Error("storage-unavailable");
+  const current=await dailyCatalog(bucket,now);
+  if(current)return current;
+  // Migration only: legacy verified R2 pages, never a local browser snapshot.
   const first=await verifiedPage(bucket,1,now);
   const pages=Math.ceil(first.total/PER_PAGE);
   if(pages<1||pages>MAX_PAGES)throw Error("invalid-page-count");
@@ -253,6 +351,8 @@ export async function buildPublicEvents(env,now=Date.now()){
   if(events.length!==first.total)throw Error("incomplete-catalog");
   const updatedAt=all.map(x=>x.checkedAt).filter(x=>stamp(x,now)!==null)
     .sort().at(-1)||null;
+  if(!updatedAt||now-Date.parse(updatedAt)>=DAILY_MAX_AGE)
+    throw Error("stale-legacy-catalog");
   let localized={events,locale:"en",
     localizationStatus:"awaiting-weekly-french-collection",
     localizedFields:0,localizedAt:null};
