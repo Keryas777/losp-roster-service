@@ -12,8 +12,10 @@
  const cell=(tag,text)=>{
    const item=document.createElement(tag);item.textContent=String(text??"—");return item;
  };
- const displayName=s=>String(s||"").replace(/<#[0-9a-f]{6}>/gi,"")
-   .replace(/<\\/?color(?:=[^<>]{1,32})?>/gi,"")\n   .replace(/\\s+/g," ").trim();
+ const displayName=s=>String(s||"")
+   .replace(/<#[0-9a-f]{6}>/gi,"")
+   .replace(/<\/?color(?:=[^<>]{1,32})?>/gi,"")
+   .replace(/\s+/g," ").trim();
  function render(data){
    current={losp:data.snapshot||null,guests:data.guestSnapshot||null};
    copy.disabled=!current.losp&&!current.guests;
