@@ -114,8 +114,11 @@ uniquement dans la fenêtre de conservation autorisée.
 - L’ancien import des six LoSP et les données privées des invités
   (rosters, Infos, Arène) restent inchangés. L’association d'affichage
   ne confère jamais de permission de collecte ou de lecture de roster.
-- Déploiement : fusionner d'abord le Roster Service, **déployer son
-  Worker Cloudflare**, vérifier l’endpoint sans données privées,
-  puis fusionner le correctif WebApp associé. Le dépôt du Worker
-  dispose de workflows de validation, mais **aucun déploiement automatique**
-  sur `main` dans sa configuration GitHub Actions actuelle.
+- Déploiement : la production utilise **Cloudflare Workers Builds**, relié
+  nativement au dépôt GitHub `Keryas777/losp-roster-service`. Une fusion
+  dans `main` déclenche automatiquement le build puis `npx wrangler deploy`.
+  Les workflows GitHub Actions du dépôt ne sont que des validations ; leur
+  absence de job `deploy` ne signifie pas l'absence de déploiement automatique.
+  Vérifier dans le tableau Cloudflare que le nouveau build est bien `Ready`
+  avant de considérer l'endpoint comme déployé. Les builds de prévisualisation
+  des branches étaient désactivés dans la configuration vérifiée en octobre 2026.
