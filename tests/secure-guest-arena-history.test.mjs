@@ -298,8 +298,8 @@ test("service binding never contacts the public workers.dev endpoint or exposes 
   const result=await secureGuestArenaHistory(request(),f.env,now);
   assert.equal(result.status,200);
   assert.equal(seen.length,1);
-  assert.equal(new URL(seen[0].url).hostname,"losp-auth.internal");
-  assert.equal(new URL(seen[0].url).pathname,"/signed-access");
+  assert.equal(new globalThis.URL(seen[0].url).hostname,"losp-auth.internal");
+  assert.equal(new globalThis.URL(seen[0].url).pathname,"/signed-access");
   assert.ok(!seen[0].url.includes(signed));
   assert.equal(seen[0].headers.get("Origin"),null);
   assert.equal(seen[0].headers.get("Cookie"),null);
