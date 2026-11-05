@@ -36,11 +36,20 @@ Une fois terminée, aucun nouveau balayage périodique n'était lancé.
 
 ## Événements : collecte quotidienne indépendante (5 novembre 2026)
 
-- Le catalogue public `/game/v1/events` est vérifié chaque jour à partir de **03:17 UTC**, indépendamment des passes générales de 7 jours et du vendredi. Les passages ne s'exécutent pas en double le même jour.
+- Le catalogue public `/game/v1/events` est vérifié chaque jour à partir de **03:17 UTC**, indépendamment de la cadence du différentiel général. Une modification réelle d'une route d'événements peut toutefois forcer un second passage le même jour.
 - Le Cron Cloudflare `* * * * *`, OAuth `client_credentials`, le verrou Durable Object et le budget global `/game` de 9 000 GET/jour sont réutilisés. Aucune nouvelle tâche planifiée, clé ni accès `/player`.
 - Récupération complète de toutes les pages anglaises (100 éléments/page, maximum 10 pages), puis tentative de récupération des pages françaises. Toute page anglaise invalide ou manquante bloque la publication ; les textes français incomplets retombent sur un **catalogue anglais complet de la même collecte**.
-- Un **seul objet R2** `game-archive/v1/events-daily/current.json` est remplacé après vérification de l'ensemble, avec empreinte SHA-256. Aucune mise à jour partielle ni snapshot GitHub Pages ; la publication publique privilégie cet objet atomique.
+- Un **seul objet R2** `game-archive/v1/events-daily/current.json` est remplacé après vérification de l'ensemble, avec empreinte SHA-256. Aucune mise à jour partielle ; cet objet R2 sert de **source de vérification** à la publication GitHub Pages.
 - En cas d'échec, le dernier catalogue R2 complet demeure consultable pendant au plus **48 heures** depuis sa vérification, puis `/api/public/events` répond 503 plutôt que d'afficher des données périmées. Un échec HTTP 429 impose une pause d'une heure ; les autres échecs, quinze minutes.
-- Seule la période de migration sans objet quotidien accepte les anciennes pages R2 hebdomadaires si leur **dernière vérification date de moins de 48 heures**. Jamais de fichier JSON statique embarqué dans le navigateur.
+- Seule la période de migration sans objet quotidien accepte les anciennes pages R2 hebdomadaires si leur **dernière vérification date de moins de 48 heures**. La WebApp charge le fichier **canonique GitHub** `docs/data/evenements-snapshot.json`, et refuse son affichage si la publication dépasse 48 heures. Il n'y a pas de second fichier de secours.
 - `GAME_EVENTS_DAILY_ENABLED=false` peut désactiver ce collecteur indépendamment du différentiel en cas d'incident, sans ajouter de configuration obligatoire en fonctionnement normal.
 - Les événements privés ou conditionnés au compte ne sont pas récupérés : l'API `/player/v1/events` nécessite OAuth personnel et consentement, hors périmètre de cette fonctionnalité.
+
+## Publication GitHub automatique après collecte et différentiel
+
+- La publication finale des événements appartient à **GitHub**, dans `Keryas777/msf/docs/data/evenements-snapshot.json`, au même titre que les autres données statiques de LoSP. Ce fichier n'est pas une sauvegarde.
+- Une modification sémantique d'une route `/game/v1/events` (liste/pagination/détail) lors du différentiel inscrit `game-archive/v1/events-daily/dirty.json`. Le Cron minute force alors une **recollecte complète** des pages du catalogue : la diffusion ne doit jamais mélanger des pages partielles.
+- Une collecte complète quotidienne **ou différentiellle** écrite dans R2 déclenche `workflow_dispatch` de `publish-events-r2.yml` dans le dépôt WebApp, avec le secret GitHub de dispatch préexistant. Le dispatch est idempotent ; une tentative échouée est retentée sans consommer de GET Scopely supplémentaire.
+- Le workflow GitHub importe la **projection publique vérifiée** (`/api/public/events`), valide schéma/identifiants/pagination/date, et fait un seul commit si les octets du fichier ont changé. La tâche planifiée de 04:47 UTC n'est qu'un rattrapage en cas de dispatch manqué.
+- Le Service Worker iOS/Android ne renvoie jamais de cache hors ligne pour ce fichier d'événements.
+- L'ordre de fusion est important : `msf` (workflow GitHub et fichier canonique), puis `losp-roster-service` (nouveau déclenchement).
