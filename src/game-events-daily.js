@@ -8,6 +8,7 @@ import {buildDailyPublicEvents,DAILY_EVENTS_KEY} from "./public-events.js";
 
 const ROOT=GAME_ARCHIVE_ROOT+"events-daily/";
 const STATE=ROOT+"state.json";
+export const EVENTS_DIRTY_KEY=ROOT+"dirty.json";
 const BUDGET=GAME_ARCHIVE_ROOT+"budget/";
 const API="https://api.marvelstrikeforce.com";
 const LOCK="e".repeat(64);
@@ -95,6 +96,20 @@ function pageCount(first){
   return Math.ceil(total/PAGE_SIZE);
 }
 
+// A differential change affecting an events route requests an immediate
+// complete re-collection, without changing the general differential cadence.
+export async function markGameEventsDirty(bucket,now=Date.now()){
+  if(!bucket?.put)throw Error("events-dirty-storage-unavailable");
+  await write(bucket,EVENTS_DIRTY_KEY,{version:1,changedAt:iso(now)});
+}
+function needsRefresh(state,dirty,now){
+  const stamp=Date.parse(dirty?.changedAt||"");
+  return dirty?.version===1&&Number.isFinite(stamp)&&stamp<=now+300000&&
+    stamp>Date.parse(state?.dirtyAt||"")||(
+      dirty?.version===1&&Number.isFinite(stamp)&&stamp<=now+300000&&
+      !Number.isFinite(Date.parse(state?.dirtyAt||"")));
+}
+
 // A failed collection leaves the last fully verified R2 object untouched.
 // The daily key is replaced atomically after all EN pages pass validation.
 export async function runGameDailyEventsTick(env,fetchImpl=fetch,now=Date.now()){
@@ -102,13 +117,15 @@ export async function runGameDailyEventsTick(env,fetchImpl=fetch,now=Date.now())
   if(!env?.CAPTAIN_BUCKET?.get||!env.CAPTAIN_BUCKET.put||
      !env.ROSTER_BATCH_LOCK?.get)return {status:"storage-unavailable"};
   const date=day(now),clock=new Date(now);
-  if(clock.getUTCHours()*60+clock.getUTCMinutes()<UTC_SLOT)
-    return {status:"not-due"};
   const bucket=env.CAPTAIN_BUCKET;
   let holder=null,acquired=false;
   try{
     const current=await read(bucket,STATE);
-    if(current?.date===date&&current.status==="completed")
+    const dirty=await read(bucket,EVENTS_DIRTY_KEY);
+    const forced=needsRefresh(current,dirty,now);
+    if(!forced&&clock.getUTCHours()*60+clock.getUTCMinutes()<UTC_SLOT)
+      return {status:"not-due"};
+    if(!forced&&current?.date===date&&current.status==="completed")
       return {status:"up-to-date",checkedAt:current.checkedAt};
     if(current?.date===date&&Number.isFinite(Date.parse(current.attemptAt||""))&&
        now-Date.parse(current.attemptAt)<(current.retryAfterMs||RETRY))
@@ -118,8 +135,12 @@ export async function runGameDailyEventsTick(env,fetchImpl=fetch,now=Date.now())
     if(!acquired)return {status:"busy"};
     // Re-read after the lock: another Cron invocation may have completed.
     const state=await read(bucket,STATE);
-    if(state?.date===date&&state.status==="completed")
+    const committedDirty=await read(bucket,EVENTS_DIRTY_KEY);
+    const forceNow=needsRefresh(state,committedDirty,now);
+    if(!forceNow&&state?.date===date&&state.status==="completed")
       return {status:"up-to-date",checkedAt:state.checkedAt};
+    if(!forceNow&&clock.getUTCHours()*60+clock.getUTCMinutes()<UTC_SLOT)
+      return {status:"not-due"};
     if(state?.date===date&&Number.isFinite(Date.parse(state.attemptAt||""))&&
        now-Date.parse(state.attemptAt)<(state.retryAfterMs||RETRY))
       return {status:"cooldown"};
@@ -156,7 +177,8 @@ export async function runGameDailyEventsTick(env,fetchImpl=fetch,now=Date.now())
         sha256:await digest(serialized),catalog});
       // The state is marked completed ONLY after the atomic catalogue PUT.
       await write(bucket,STATE,{date,status:"completed",attemptAt:iso(now),
-        checkedAt:iso(now),lastChangedAt:catalog.lastChangedAt,
+        checkedAt:iso(now),dirtyAt:committedDirty?.changedAt||null,
+        lastChangedAt:catalog.lastChangedAt,
         count:catalog.count,pages:catalog.pages,locale:catalog.locale});
       return {status:"completed",count:catalog.count,pages:catalog.pages,
         locale:catalog.locale,changed};
