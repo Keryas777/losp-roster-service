@@ -10,6 +10,7 @@ import {discoverGamePhase2,phase2RootTasks} from "./game-phase2-discovery.js";
 import {characterRecoveryTasks,splitFailedAbilities} from "./game-archive-recovery.js";
 import {characterSegment} from "./game-differential-evidence.js";
 import {noteAwakenedMaterials} from "./awakened-material-catalog.js";
+import {markGameEventsDirty} from "./game-events-daily.js";
 
 const ROOT=GAME_ARCHIVE_ROOT+"diff/";
 const STATE=ROOT+"state.json",ACTIVE=GAME_ARCHIVE_ROOT+"active.json";
@@ -559,6 +560,12 @@ async function finishCommitted(b,s,task,receipt,now){
   }
   if(receipt.status==="changed"){
     s.changed++;s.lastChangedAt=receipt.lastChangedAt||receipt.checkedAt;
+    if(/^\\/game\\/v1\\/events(?:\\?|\\/|$)/.test(task.path)){
+      // An event list/detail revision invalidates the last public projection.
+      // Never fail a committed differential receipt just because the hint fails.
+      try{await markGameEventsDirty(b,now);}
+      catch{console.warn("game-events-dirty-marker-failed");}
+    }
   }else s.unchanged++;
   if(receipt.refreshed===true)s.refreshed=(s.refreshed||0)+1;
   await resolvePending(b,s,task,now);
