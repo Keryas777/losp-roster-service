@@ -25,6 +25,7 @@ import {runGameProvenanceReconcileTick} from "./game-archive-provenance-reconcil
 import {runPlayerCampaignTick} from "./player-campaign.js";
 import {runGameDifferentialTick} from "./game-differential-sync.js";
 import {runGameDailyEventsTick} from "./game-events-daily.js";
+import {dispatchGameEventsToGithub} from "./game-events-github-dispatch.js";
 import {runGameDifferentialFailureAuditTick} from "./game-differential-failure-audit.js";
 import {runGameDifferentialComparisonAuditTick} from "./game-differential-comparison-audit.js";
 import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
@@ -270,6 +271,16 @@ export default {
           status:dailyEvents.status,count:dailyEvents.count||0,
           reason:dailyEvents.reason||null
         }));
+      // Notify the existing GitHub Actions publisher after a fully committed
+      // daily/differential R2 refresh. Retry a missed dispatch every 10 minutes.
+      if(dailyEvents.status==="completed"||
+         new Date(controller?.scheduledTime||Date.now()).getUTCMinutes()%10===0){
+        const published=await dispatchGameEventsToGithub(env);
+        if(["dispatched","github-unavailable"].includes(published))
+          console.info("game-events-github-dispatch",JSON.stringify({
+            status:published
+          }));
+      }
       // Three /player actions (<= 30 provider GETs) + <= 12 /game GETs
       // fit the SAME Free Worker invocation (< 50 external subrequests).
       // Preserve the existing four cron triggers for the whole account.
