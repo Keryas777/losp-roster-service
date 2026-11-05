@@ -7,7 +7,9 @@ import {readGuestApprovals} from "./guest-alliance-approvals.js";
 import {readApproval} from "./roster-sync-preflight.js";
 
 const SITE_ORIGIN="https://keryas777.github.io";
-const AUTH_URL="https://losp-auth.deliriousfan7.workers.dev/signed-access";
+// Internal URL: Cloudflare's LOSP_AUTH service binding decides the target.
+// Do not route an authenticated subrequest through the public workers.dev host.
+const AUTH_URL="https://losp-auth.internal/signed-access";
 const ROOT="roster-batches/v1/";
 const ARCHIVE=ROOT+"guest-arena-history/rolling.json";
 const KEY=/^[a-z][a-z0-9-]{1,63}$/;
@@ -92,10 +94,19 @@ export async function verifiedDiscord(request,fetchImpl){
     return {status:"unauthorized"};
   let response;
   try{
-    response=await fetchImpl(AUTH_URL,{method:"GET",
+    // HTTP Service bindings use Request objects; the hostname only supplies
+    // the URL context to the downstream Worker, not the destination.
+    const internalRequest=new Request(AUTH_URL,{method:"GET",
       headers:{"Authorization":auth,"Accept":"application/json"},
-      redirect:"error",cache:"no-store"});
-  }catch{return {status:"auth-unavailable",reason:"auth-service-unreachable"};}
+      redirect:"manual",cache:"no-store"});
+    response=await fetchImpl(internalRequest);
+  }catch(error){
+    // Never log the request, token, R2 key or Discord player metadata.
+    console.warn("guest-arena-auth-binding",JSON.stringify({
+      phase:"internal-fetch",type:String(error?.name||"Error").slice(0,40)
+    }));
+    return {status:"auth-unavailable",reason:"auth-service-unreachable"};
+  }
   if(!response||response.status===401||response.status===403)
     return {status:"unauthorized"};
   if(!response.ok)return {status:"auth-unavailable",reason:"auth-service-error"};

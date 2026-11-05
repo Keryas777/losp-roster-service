@@ -35,8 +35,11 @@ function request(alliance="marines",auth=signed,origin=SITE){
     headers:{Origin:origin,Authorization:"Bearer "+auth}});
 }
 function auth(role="guest",allowed=["marines"],groupKey="marines"){
-  return async (_url,opts)=>{
-    assert.equal(opts.headers.Authorization,"Bearer "+signed);
+  return async internalRequest=>{
+    assert.ok(internalRequest instanceof Request);
+    assert.equal(internalRequest.method,"GET");
+    assert.equal(internalRequest.url,"https://losp-auth.internal/signed-access");
+    assert.equal(internalRequest.headers.get("Authorization"),"Bearer "+signed);
     return Response.json({ok:true,signedSession:true,role,groupKey,
       allowedAlliances:allowed});
   };
