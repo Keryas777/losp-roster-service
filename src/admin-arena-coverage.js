@@ -89,6 +89,10 @@ export async function handleAdminArenaCoverage(request,env,now=Date.now()){
   if(!Number.isFinite(now))return respond({error:"invalid-clock"},503);
   const day=parisDay(now);
   if(!validDay(day))return respond({error:"invalid-clock"},503);
+  const clock=new Intl.DateTimeFormat("en-GB",{
+    timeZone:"Europe/Paris",hour:"2-digit",minute:"2-digit",hourCycle:"h23"
+  }).format(new Date(now));
+  const due=Number(clock.slice(0,2))*60+Number(clock.slice(3,5))>=17*60+1;
   try{
     const approved=await readCollectibleApprovals(env);
     if(approved.status==="invalid-registry")
@@ -117,7 +121,8 @@ export async function handleAdminArenaCoverage(request,env,now=Date.now()){
           positive(p.arenaRank)).length:0;
       entries.push({name:isGuest?names.get(a.fingerprint)||info._name||"Alliance invitée":
           a.name,scope:isGuest?"guest":"losp",
-        receipt:info.status,players:info.players,ranks:info.ranks,
+        receipt:!due&&info.status==="missing"?"not-due":info.status,
+        players:info.players,ranks:info.ranks,
         withoutRank:info.withoutRank,observedRanks:info.observedRanks,
         capturedAt:info.capturedAt,latestObservedAt:info.latestObservedAt,
         history:history.status==="present"?
@@ -131,6 +136,7 @@ export async function handleAdminArenaCoverage(request,env,now=Date.now()){
       guests:entries.filter(x=>x.scope==="guest").length,
       receipts:entries.filter(x=>x.receipt==="valid").length};
     return respond({status:"ok",source:"private-r2-only",day,
+      due,
       checkedAt:new Date(now).toISOString(),
       // Group-level statuses are not evidence of an individual measurement.
       history:{losp:lospHistory.status,guests:guestHistory.status},
