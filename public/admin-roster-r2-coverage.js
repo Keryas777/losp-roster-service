@@ -42,6 +42,11 @@
     const p=document.createElement("p");
     p.textContent=value;card.append(p);
   };
+  // Keep MSF color markers out of button labels and status messages.
+  const plainAllianceName=value=>String(value??"")
+    .replace(/<#[0-9a-f]{6}>/gi,"")
+    .replace(/<\/?color(?:=[^>]{1,32})?>/gi,"")
+    .replace(/\s+/g," ").trim();
   const title=(card,value)=>{
     // Official MSF tags are inline colors, not part of the displayed name.
     const raw=String(value??"");
@@ -138,7 +143,7 @@
         auto.type="button";
         auto.textContent=(activeRecovery?"Arrêter le rattrapage automatique — ":
           "Lancer le rattrapage automatique — ")+
-          String(alliance.name).replace(/<#[0-9a-f]{6}>/gi,"").trim();
+          plainAllianceName(alliance.name);
         auto.title=activeRecovery?
           "Empêcher les prochains micro-lots ; un appel déjà en cours peut finir.":
           "Un clic programme la reprise sur le Cron existant, même navigateur fermé.";
@@ -149,7 +154,7 @@
       const resume=document.createElement("button");
       resume.type="button";
       resume.textContent="Micro-lot manuel (1 roster) — "+
-        String(alliance.name).replace(/<#[0-9a-f]{6}>/gi,"").trim();
+        plainAllianceName(alliance.name);
       resume.title="Secours manuel : un seul roster. "+
         "Respecte le verrou, les pauses et le budget API existants.";
       resume.disabled=activeRecovery;
@@ -172,7 +177,7 @@
   async function recoveryAction(alliance,control,action){
     if(busy)return;
     busy=true;control.disabled=true;button.disabled=true;copy.disabled=true;
-    const name=String(alliance.name).replace(/<#[0-9a-f]{6}>/gi,"").trim();
+    const name=plainAllianceName(alliance.name);
     status.textContent=(action==="start"?"Programmation":"Arrêt")+
       " du rattrapage automatique de "+name+"…";
     try{
@@ -207,7 +212,7 @@
   async function resumeOne(alliance,control){
     if(busy)return;
     busy=true;control.disabled=true;button.disabled=true;copy.disabled=true;
-    const name=String(alliance.name).replace(/<#[0-9a-f]{6}>/gi,"").trim();
+    const name=plainAllianceName(alliance.name);
     status.textContent="Reprise du prochain micro-lot automatique de "+name+"…";
     try{
       const response=await fetch("/admin/api/roster-auto-resume",{
