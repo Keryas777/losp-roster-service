@@ -104,10 +104,9 @@ export async function markGameEventsDirty(bucket,now=Date.now()){
 }
 function needsRefresh(state,dirty,now){
   const stamp=Date.parse(dirty?.changedAt||"");
-  return dirty?.version===1&&Number.isFinite(stamp)&&stamp<=now+300000&&
-    stamp>Date.parse(state?.dirtyAt||"")||(
-      dirty?.version===1&&Number.isFinite(stamp)&&stamp<=now+300000&&
-      !Number.isFinite(Date.parse(state?.dirtyAt||"")));
+  if(dirty?.version!==1||!Number.isFinite(stamp)||stamp>now+300000)return false;
+  const consumed=Date.parse(state?.dirtyAt||"");
+  return !Number.isFinite(consumed)||stamp>consumed;
 }
 
 // A failed collection leaves the last fully verified R2 object untouched.
@@ -178,6 +177,7 @@ export async function runGameDailyEventsTick(env,fetchImpl=fetch,now=Date.now())
       // The state is marked completed ONLY after the atomic catalogue PUT.
       await write(bucket,STATE,{date,status:"completed",attemptAt:iso(now),
         checkedAt:iso(now),dirtyAt:committedDirty?.changedAt||null,
+        trigger:forceNow?"differential":"daily",
         lastChangedAt:catalog.lastChangedAt,
         count:catalog.count,pages:catalog.pages,locale:catalog.locale});
       return {status:"completed",count:catalog.count,pages:catalog.pages,
