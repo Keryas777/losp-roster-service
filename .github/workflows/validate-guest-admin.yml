@@ -13,6 +13,7 @@ on:
       - "public/admin-collection-dashboard.js"
       - "public/admin-navigation.js"
       - "tests/admin-arena-coverage.test.mjs"
+      - "tests/admin-arena-pending-labels.test.mjs"
       - "tests/member-info-reward-manual.test.mjs"
       - "tests/alliance-season-ranks.test.mjs"
       - "tests/collection-overview.test.mjs"
@@ -42,4 +43,4 @@ jobs:
           node --check public/admin-reward-info-manual.js
           node --check public/admin-collection-dashboard.js
           node --check public/admin-navigation.js
-          node --test tests/admin-arena-coverage.test.mjs tests/member-info-reward-manual.test.mjs tests/member-info-reward.test.mjs tests/alliance-season-ranks.test.mjs tests/public-arena-history.test.mjs tests/collection-overview.test.mjs tests/roster-r2-coverage.test.mjs tests/guest-alliance-approvals.test.mjs
+          node --test tests/admin-arena-coverage.test.mjs tests/admin-arena-pending-labels.test.mjs tests/member-info-reward-manual.test.mjs tests/member-info-reward.test.mjs tests/alliance-season-ranks.test.mjs tests/public-arena-history.test.mjs tests/collection-overview.test.mjs tests/roster-r2-coverage.test.mjs tests/guest-alliance-approvals.test.mjs
