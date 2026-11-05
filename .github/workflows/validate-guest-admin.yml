@@ -9,6 +9,7 @@ on:
       - "src/index.js"
       - "src/secure-guest-arena-history.js"
       - "src/secure-guest-rosters.js"
+      - "src/secure-guest-infos.js"
       - "src/alliance-season-ranks.js"
       - "src/collection-overview.js"
       - "public/admin-arena-coverage.js"
@@ -22,6 +23,7 @@ on:
       - "tests/public-arena-history.test.mjs"
       - "tests/secure-guest-arena-history.test.mjs"
       - "tests/secure-guest-rosters.test.mjs"
+      - "tests/secure-guest-infos.test.mjs"
       - "tests/admin-arena-pending-labels.test.mjs"
       - "tests/member-info-reward-manual.test.mjs"
       - "tests/alliance-season-ranks.test.mjs"
@@ -48,6 +50,7 @@ jobs:
           node --check src/public-arena-history.js
           node --check src/secure-guest-arena-history.js
           node --check src/secure-guest-rosters.js
+          node --check src/secure-guest-infos.js
           node --check src/index.js
           node --check src/alliance-season-ranks.js
           node --check src/collection-overview.js
@@ -57,4 +60,4 @@ jobs:
           node --check public/admin-collection-dashboard.js
           node --check public/admin-navigation.js
           node --check public/admin-roster-preflight.js
-          node --test tests/admin-guest-webapp-binding-feedback.test.mjs tests/secure-guest-arena-history.test.mjs tests/secure-guest-rosters.test.mjs tests/admin-arena-coverage.test.mjs tests/admin-arena-pending-labels.test.mjs tests/member-info-reward-manual.test.mjs tests/member-info-reward.test.mjs tests/alliance-season-ranks.test.mjs tests/public-arena-history.test.mjs tests/collection-overview.test.mjs tests/roster-r2-coverage.test.mjs tests/guest-alliance-approvals.test.mjs
+          node --test tests/secure-guest-infos.test.mjs tests/admin-guest-webapp-binding-feedback.test.mjs tests/secure-guest-arena-history.test.mjs tests/secure-guest-rosters.test.mjs tests/admin-arena-coverage.test.mjs tests/admin-arena-pending-labels.test.mjs tests/member-info-reward-manual.test.mjs tests/member-info-reward.test.mjs tests/alliance-season-ranks.test.mjs tests/public-arena-history.test.mjs tests/collection-overview.test.mjs tests/roster-r2-coverage.test.mjs tests/guest-alliance-approvals.test.mjs
