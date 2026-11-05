@@ -158,9 +158,7 @@ function addProfiles(target,source,allianceKey){
     const media=visualFields(row);
     if(!Object.keys(media).length)continue;
     const id=allianceKey+"\u0000"+row.name;
-    const prior=target.get(id);
-    target.set(id,{name:row.name,alliance:allianceKey,
-      ...media,...(prior?{}:{})});
+    target.set(id,{name:row.name,alliance:allianceKey,...media});
   }
 }
 async function verifiedReceipt(bucket,fp,day,now){
@@ -326,7 +324,8 @@ export async function secureGuestArenaHistory(request,env,now=Date.now(),
       .map(s=>s.sourceDay||s.date).sort().at(-1);
     if(latestArchiveDay&&latestArchiveDay!==today){
       for(const a of approved){
-        // Today's verified media, if present, has precedence.
+        // Avoid extra R2 reads when today's genuine reward receipt exists.
+        if(await source(a.fingerprint,today))continue;
         const recent=await source(a.fingerprint,latestArchiveDay);
         for(const row of recent?.rows||[]){
           const id=a.allianceKey+"\u0000"+row.name;
