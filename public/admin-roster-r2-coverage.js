@@ -153,10 +153,13 @@
       }
       const resume=document.createElement("button");
       resume.type="button";
-      resume.textContent="Micro-lot manuel (1 roster) — "+
-        plainAllianceName(alliance.name);
-      resume.title="Secours manuel : un seul roster. "+
-        "Respecte le verrou, les pauses et le budget API existants.";
+      resume.textContent=(report.fullCollectionEnabled?
+        "Reprendre les rosters autorisés — ":
+        "Micro-lot manuel (1 roster) — ")+plainAllianceName(alliance.name);
+      resume.title=report.fullCollectionEnabled?
+        "Relance une collecte complète autant que le budget Cloudflare le "+
+        "permet, puis reprend uniquement les rosters manquants.":
+        "Secours manuel : un seul roster. Respecte le verrou et le budget API.";
       resume.disabled=activeRecovery;
       // Buttons are rendered while the read is still marked busy.
       // resumeOne() already guards re-entry and disables the clicked button.
