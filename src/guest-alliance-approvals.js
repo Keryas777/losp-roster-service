@@ -7,6 +7,7 @@ import {captainConfigReady} from "./captain-vault.js";
 
 export const GUEST_APPROVAL_KEY="roster-sync/v1/approved-guest-alliances.json";
 const FP=/^[a-f0-9]{64}$/;
+const ALLIANCE_KEY=/^[a-z][a-z0-9-]{1,63}$/;
 const HEADERS={"Cache-Control":"private, no-store",
   "X-Content-Type-Options":"nosniff","X-Robots-Tag":"noindex"};
 const reply=(body,status=200)=>Response.json(body,{status,headers:HEADERS});
@@ -22,11 +23,17 @@ export async function readGuestApprovals(env){
     const record=JSON.parse(raw);
     if(record?.version!==1||!Array.isArray(record.alliances))
       return {status:"invalid-registry",alliances:[]};
-    const seen=new Set();
+    const seen=new Set(),keys=new Set();
     for(const a of record.alliances){
-      if(!a||Object.keys(a).length!==1||!FP.test(a.fingerprint)||
-         seen.has(a.fingerprint))return {status:"invalid-registry",alliances:[]};
+      const names=Object.keys(a||{});
+      if(!a||!FP.test(a.fingerprint)||seen.has(a.fingerprint)||
+         ![1,2].includes(names.length)||
+         names.some(key=>!["fingerprint","allianceKey"].includes(key))||
+         (a.allianceKey!==undefined&&(!ALLIANCE_KEY.test(a.allianceKey)||
+           keys.has(a.allianceKey))))
+        return {status:"invalid-registry",alliances:[]};
       seen.add(a.fingerprint);
+      if(a.allianceKey)keys.add(a.allianceKey);
     }
     return {status:"configured",alliances:record.alliances};
   }catch{return {status:"invalid-registry",alliances:[]};}
@@ -70,15 +77,19 @@ export async function handleGuestAllianceApproval(request,env,fetchImpl=fetch){
   if(url.search||request.headers.get("Origin")!==url.origin||
      !(request.headers.get("Content-Type")||"").toLowerCase()
        .startsWith("application/json"))return reply({error:"forbidden"},403);
-  let fingerprint,action;
+  let fingerprint,action,allianceKey;
   try{
     const raw=await request.text();
-    if(raw.length>220)throw Error("invalid-length");
+    if(raw.length>310)throw Error("invalid-length");
     const body=JSON.parse(raw);
     if(!body||typeof body!=="object"||Array.isArray(body)||
-       Object.keys(body).length!==2||!FP.test(body.fingerprint)||
-       !["approve","revoke"].includes(body.action))throw Error("invalid-body");
-    ({fingerprint,action}=body);
+       !FP.test(body.fingerprint)||
+       !["approve","revoke","bind","unbind"].includes(body.action)||
+       Object.keys(body).length!==(body.action==="bind"?3:2)||
+       Object.keys(body).some(key=>!["fingerprint","action","allianceKey"].includes(key))||
+       (body.action==="bind"&&!ALLIANCE_KEY.test(body.allianceKey)))
+      throw Error("invalid-body");
+    ({fingerprint,action,allianceKey}=body);
   }catch{return reply({error:"invalid-selection"},400);}
   try{
     const losp=await readApproval(env);
@@ -88,6 +99,11 @@ export async function handleGuestAllianceApproval(request,env,fetchImpl=fetch){
     if(action==="approve"&&losp.alliances.some(a=>a.fingerprint===fingerprint))
       return reply({error:"already-losp-approved"},409);
     const already=guest.alliances.some(a=>a.fingerprint===fingerprint);
+    if(["bind","unbind"].includes(action)&&!already)
+      return reply({error:"guest-not-approved"},409);
+    if(action==="bind"&&guest.alliances.some(a=>
+      a.allianceKey===allianceKey&&a.fingerprint!==fingerprint))
+      return reply({error:"alliance-key-already-bound"},409);
     if(action==="approve"&&!already){
       const scan=await scanPrivateCoverage(env,fetchImpl);
       const verified=scan?.alliances?.find(a=>
@@ -96,14 +112,20 @@ export async function handleGuestAllianceApproval(request,env,fetchImpl=fetch){
     }
     const alliances=action==="approve"?
       already?guest.alliances:[...guest.alliances,{fingerprint}]:
-      guest.alliances.filter(a=>a.fingerprint!==fingerprint);
-    if((action==="approve"&&!already)||(action==="revoke"&&already)){
+      action==="revoke"?guest.alliances.filter(a=>a.fingerprint!==fingerprint):
+      guest.alliances.map(a=>a.fingerprint!==fingerprint?a:
+        action==="bind"?{fingerprint,allianceKey}:{fingerprint});
+    const before=JSON.stringify(guest.alliances);
+    const changed=before!==JSON.stringify(alliances);
+    if(changed){
       await env.CAPTAIN_BUCKET.put(GUEST_APPROVAL_KEY,JSON.stringify({
         version:1,approvedAt:new Date().toISOString(),alliances
       }),{httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}});
     }
-    return reply({status:action==="approve"?
-      already?"already-approved":"approved":
-      already?"revoked":"not-approved",count:alliances.length});
+    const status=action==="approve"?(already?"already-approved":"approved"):
+      action==="revoke"?(already?"revoked":"not-approved"):
+      action==="bind"?(changed?"bound":"already-bound"):
+      (changed?"unbound":"already-unbound");
+    return reply({status,count:alliances.length});
   }catch{return reply({error:"approval-unavailable"},503);}
 }
