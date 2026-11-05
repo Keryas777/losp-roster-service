@@ -115,7 +115,7 @@ export async function handleAdminArenaCoverage(request,env,now=Date.now()){
       const archived=info.status==="valid"&&history.status==="present"?
         history._snapshot.players.filter(p=>p?.alliance===info._name&&
           positive(p.arenaRank)).length:0;
-      entries.push({name:isGuest?names.get(a.fingerprint)||"Alliance invitée":
+      entries.push({name:isGuest?names.get(a.fingerprint)||info._name||"Alliance invitée":
           a.name,scope:isGuest?"guest":"losp",
         receipt:info.status,players:info.players,ranks:info.ranks,
         withoutRank:info.withoutRank,observedRanks:info.observedRanks,
