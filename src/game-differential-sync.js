@@ -46,6 +46,9 @@ function scheduledTrigger(s,sourceRun,now){
 
 const DAILY=GAME_ARCHIVE_DAILY_LIMIT; // Match current main after PR #86.
 const BACKFILL_PER_TICK=8,MAX_RECOVERY_RUNS=3;
+// R2-only scan page: two times the former 32 entries, no extra Scopely GET.
+// Keep this bounded for Free Workers' shared CPU and internal subrequest budget.
+const SCAN_PAGE_SIZE=64;
 // The Scopely terms require a maximum 30-day data TTL. Re-materialize
 // otherwise-identical source bytes before day 30, rather than indefinitely
 // extending a pointer to an old R2 object. Actual R2 deletion requires a
@@ -273,7 +276,7 @@ async function scan(b,s,now){
   }
   const prefix=s.scanPhase==="base"?runSource(s.sourceRun):
     s.scanPhase==="pending"?pendingPrefix:ROOT+"latest/";
-  const listed=await b.list({prefix,limit:32,...(s.cursor?{cursor:s.cursor}:{})});
+  const listed=await b.list({prefix,limit:SCAN_PAGE_SIZE,...(s.cursor?{cursor:s.cursor}:{})});
   if(!Array.isArray(listed.objects)||
      listed.truncated===true&&(!listed.cursor||listed.cursor===s.cursor))
     throw Error("invalid-r2-list");
