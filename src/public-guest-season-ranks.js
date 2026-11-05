@@ -221,6 +221,7 @@ export async function publishVerifiedGuestSeasonRanks(request,env,now=Date.now()
     const already=prior?.alliances?.find(a=>a.fingerprint===fingerprint);
     if(already){
       if(already.manualSeasonId!==seasonId||
+        already.capturedAt!==saved.capturedAt||
         already.warRank!==saved.warRank||
         already.raidRank!==saved.raidRank)
         return Response.json({error:"season-already-recorded-differently"},
