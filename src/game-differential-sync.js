@@ -560,7 +560,7 @@ async function finishCommitted(b,s,task,receipt,now){
   }
   if(receipt.status==="changed"){
     s.changed++;s.lastChangedAt=receipt.lastChangedAt||receipt.checkedAt;
-    if(/^\\/game\\/v1\\/events(?:\\?|\\/|$)/.test(task.path)){
+    if(/^\/game\/v1\/events(?:\?|\/|$)/.test(task.path)){
       // An event list/detail revision invalidates the last public projection.
       // Never fail a committed differential receipt just because the hint fails.
       try{await markGameEventsDirty(b,now);}
