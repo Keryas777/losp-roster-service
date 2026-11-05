@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {buildArenaHistory,mergeArenaHistory,archiveArenaHistory,
-  publicArenaHistory} from "../src/public-arena-history.js";
+  archiveArenaHistoryWhenReady,publicArenaHistory} from "../src/public-arena-history.js";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 import {GUEST_APPROVAL_KEY} from "../src/guest-alliance-approvals.js";
 
@@ -105,3 +105,89 @@ test("guest Arena points are archived privately, never merged into the public Lo
  assert.ok(privateData.snapshots.every(s=>s.players.length===1));
 });
 
+
+function addRewardDay(store,fp,day,rank,time){
+  store.set("roster-batches/v1/"+fp+"/campaigns/"+day+"-reward-infos.json",
+    JSON.stringify({version:1,kind:"alliance-infos-reward",
+      campaign:day+"-reward",allianceFingerprint:fp,
+      allianceName:fp===fp1?"LoSP Zeus":fp===fp2?"LoSP Kronos":"MARINES",
+      capturedAt:time,expiresAt:"2026-11-12T17:00:00Z",
+      rows:[{name:"Player "+fp[0],latestArena:rank}],
+      observedAt:[{name:"Player "+fp[0],at:time}]}));
+}
+const day5="2026-11-05";
+const t5=s=>Date.parse(day5+"T"+s+"Z");
+
+test("quiet 17:08 tick archives both scopes with real same-day receipts, no Scopely",async()=>{
+  const f=fixture(),guest="3".repeat(64);
+  f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,
+    alliances:[{fingerprint:guest,allianceKey:"marines"}]}));
+  for(const [fp,rank] of [[fp1,9],[fp2,10],[guest,11]])
+    addRewardDay(f.store,fp,day5,rank,day5+"T16:05:00Z");
+  const result=await archiveArenaHistoryWhenReady(f.env,t5("16:08:00"));
+  assert.equal(result.status,"updated");
+  assert.equal(result.guestStatus,"updated");
+  assert.equal(f.puts.length,2);
+  const losp=JSON.parse(f.store.get("roster-batches/v1/arena-history/rolling.json"));
+  const privateGuest=JSON.parse(f.store.get("roster-batches/v1/guest-arena-history/rolling.json"));
+  assert.deepEqual(losp.snapshots.map(s=>s.date),[day5]);
+  assert.equal(losp.snapshots[0].players.length,2);
+  assert.equal(losp.snapshots[0].players.every(x=>x.alliance!=="MARINES"),true);
+  assert.deepEqual(privateGuest.snapshots.map(s=>s.date),[day5]);
+  assert.deepEqual(privateGuest.snapshots[0].players.map(x=>x.alliance),["MARINES"]);
+  const publicRes=await publicArenaHistory(
+    new Request("https://service.test/api/public/arena-history"),f.env,t5("16:08:00"));
+  assert.equal(publicRes.status,200);
+  assert.doesNotMatch(await publicRes.text(),/MARINES|3{64}/);
+  const second=await archiveArenaHistoryWhenReady(f.env,t5("16:09:00"));
+  assert.equal(second.status,"unchanged");
+  assert.equal(second.guestStatus,"unchanged");
+  assert.equal(f.puts.length,2,"Repeated quiet ticks cannot duplicate writes");
+});
+
+test("missing guest does not block the six-LoSP equivalent; guest self-recovers on next tick",async()=>{
+  const f=fixture(),guest="3".repeat(64);
+  f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,
+    alliances:[{fingerprint:guest}]}));
+  for(const fp of [fp1,fp2])
+    addRewardDay(f.store,fp,day5,14,day5+"T16:06:00Z");
+  const partial=await archiveArenaHistoryWhenReady(f.env,t5("16:08:00"));
+  assert.equal(partial.status,"updated");
+  assert.equal(partial.guestStatus,"awaiting-receipts");
+  assert.deepEqual(f.puts,["roster-batches/v1/arena-history/rolling.json"]);
+  addRewardDay(f.store,guest,day5,15,day5+"T16:09:00Z");
+  const repaired=await archiveArenaHistoryWhenReady(f.env,t5("16:10:00"));
+  assert.equal(repaired.status,"unchanged");
+  assert.equal(repaired.guestStatus,"updated");
+  assert.equal(f.puts.length,2);
+});
+
+test("incomplete LoSP source remains pending until valid and never invents a point",async()=>{
+  const f=fixture();
+  addRewardDay(f.store,fp1,day5,50,day5+"T16:05:00Z");
+  const incomplete=await archiveArenaHistoryWhenReady(f.env,t5("16:08:00"));
+  assert.equal(incomplete.status,"awaiting-receipts");
+  assert.deepEqual(f.puts,[]);
+  const publicRes=await publicArenaHistory(
+    new Request("https://service.test/api/public/arena-history"),f.env,t5("16:08:00"));
+  assert.deepEqual((await publicRes.json()).snapshots,[]);
+  addRewardDay(f.store,fp2,day5,51,day5+"T16:09:00Z");
+  assert.equal((await archiveArenaHistoryWhenReady(f.env,t5("16:10:00"))).status,
+    "updated");
+  assert.equal(f.puts.length,1);
+});
+test("time gates never archive before 17:01 or after backup starts; 20:17 rescue remains",async()=>{
+  const f=fixture();
+  for(const fp of [fp1,fp2])
+    addRewardDay(f.store,fp,day5,21,day5+"T16:01:00Z");
+  assert.equal((await archiveArenaHistoryWhenReady(f.env,t5("16:00:00"))).status,
+    "outside-window");
+  assert.equal((await archiveArenaHistoryWhenReady(f.env,t5("19:17:00"))).status,
+    "outside-window");
+  assert.deepEqual(f.puts,[]);
+  const backup=await archiveArenaHistory(f.env,t5("19:17:00"));
+  assert.equal(backup.status,"updated");
+  assert.equal(f.puts.length,1);
+  assert.equal((await archiveArenaHistory(f.env,t5("19:18:00"))).status,
+    "outside-window");
+});
