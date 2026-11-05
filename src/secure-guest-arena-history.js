@@ -146,8 +146,14 @@ export async function secureGuestArenaHistory(request,env,now=Date.now(),
     return respond(request,{status:"forbidden-origin"},403);
   if(!Number.isFinite(now)||!env?.CAPTAIN_BUCKET?.get)
     return respond(request,{status:"unavailable"},503);
-  const keys=parseKeys(new URL(request.url));
-  if(!keys)return respond(request,{status:"invalid-query"},400);
+  const requestUrl=new URL(request.url);
+  // An administrator may request only the bound, currently approved guests,
+  // without hardcoding their names or requesting unconnected registry entries.
+  // A guest cannot use this selector to broaden their own alliance scope.
+  const allApproved=requestUrl.searchParams.get("alliances")==="approved"&&
+    [...requestUrl.searchParams.keys()].length===1;
+  const requested=allApproved?[]:parseKeys(requestUrl);
+  if(!requested)return respond(request,{status:"invalid-query"},400);
   // A Workers Service Binding is mandatory: never relay a private session
   // to an arbitrary external URL or fall back to unsigned /me.
   if(!env?.LOSP_AUTH?.fetch)
@@ -158,12 +164,22 @@ export async function secureGuestArenaHistory(request,env,now=Date.now(),
   if(auth.status!=="ok")
     return respond(request,{status:auth.status},
       auth.status==="unauthorized"?401:503);
-  if(keys.some(k=>!auth.allowed.has(k)))
+  if(allApproved&&auth.role!=="admin")
+    return respond(request,{status:"forbidden"},403);
+  if(requested.some(k=>!auth.allowed.has(k)))
     return respond(request,{status:"forbidden"},403);
   try{
     const [guests,losp]=await Promise.all([
       readGuestApprovals(env),readApproval(env)
     ]);
+    if(guests.status==="invalid-registry"||losp.status==="invalid-registry")
+      throw Error("invalid-approvals");
+    const keys=allApproved?
+      [...new Set((guests.alliances||[])
+        .map(a=>a.allianceKey)
+        .filter(k=>KEY.test(k||"")&&auth.allowed.has(k)))].sort():
+      requested;
+    if(keys.length>20)throw Error("too-many-guest-alliances");
     const approved=selectApproved(guests,losp,keys);
     if(!approved)return respond(request,
       {status:"alliance-not-bound-or-not-approved"},409);
