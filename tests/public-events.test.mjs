@@ -1,7 +1,7 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
-import {publicEvents,buildPublicEvents} from "../src/public-events.js";
+import {publicEvents,buildPublicEvents,DAILY_EVENTS_KEY,buildDailyPublicEvents} from "../src/public-events.js";
 
 const NOW=Date.parse("2026-11-04T09:00:00Z");
 const BASE="game-archive/v1/";
@@ -196,4 +196,42 @@ test("French full catalog with no actually translated text is not marked as loca
   const data=await (await publicEvents(new Request(URL),f.env,NOW)).json();
   assert.equal(data.locale,"en");
   assert.equal(data.localizationStatus,"no-translated-text");
+});
+
+test("prefers a complete daily R2 publication over unrelated weekly pointers",async()=>{
+  const f=setup(150);
+  const english=[{data:f.events.slice(0,100),meta:{
+    page:1,perPage:100,perTotal:150,hashes:{events:"a".repeat(20)}
+  }},{data:f.events.slice(100),meta:{
+    page:2,perPage:100,perTotal:150,hashes:{events:"a".repeat(20)}
+  }}];
+  const catalog=buildDailyPublicEvents(english,null,NOW);
+  f.store.set(DAILY_EVENTS_KEY,JSON.stringify({version:1,
+    sha256:hash(JSON.stringify(catalog)),catalog}));
+  // Even if the weekly page pointers disappear, the atomic daily publication
+  // is independently complete and available.
+  f.store.delete(f.refs[0].key);f.store.delete(f.refs[1].key);
+  const response=await publicEvents(new Request(URL),f.env,NOW);
+  assert.equal(response.status,200);
+  const data=await response.json();
+  assert.equal(data.count,150);
+  assert.equal(data.source,"verified-daily-game-events");
+  assert.deepEqual(f.calls.put,[]);
+});
+
+test("daily catalogue corruption and expiry fail closed without old fallback",async()=>{
+  const f=setup(150);
+  const english=[{data:f.events.slice(0,100),meta:{
+    page:1,perPage:100,perTotal:150,hashes:{events:"a".repeat(20)}
+  }},{data:f.events.slice(100),meta:{
+    page:2,perPage:100,perTotal:150,hashes:{events:"a".repeat(20)}
+  }}];
+  const catalog=buildDailyPublicEvents(english,null,NOW);
+  f.store.set(DAILY_EVENTS_KEY,JSON.stringify({version:1,
+    sha256:"f".repeat(64),catalog}));
+  assert.equal((await publicEvents(new Request(URL),f.env,NOW)).status,503);
+  f.store.set(DAILY_EVENTS_KEY,JSON.stringify({version:1,
+    sha256:hash(JSON.stringify(catalog)),catalog}));
+  assert.equal((await publicEvents(new Request(URL),f.env,
+    NOW+48*3600000)).status,503);
 });
