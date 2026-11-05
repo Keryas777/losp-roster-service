@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import {createHash} from "node:crypto";
 import {RosterBatchLock} from "../src/roster-batch-lock.js";
-import {runGameDifferentialTick,gameDifferentialStatus,gameFridaySlot} from "../src/game-differential-sync.js";
+import {runGameDifferentialTick,gameDifferentialStatus,gameScheduledSlot,nextGameScheduledAt} from "../src/game-differential-sync.js";
 import {GAME_ARCHIVE_ROOT} from "../src/game-catalog-archive.js";
 import {publicAwakenedMaterials} from "../src/awakened-material-catalog.js";
 import {handleAdmin} from "../src/admin-routes.js";
 
 const NOW=Date.UTC(2026,9,23,0,0,0);
+const MON_SLOT=Date.parse("2026-10-26T00:00:00Z");
+const THU_SLOT=Date.parse("2026-10-29T12:00:00Z");
 const ACTIVE=GAME_ARCHIVE_ROOT+"active.json";
 const SOURCE="a1bcde22-1234-4a22-8b33-aabbccddeeff";
 const RUN=GAME_ARCHIVE_ROOT+"runs/"+SOURCE+"/";
@@ -85,7 +87,7 @@ async function finish(f,start=NOW){
   }
   throw Error("diff did not finish: "+JSON.stringify(last));
 }
-test("verified weekly differential automatically publishes new awakened icons",async()=>{
+test("verified scheduled differential automatically publishes new awakened icons",async()=>{
   const icon="https://assets.marvelstrikeforce.com/imgs/NEW_HERO_SPECIAL_aa112233.png";
   const id="ABILITY_MATERIAL_UNIQUE_ABILITY_MAT_NEW_HERO_SPECIAL";
   const api=()=>Response.json({data:{
@@ -123,7 +125,7 @@ test("no initial archive or unfinished baseline: zero /game requests",async()=>{
     "awaiting-initial-completion");
   assert.equal(f.calls.length,0);
 });
-test("weekly /game comparison stores changed objects only, ignoring meta.asOf",async()=>{
+test("scheduled /game comparison stores changed objects only, ignoring meta.asOf",async()=>{
   const f=fixture();await f.seed();
   const first=await finish(f);
   assert.equal(first.status.status,"completed");
@@ -137,7 +139,7 @@ test("weekly /game comparison stores changed objects only, ignoring meta.asOf",a
   assert.equal(today.status,"completed");
   assert.ok(!f.calls.some(x=>x.url.includes("/player/v1")));
   const old=objects.length;
-  const second=await finish(f,first.ts+7*86400000+60000);
+  const second=await finish(f,MON_SLOT);
   assert.equal(second.status.status,"completed");
   assert.equal(second.status.changed,0);
   assert.ok(second.status.unchanged>=first.status.changed);
@@ -527,7 +529,7 @@ test("a previously resolved association returns to pending on a later 404",async
   assert.ok(row.lastResolvedAt);
 });
 
-test("completed weekly /game differential skips DO locks until renewal",async()=>{
+test("completed scheduled /game differential skips DO locks until renewal",async()=>{
   const f=fixture();
   await f.seed();
   const first=await finish(f);
@@ -540,15 +542,15 @@ test("completed weekly /game differential skips DO locks until renewal",async()=
     const r=await runGameDifferentialTick(f.env,f.provider,first.ts+i*60_000);
     assert.equal(r.status,"completed");
   }
-  assert.equal(leases,0,"idle weekly status must not open a DO lock");
+  assert.equal(leases,0,"idle scheduled status must not open a DO lock");
   assert.equal(f.calls.length,calls);
   const renew=await runGameDifferentialTick(f.env,f.provider,
-    first.ts+7*86400000+60_000);
+    MON_SLOT);
   assert.notEqual(renew.status,"unavailable");
-  assert.ok(leases>0,"weekly renewal immediately resumes locked work");
+  assert.ok(leases>0,"scheduled renewal immediately resumes locked work");
 });
 
-test("a newly selected /game baseline invalidates the weekly idle shortcut",async()=>{
+test("a newly selected /game baseline invalidates the scheduled idle shortcut",async()=>{
   const f=fixture();
   await f.seed();
   const first=await finish(f);
@@ -561,7 +563,7 @@ test("a newly selected /game baseline invalidates the weekly idle shortcut",asyn
   }));
   const r=await runGameDifferentialTick(f.env,f.provider,first.ts+60_000);
   assert.equal(r.status,"awaiting-initial-completion");
-  assert.ok(leases>0,"a new baseline cannot remain hidden until next week");
+  assert.ok(leases>0,"a new baseline cannot remain hidden until the next scheduled slot");
 });
 
 
@@ -587,7 +589,7 @@ function characterScenario({missingSection=false}={}){
   return {api,id,full,setRevision:x=>{revision=x;}};
 }
 
-test("verified five-section 472 recovery defers redundant full GET in the following weekly run",async()=>{
+test("verified five-section 472 recovery defers redundant full GET in the following scheduled run",async()=>{
   const scenario=characterScenario();
   const f=fixture({api:scenario.api});await f.seed();
   const first=await finish(f);
@@ -600,7 +602,7 @@ test("verified five-section 472 recovery defers redundant full GET in the follow
   assert.ok(before.expandedSourceHash);
   assert.ok(Date.parse(before.nextAt)-first.ts>=20*86400000);
   const calls=f.calls.length;
-  const second=await finish(f,first.ts+7*86400000+60000);
+  const second=await finish(f,MON_SLOT);
   const newCalls=f.calls.slice(calls);
   assert.equal(newCalls.some(x=>x.url.endsWith(scenario.full)),false,
     "fresh five sections and unchanged character source defer known bad full");
@@ -620,7 +622,7 @@ test("a changed character base immediately re-enables full URL and resets exhaus
   f.store.set(key,JSON.stringify({...previous,attempts:3}));
   scenario.setRevision(2);
   const priorCalls=f.calls.length;
-  const second=await finish(f,first.ts+7*86400000+60000);
+  const second=await finish(f,MON_SLOT);
   assert.equal(second.status.status,"partial");
   assert.ok(f.calls.slice(priorCalls).some(x=>x.url.endsWith(scenario.full)),
     "changed parent must override prior defer and attempt exhaustion");
@@ -638,7 +640,7 @@ test("partial 472 alternatives cannot suppress full retrieval on the next pass",
   const pending=JSON.parse(f.store.get(key));
   assert.ok(Object.keys(pending.verifiedParts||{}).length<5);
   const before=f.calls.length;
-  await finish(f,first.ts+7*86400000+60000);
+  await finish(f,MON_SLOT);
   assert.ok(f.calls.slice(before).some(x=>x.url.endsWith(scenario.full)),
     "missing section requires an honest recheck of the original route");
 });
@@ -712,7 +714,7 @@ test("global meta.hashes changes do not create new per-route game-data versions"
   const initialObjects=[...f.store.keys()].filter(x=>
     x.includes("/diff/runs/")&&x.includes("/objects/")).length;
   globalRevision=2;
-  const second=await finish(f,first.ts+7*86400000+60000);
+  const second=await finish(f,MON_SLOT);
   const updated=JSON.parse(f.store.get(latestKey));
   const receipt=JSON.parse(f.store.get(updated.receiptKey));
   assert.equal(receipt.status,"unchanged");
@@ -748,7 +750,7 @@ test("legacy semantic V1 pointer is migrated without rewriting old R2 files",asy
     semanticVersion:undefined}));
   const beforeStored=f.store.get(pointer.objectKey);
   currentHashes="B";
-  const second=await finish(f,first.ts+7*86400000+60000);
+  const second=await finish(f,MON_SLOT);
   const next=JSON.parse(f.store.get(key));
   const receipt=JSON.parse(f.store.get(next.receiptKey));
   assert.equal(receipt.status,"unchanged",
@@ -770,13 +772,13 @@ test("unknown metadata and actual data modifications remain detectable",async()=
   const key=DIFF+"latest/"+sha(path)+".json";
   const previous=JSON.parse(f.store.get(key));
   perTotal=2;
-  const second=await finish(f,first.ts+7*86400000+60000);
+  const second=await finish(f,MON_SLOT);
   const withMeta=JSON.parse(f.store.get(key));
   assert.notEqual(withMeta.objectKey,previous.objectKey);
   assert.equal(JSON.parse(f.store.get(withMeta.receiptKey)).status,"changed",
     "perTotal is route-specific metadata, unlike global hashes");
   power=21;
-  const third=await finish(f,second.ts+7*86400000+60000);
+  const third=await finish(f,THU_SLOT);
   const withData=JSON.parse(f.store.get(key));
   assert.notEqual(withData.objectKey,withMeta.objectKey);
   assert.equal(JSON.parse(f.store.get(withData.receiptKey)).status,"changed");
@@ -784,7 +786,7 @@ test("unknown metadata and actual data modifications remain detectable",async()=
 });
 
 
-test("French event page is queued only by the existing weekly differential",async()=>{
+test("French event page is queued only by the existing scheduled differential",async()=>{
   const f=fixture();await f.seed();
   const {status,ts}=await finish(f);
   assert.equal(status.status,"completed");
@@ -797,85 +799,87 @@ test("French event page is queued only by the existing weekly differential",asyn
   const state=await runGameDifferentialTick(f.env,f.provider,ts+3600000);
   assert.equal(state.status,"completed");
   assert.equal(f.calls.filter(call=>call.url===url).length,before,
-    "No extra /game fetch between weekly runs");
+    "No extra /game fetch between scheduled runs");
 });
 
 
-test("Friday 01:00 follows Paris time on BOTH sides of DST (not fixed UTC)",()=>{
-  assert.equal(gameFridaySlot(Date.parse("2026-10-22T22:59:00Z")),null);
-  assert.equal(gameFridaySlot(Date.parse("2026-10-22T23:00:00Z")),"2026-10-23");
-  assert.equal(gameFridaySlot(Date.parse("2026-10-23T00:00:00Z")),null);
-  assert.equal(gameFridaySlot(Date.parse("2026-10-29T23:59:00Z")),null);
-  assert.equal(gameFridaySlot(Date.parse("2026-10-30T00:00:00Z")),"2026-10-30");
-  assert.equal(gameFridaySlot(Date.parse("2026-10-30T01:00:00Z")),null);
-  assert.equal(gameFridaySlot(Date.parse("2026-11-06T00:30:00Z")),"2026-11-06");
+
+test("Monday 01:00 and Thursday 13:00 use Paris time through DST",()=>{
+  const slot=x=>gameScheduledSlot(Date.parse(x));
+  assert.equal(slot("2026-10-18T22:59:00Z"),null);
+  assert.equal(slot("2026-10-18T23:00:00Z"),"2026-10-19T01:00");
+  assert.equal(slot("2026-10-22T11:00:00Z"),"2026-10-22T13:00");
+  assert.equal(slot("2026-10-23T00:00:00Z"),null,"Friday no longer starts a campaign");
+  assert.equal(slot("2026-10-25T23:59:00Z"),null);
+  assert.equal(slot("2026-10-26T00:00:00Z"),"2026-10-26T01:00");
+  assert.equal(slot("2026-10-29T12:00:00Z"),"2026-10-29T13:00");
+  assert.equal(nextGameScheduledAt(Date.parse("2026-10-23T00:00:00Z")),
+    "2026-10-26T00:00:00.000Z");
+  assert.equal(nextGameScheduledAt(MON_SLOT),"2026-10-29T12:00:00.000Z");
+  assert.equal(nextGameScheduledAt(THU_SLOT),"2026-11-02T00:00:00.000Z");
 });
-test("Friday campaign starts once, WITHOUT moving the existing 7-day Monday deadline",async()=>{
+test("two fixed slots replace weekly + Friday triggers without duplicates",async()=>{
   const f=fixture();await f.seed();
-  const monday=Date.parse("2026-10-26T10:00:00Z");
-  const first=await finish(f,monday);
+  const first=await finish(f);
   assert.equal(first.status.status,"completed");
-  const originalCompleted=first.status.completedAt;
-  assert.ok(originalCompleted);
-  const Friday=Date.parse("2026-10-30T00:00:00Z");
-  const callsBefore=f.calls.length;
-  assert.equal((await runGameDifferentialTick(f.env,f.provider,Friday-60000)).status,
-    "completed","the Friday run must not begin before 01:00 Paris");
-  assert.equal(f.calls.length,callsBefore);
-  const trigger=await runGameDifferentialTick(f.env,f.provider,Friday);
-  assert.equal(trigger.status,"scanning","the new Friday run uses existing scan/check pipeline");
-  let state=JSON.parse(f.store.get("game-archive/v1/diff/state.json"));
-  assert.equal(state.scheduleTrigger,"friday");
-  assert.equal(state.fridaySlot,"2026-10-30");
-  assert.equal(state.weeklyCompletedAt,originalCompleted);
-  const fridayRun=await finish(f,Friday+60000);
-  assert.equal(fridayRun.status.status,"completed");
-  assert.equal(fridayRun.status.scheduleTrigger,"friday");
-  assert.equal(fridayRun.status.weeklyCompletedAt,originalCompleted);
-  assert.equal(fridayRun.status.nextRunAt,
-    new Date(Date.parse(originalCompleted)+7*86400000).toISOString());
-  const beforeNoRepeat=f.calls.length;
-  const sameFriday=await runGameDifferentialTick(f.env,f.provider,
-    Date.parse("2026-10-30T00:59:00Z"));
-  assert.equal(sameFriday.status,"completed");
-  assert.equal(f.calls.length,beforeNoRepeat,
-    "no repeat collection inside the 1h Friday window");
-  const mondayDue=Date.parse(originalCompleted)+7*86400000+60000;
-  const due=await runGameDifferentialTick(f.env,f.provider,mondayDue);
-  assert.equal(due.status,"scanning",
-    "the normal seven-day run is due despite the completed Friday run");
-  state=JSON.parse(f.store.get("game-archive/v1/diff/state.json"));
-  assert.equal(state.scheduleTrigger,"weekly");
-  assert.equal(state.fridaySlot,"2026-10-30");
-  const next=await finish(f,mondayDue+60000);
-  assert.equal(next.status.status,"completed");
-  assert.equal(next.status.scheduleTrigger,"weekly");
-  assert.ok(Date.parse(next.status.weeklyCompletedAt)>Date.parse(originalCompleted));
-  assert.equal(next.status.lastFridaySlot,"2026-10-30");
+  assert.equal(first.status.intervalHours,84);
+  assert.equal(first.status.scheduleTrigger,"initial");
+  const before=f.calls.length;
+  assert.equal((await runGameDifferentialTick(f.env,f.provider,MON_SLOT-60000)).status,
+    "completed");
+  assert.equal(f.calls.length,before);
+  assert.equal((await runGameDifferentialTick(f.env,f.provider,MON_SLOT)).status,
+    "scanning");
+  let state=JSON.parse(f.store.get(DIFF+"state.json"));
+  assert.equal(state.scheduleTrigger,"scheduled");
+  assert.equal(state.scheduledSlot,"2026-10-26T01:00");
+  const monday=await finish(f,MON_SLOT+60000);
+  assert.equal(monday.status.status,"completed");
+  const completedCalls=f.calls.length;
+  assert.equal((await runGameDifferentialTick(f.env,f.provider,MON_SLOT+59*60000))
+    .status,"completed");
+  assert.equal(f.calls.length,completedCalls,"once per Monday slot");
+  assert.equal((await runGameDifferentialTick(f.env,f.provider,THU_SLOT)).status,
+    "scanning","Thursday starts without a seven-day wait");
+  state=JSON.parse(f.store.get(DIFF+"state.json"));
+  assert.equal(state.scheduledSlot,"2026-10-29T13:00");
+  assert.equal((await finish(f,THU_SLOT+60000)).status.status,"completed");
+  const beforeFriday=f.calls.length;
+  assert.equal((await runGameDifferentialTick(f.env,f.provider,
+    Date.parse("2026-10-30T00:00:00Z"))).status,"completed");
+  assert.equal(f.calls.length,beforeFriday,"no legacy Friday trigger");
 });
-test("an already running campaign is continued instead of being duplicated on Friday",async()=>{
+test("in-progress campaign consumes an overlapping slot",async()=>{
   const f=fixture();await f.seed();
-  const monday=Date.parse("2026-10-26T10:00:00Z");
-  await finish(f,monday);
-  const Fri=Date.parse("2026-10-30T00:00:00Z");
-  await runGameDifferentialTick(f.env,f.provider,Fri);
-  const first=JSON.parse(f.store.get("game-archive/v1/diff/state.json"));
-  const next=await runGameDifferentialTick(f.env,f.provider,Fri+60000);
-  const second=JSON.parse(f.store.get("game-archive/v1/diff/state.json"));
-  assert.equal(second.runId,first.runId);
-  assert.equal(second.scheduleTrigger,"friday");
-  assert.ok(["scanning","checking"].includes(next.status));
-  assert.equal(second.fridaySlot,"2026-10-30");
+  assert.equal((await runGameDifferentialTick(f.env,f.provider,MON_SLOT-60000))
+    .status,"scanning");
+  const id=JSON.parse(f.store.get(DIFF+"state.json")).runId;
+  const during=await runGameDifferentialTick(f.env,f.provider,MON_SLOT);
+  assert.ok(["scanning","checking"].includes(during.status));
+  const active=JSON.parse(f.store.get(DIFF+"state.json"));
+  assert.equal(active.runId,id);
+  assert.equal(active.scheduledSlot,"2026-10-26T01:00");
+  assert.equal((await finish(f,MON_SLOT+60000)).status.status,"completed");
+  const before=f.calls.length;
+  await runGameDifferentialTick(f.env,f.provider,MON_SLOT+59*60000);
+  assert.equal(JSON.parse(f.store.get(DIFF+"state.json")).runId,id);
+  assert.equal(f.calls.length,before,"never restart after finishing in slot");
 });
-test("a normal weekly campaign on Friday claims the Friday slot too",async()=>{
+test("legacy weekly state migrates without resetting source archive",async()=>{
   const f=fixture();await f.seed();
-  const base=await finish(f,Date.parse("2026-10-23T00:30:00Z"));
-  const weeklyDue=Date.parse(base.status.completedAt)+7*86400000+60000;
-  assert.equal(gameFridaySlot(weeklyDue),"2026-10-30");
-  const starting=await runGameDifferentialTick(f.env,f.provider,weeklyDue);
-  assert.equal(starting.status,"scanning");
-  const state=JSON.parse(f.store.get("game-archive/v1/diff/state.json"));
-  assert.equal(state.scheduleTrigger,"weekly");
-  assert.equal(state.fridaySlot,"2026-10-30",
-    "two scheduling triggers must never start duplicate full scans");
+  await finish(f);
+  const key=DIFF+"state.json";
+  const old=JSON.parse(f.store.get(key));
+  delete old.scheduledSlot;
+  old.weeklyCompletedAt=old.completedAt;old.fridaySlot="2026-10-23";
+  f.store.set(key,JSON.stringify(old));
+  assert.equal((await runGameDifferentialTick(f.env,f.provider,MON_SLOT-60000))
+    .status,"completed");
+  assert.equal(JSON.parse(f.store.get(key)).runId,old.runId);
+  assert.equal((await runGameDifferentialTick(f.env,f.provider,MON_SLOT))
+    .status,"scanning");
+  const updated=JSON.parse(f.store.get(key));
+  assert.notEqual(updated.runId,old.runId);
+  assert.equal(updated.scheduledSlot,"2026-10-26T01:00");
+  assert.equal(updated.sourceRun,old.sourceRun);
 });
