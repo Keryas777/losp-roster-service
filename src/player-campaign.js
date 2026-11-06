@@ -194,7 +194,6 @@ function fail(s,reason,now,stopReason=false){
   s.lastError=reason;
   if(stopReason){
     s.nextAttemptAt=new Date(now+60*60000).toISOString();
-    player429Perf(s,now,Date.parse(s.nextAttemptAt));
     s.retries=(s.retries||0)+1;
   }else{
     s.retries=(s.retries||0)+1;
@@ -203,6 +202,9 @@ function fail(s,reason,now,stopReason=false){
   if(s.retries>=3){
     s.failed++;move(s);
   }
+  // The third failed attempt advances to the next target instead of pausing.
+  if(stopReason&&s.nextAttemptAt)
+    player429Perf(s,now,Date.parse(s.nextAttemptAt));
 }
 async function collect(req,env,fetchImpl,now){
   const r=await handlePlayerExtraArchive(new Request(ORIGIN+"/admin/api/player-extras",{
