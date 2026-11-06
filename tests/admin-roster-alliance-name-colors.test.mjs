@@ -44,7 +44,7 @@ function fixture(alliances){
   const load=new Function("document","fetch","rosterEl","rosterLine",
     isolated+";return loadConnectedAlliances;")(
     document,fetch,rosterEl,rosterLine);
-  return {load,items:nodes["roster-connected-list"].children};
+  return {load,get items(){return nodes["roster-connected-list"].children;}};
 }
 
 test("Scopely colors MARINES entirely and separates white END from orange GAME",async()=>{
