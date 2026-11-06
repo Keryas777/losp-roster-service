@@ -5,6 +5,7 @@ on:
       - "src/admin-arena-coverage.js"
       - "src/admin-routes.js"
       - "src/player-identity-links.js"
+      - "src/player-identity-catalog.json"
       - "public/admin-player-links.js"
       - "tests/player-identity-links.test.mjs"
       - "src/member-info-reward.js"

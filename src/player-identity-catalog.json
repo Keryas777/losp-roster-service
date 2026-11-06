@@ -1,0 +1,892 @@
+{
+  "version": 1,
+  "description": "Fallback snapshot synchronized from Keryas777/msf/docs/data (canonical source).",
+  "source": "Keryas777/msf:main:docs/data",
+  "snapshotDate": "2026-11-07",
+  "alliances": [
+    {
+      "key": "zeus",
+      "name": "Zeus",
+      "emoji": "⚡️",
+      "color": "#F8FF00",
+      "order": 1,
+      "aliases": [
+        "Zeus",
+        "zeus",
+        "LoSP Zeus",
+        "LoSP Zεμs",
+        "LoSP Zευs",
+        "losp zeus"
+      ],
+      "group": "losp",
+      "displayParts": [
+        "LoSP ",
+        "Zεμs"
+      ]
+    },
+    {
+      "key": "athena",
+      "name": "Athéna",
+      "emoji": "🦉",
+      "color": "#F28C28",
+      "order": 2,
+      "aliases": [
+        "Athéna",
+        "Athena",
+        "athéna",
+        "athena",
+        "LoSP Athéna",
+        "LoSP Athena",
+        "losp athéna",
+        "losp athena"
+      ],
+      "group": "losp",
+      "displayParts": [
+        "LoSP ",
+        "Athεηα"
+      ]
+    },
+    {
+      "key": "kronos",
+      "name": "Kronos",
+      "emoji": "⏳",
+      "color": "#E10D17",
+      "order": 3,
+      "aliases": [
+        "Kronos",
+        "kronos",
+        "LoSP Kronos",
+        "losp kronos"
+      ],
+      "group": "losp",
+      "displayParts": [
+        "LoSP ",
+        "Κroηos"
+      ]
+    },
+    {
+      "key": "dionysos",
+      "name": "Dionysos",
+      "emoji": "🍇",
+      "color": "#93328E",
+      "order": 4,
+      "aliases": [
+        "Dionysos",
+        "dionysos",
+        "LoSP Dionysos",
+        "losp dionysos"
+      ],
+      "group": "losp",
+      "displayParts": [
+        "LoSP ",
+        "Dισπγsσs"
+      ]
+    },
+    {
+      "key": "poseidon",
+      "name": "Poséidon",
+      "emoji": "🔱",
+      "color": "#0073ff",
+      "order": 5,
+      "aliases": [
+        "Poséidon",
+        "Poseidon",
+        "poséidon",
+        "poseidon",
+        "LoSP Poséidon",
+        "losp poseidon"
+      ],
+      "group": "losp",
+      "displayParts": [
+        "LoSP ",
+        "Pοsειδoη"
+      ]
+    },
+    {
+      "key": "hades",
+      "name": "Hadès",
+      "emoji": "🔥",
+      "color": "#1EA164",
+      "order": 6,
+      "active": true,
+      "aliases": [
+        "Hadès",
+        "Hades",
+        "hadès",
+        "hades",
+        "LoSP Hadès",
+        "losp hades"
+      ],
+      "group": "losp",
+      "displayParts": [
+        "LoSP ",
+        "Hαδεs"
+      ]
+    },
+    {
+      "key": "marines",
+      "name": "MARINES",
+      "displayName": "MΛЯIΠΣƧ",
+      "group": "marines",
+      "color": "#E53935",
+      "nameColor": "#E53935",
+      "order": 7,
+      "aliases": [
+        "MARINES"
+      ],
+      "trophyPublicId": "83937048-ec30-47d3-8b56-cca351fca34b"
+    },
+    {
+      "key": "endgame-revolution-red",
+      "name": "ENDGAME R-évolution",
+      "group": "endgame-revolution",
+      "color": "#ED3946",
+      "order": 8,
+      "displayParts": [
+        "END",
+        "GΔME R-évolution"
+      ],
+      "aliases": [
+        "endgame-revolution-red"
+      ]
+    },
+    {
+      "key": "endgame-revolution-orange",
+      "name": "ENDGAME R-évolution",
+      "group": "endgame-revolution",
+      "color": "#F6952C",
+      "order": 9,
+      "displayParts": [
+        "END",
+        "GΔME R-évolution"
+      ],
+      "aliases": [
+        "endgame-revolution-orange"
+      ]
+    }
+  ],
+  "access_groups": {
+    "schemaVersion": 1,
+    "groups": [
+      {
+        "key": "losp",
+        "name": "LoSP",
+        "alliances": [
+          "zeus",
+          "athena",
+          "kronos",
+          "dionysos",
+          "poseidon",
+          "hades"
+        ],
+        "allianceRoles": {
+          "758722419128401992": "zeus",
+          "1064618131491934258": "dionysos",
+          "820428635071971328": "poseidon",
+          "1503132379567624222": "kronos",
+          "1532666598643466420": "hades",
+          "1522162077807018024": "athena"
+        }
+      },
+      {
+        "key": "marines",
+        "name": "MARINES",
+        "alliances": [
+          "marines"
+        ],
+        "roleIds": [
+          "1567463791543717979"
+        ]
+      },
+      {
+        "key": "endgame-revolution",
+        "name": "ENDGAME R-évolution",
+        "alliances": [
+          "endgame-revolution-red",
+          "endgame-revolution-orange"
+        ],
+        "roleIds": [
+          "1567461415495667823"
+        ]
+      }
+    ]
+  },
+  "joueurs": [
+    {
+      "player": "Keryas I",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "Unhappy Miky",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "beou",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "StarkNell",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "lolo",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "Xam972",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "K8be24",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "EzCommandant",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "Ononmyo",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "Jaws",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "MaddoxX",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "commandant pat",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "Leenos",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "Kingjames95",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "Améline67",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "Predator",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "Defelgar",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "Commander King J",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "Kakashi",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "Yuggi94",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "Lord Fanfan",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "lolodomi",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "Leish",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "TheMac",
+      "alliance": "Zeus"
+    },
+    {
+      "player": "Kotor",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "Clo",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "AL20",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "IRON DJEY",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "Playmo",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "Blacksheep68",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "⚔️Zabuza⚔️",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "M4TT",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "BeLZéBuT",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "Jerem76",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "TonyStark",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "Arad",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "Asmchurros",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "Yayoo",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "fredydy13",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "julius",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "iZi",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "The E.N.D",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "Juanita",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "Djuke",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "Raviel",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "Zarabeo",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "Rododo",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "Peps",
+      "alliance": "Athéna"
+    },
+    {
+      "player": "Commandant stef0",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "Kayliz",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "Brazz",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "Kush",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "Enkil Bearson",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "Khan",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "Mehdipegase",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "Arkh",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "Pelleas",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "Commandant Edi",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "Zerahs",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "Espanol31",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "ErenHistarion",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "Silas",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "Éki",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "Tauhawk",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "Keryas II",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "SupaCarrot",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "Speedy_Arrow",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "Seita",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "Duthé",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "Flo81",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "Krau",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "fox wolverine",
+      "alliance": "Kronos"
+    },
+    {
+      "player": "Dohko",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "Joseoooo",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "Lorne",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "Keryas III",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "Jez",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "Spidey",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "sandyloulou",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "Eregast",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "Harbard",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "bleach972",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "alex0472",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "Arsenal29fr",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "Babouche",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "Raaaac",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "damien",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "Edge",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "Zeeroo",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "Tornnheart",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "Clemino",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "Shikiro",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "T6K",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "Ren-Nagi",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "project one",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "Yanou",
+      "alliance": "Dionysos"
+    },
+    {
+      "player": "Commandant Qv",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "CîuZz",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "Friton",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "Kratos",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "Ludo",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "Keryas IV",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "lool",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "Azazel",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "Flown56",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "zealous hunter",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "jay",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "LordTJ",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "MONSTERX1309",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "MakaWaa",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "Mowgli",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "<color=red>JAXX",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "EpSii",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "bonhomsether",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "Mike28000",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "yank33s",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "chakibovic",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "Guastafeste",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "BlackBird",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "Ttt!!Le Fléau !!",
+      "alliance": "Poséidon"
+    },
+    {
+      "player": "Keryas V",
+      "alliance": "Hadès"
+    },
+    {
+      "player": "Danger",
+      "alliance": "marines"
+    },
+    {
+      "player": "Chief",
+      "alliance": "marines"
+    },
+    {
+      "player": "T-WOOD",
+      "alliance": "marines"
+    },
+    {
+      "player": "Oblivion",
+      "alliance": "marines"
+    },
+    {
+      "player": "Hokie Hi",
+      "alliance": "marines"
+    },
+    {
+      "player": "ChiTownChad79",
+      "alliance": "marines"
+    },
+    {
+      "player": "Liadk",
+      "alliance": "marines"
+    },
+    {
+      "player": "dadman",
+      "alliance": "marines"
+    },
+    {
+      "player": "Joker",
+      "alliance": "marines"
+    },
+    {
+      "player": "Jonstark",
+      "alliance": "marines"
+    },
+    {
+      "player": "WEareGR00T",
+      "alliance": "marines"
+    },
+    {
+      "player": "Choot",
+      "alliance": "marines"
+    },
+    {
+      "player": "Psychos",
+      "alliance": "marines"
+    },
+    {
+      "player": "Scanny81",
+      "alliance": "marines"
+    },
+    {
+      "player": "Commander tom",
+      "alliance": "marines"
+    },
+    {
+      "player": "Tragged",
+      "alliance": "marines"
+    },
+    {
+      "player": "Pitt Luffy",
+      "alliance": "marines"
+    },
+    {
+      "player": "stonecold316",
+      "alliance": "marines"
+    },
+    {
+      "player": "Toast",
+      "alliance": "marines"
+    },
+    {
+      "player": "♽₦Ⓤ₸Kr₳ⓚęr♼",
+      "alliance": "marines"
+    },
+    {
+      "player": "BTL",
+      "alliance": "marines"
+    },
+    {
+      "player": "HanktheTank",
+      "alliance": "marines"
+    },
+    {
+      "player": "Dr. Jekyll",
+      "alliance": "marines"
+    },
+    {
+      "player": "Pain",
+      "alliance": "marines"
+    },
+    {
+      "player": "iznogood",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "Maya33",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "aurel14120",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "Yruaama",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "Hitokiri Sama",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "Matkilleur974",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "Bad Priest",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "Célléborn",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "Steven16v",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "Iron Bad Boy",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "Wayne-Reinis",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "EvilaOne",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "Ciceroncepascare",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "wW KRATOS Ww",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "El_Prince",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "Zoc",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "Kinel",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "Spidey C",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "Brunie",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "Lord.Arken",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "Destructor",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "Ianja",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "Cobra",
+      "alliance": "endgame-revolution-orange"
+    },
+    {
+      "player": "flouzz",
+      "alliance": "endgame-revolution-orange"
+    }
+  ]
+}

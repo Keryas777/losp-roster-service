@@ -75,23 +75,35 @@
    note("Lecture des rosters existants et des rôles Discord…");
    try{
      const key=encodeURIComponent(alliance.value);
-     const [p,d]=await Promise.all([
+     // A missing Discord bot must not hide already available MSF players.
+     const [p,d]=await Promise.allSettled([
        request("/admin/api/player-links?view=players&alliance="+key),
        request("/admin/api/player-links?view=discord&alliance="+key)
      ]);
-     players=p.players;members=d.members;
+     if(p.status==="fulfilled")players=p.value.players;
+     if(d.status==="fulfilled")members=d.value.members;
      setOptions(msf,players.map(name=>({value:name,label:name})),
-       "— Choisir un pseudo MSF —");
+       p.status==="fulfilled"?"— Choisir un pseudo MSF —":
+         "— Joueurs MSF indisponibles —");
      setOptions(discord,members.map(m=>({value:m.id,
        label:m.displayName+" (@"+m.username+")"})),
-       "— Choisir un compte Discord —");
-     note(players.length+" joueur(s) MSF et "+members.length+
-       " membre(s) Discord disponibles. Les rapprochements sont manuels.");
-   }catch(error){
-     note("Chargement impossible : "+error.message+
-       ". Vérifier le roster publié et le secret DISCORD_BOT_TOKEN du Roster Service.");
-     setOptions(msf,[],"— Données indisponibles —");
-     setOptions(discord,[],"— Données indisponibles —");
+       d.status==="fulfilled"?"— Choisir un compte Discord —":
+         "— Membres Discord indisponibles —");
+     if(p.status==="rejected"||d.status==="rejected"){
+       const errors=[];
+       if(p.status==="rejected")errors.push("MSF : "+p.reason.message);
+       if(d.status==="rejected"){
+         const message=d.reason.message==="discord-not-configured"?
+           "secret DISCORD_BOT_TOKEN absent du Roster Service":
+           "Discord : "+d.reason.message;
+         errors.push(message);
+       }
+       note(players.length+" joueur(s) MSF chargés, "+members.length+
+         " membre(s) Discord chargés. "+errors.join(" · "));
+     }else{
+       note(players.length+" joueur(s) MSF et "+members.length+
+         " membre(s) Discord disponibles. Les rapprochements sont manuels.");
+     }
    }finally{busy=false;updateSave();displayAll();}
  }
  async function mutate(payload){
