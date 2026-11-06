@@ -91,7 +91,7 @@ test("tampering with encrypted payload never exposes a token", async () => {
   await saveSession(bucket, key, id, "PRIVATE_TOKEN", now + 60000, now);
   const objectKey = await sessionObjectKey(id);
   const envelope = JSON.parse(bucket.data.get(objectKey));
-  envelope.ciphertext = "A" + envelope.ciphertext.slice(1);
+  envelope.ciphertext = (envelope.ciphertext[0] === "A" ? "B" : "A") + envelope.ciphertext.slice(1);
   bucket.data.set(objectKey, JSON.stringify(envelope));
   assert.equal(await readSession(bucket, key, id, now), null);
 });
