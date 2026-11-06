@@ -230,6 +230,32 @@
       "Campagne complémentaire : "+label(player.status)+
         " · comptes OAuth actifs en R2 : "+count(pers.accountsActive),
       eligible&&archives===eligible?"ok":"warn");
+    const playerPerf=player.performance||{};
+    const playerMeasured=playerPerf.status==="recorded";
+    tile(cards,"Performances de la campagne /player",
+      playerMeasured?count(playerPerf.provider?.gets)+" GET mesurés":
+        "En attente d'une campagne instrumentée",
+      playerMeasured?
+        "Depuis "+time(playerPerf.measuredFrom)+
+        (playerPerf.coverage==="partial"?" (mesures partielles). ":
+          " (mesures complètes). ")+
+        "Durée de campagne : "+elapsed(playerPerf.elapsedMs)+
+        " · latence des en-têtes GET : "+elapsed(playerPerf.provider?.fetchMs)+
+        " au total · moyenne : "+count(playerPerf.provider?.meanFetchMs)+
+        " ms/GET. Traitement/archivage des familles : "+
+        elapsed(playerPerf.archive?.workMs)+" ("+
+        count(playerPerf.archive?.calls)+" opérations). "+
+        "429 : "+count(playerPerf.provider?.http429)+
+        " · pauses cumulées : "+elapsed(playerPerf.rateLimit?.waitMs)+
+        " · débit 15 min : "+
+        (Number.isFinite(playerPerf.last15Minutes?.getsPerMinute)?
+          playerPerf.last15Minutes.getsPerMinute.toFixed(2):"—")+" GET/min. "+
+        "Mesures limitées aux familles personnelles /player ; les rosters "+
+        "des alliances sont collectés séparément.":
+        "Le prochain passage actif commencera les statistiques. "+
+        "Le compteur requestsToday réserve jusqu'à 10 GET par tick, "+
+        "ce n'est pas une limite journalière Scopely.",
+      "neutral");
     tile(cards,"Archives /game",
       count(g.archivedResponses)+" réponses",
       "Collecte : "+label(g.status)+
