@@ -17,6 +17,7 @@ import {secureGuestArenaHistory} from "./secure-guest-arena-history.js";
 import {secureGuestInfos} from "./secure-guest-infos.js";
 import {secureGuestRosters} from "./secure-guest-rosters.js";
 import {secureGuestEvolution,archiveGuestEvolutionTick} from "./secure-guest-evolution.js";
+import {securePermanentGuestEvolution,archivePermanentGuestEvolutionTick} from "./permanent-guest-evolution.js";
 import {publicTrophyHistory,archiveTrophyHistory} from "./public-trophy-history.js";
 import {publicGuestSeasonRanks} from "./public-guest-season-ranks.js";
 import {GAME_ARCHIVE_CRON,runGameArchiveTick} from "./game-catalog-archive.js";
@@ -242,6 +243,14 @@ export default {
       const guestEvolution=await archiveGuestEvolutionTick(env,scheduled);
       if(!["outside-window","idle","disabled"].includes(guestEvolution.status))
         console.info("guest-evolution-cron",JSON.stringify(guestEvolution));
+      // An optional, separately reviewed historical archive for the WebApp.
+      // Disabled unless the operator has confirmed long-term rights for API-
+      // derived data and explicitly enables the dedicated environment flag.
+      if(env?.GUEST_EVOLUTION_LONG_TERM_AUTHORIZED==="true"){
+        const archive=await archivePermanentGuestEvolutionTick(env,scheduled);
+        if(!["outside-window","unchanged","idle","disabled"].includes(archive.status))
+          console.info("guest-evolution-history",JSON.stringify(archive));
+      }
       // R2-only scheduled backup at 20:17/22:17 Paris.
       // Ready-to-publish snapshots are already handled after quiet ticks.
       const arenaHistory=await archiveArenaHistory(env,controller.scheduledTime);
@@ -435,7 +444,9 @@ export default {
     if(url.pathname==="/api/secure/guest-rosters")
       return secureGuestRosters(request,env);
     if(url.pathname==="/api/secure/guest-evolution")
-      return secureGuestEvolution(request,env);
+      return env?.GUEST_EVOLUTION_LONG_TERM_AUTHORIZED==="true"?
+        securePermanentGuestEvolution(request,env):
+        secureGuestEvolution(request,env);
     if(url.pathname==="/api/public/trophy-history")
       return publicTrophyHistory(request,env);
     if(url.pathname==="/api/public/guest-season-ranks")
