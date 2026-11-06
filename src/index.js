@@ -16,6 +16,7 @@ import {publicArenaHistory,archiveArenaHistory,archiveArenaHistoryWhenReady} fro
 import {secureGuestArenaHistory} from "./secure-guest-arena-history.js";
 import {secureGuestInfos} from "./secure-guest-infos.js";
 import {secureGuestRosters} from "./secure-guest-rosters.js";
+import {handleSelfPlayerLinks} from "./player-identity-links.js";
 import {secureGuestEvolution,archiveGuestEvolutionTick} from "./secure-guest-evolution.js";
 import {securePermanentGuestEvolution,archivePermanentGuestEvolutionTick} from "./permanent-guest-evolution.js";
 import {publicTrophyHistory,archiveTrophyHistory} from "./public-trophy-history.js";
@@ -441,6 +442,8 @@ export default {
       return secureGuestArenaHistory(request,env);
     if(url.pathname==="/api/secure/guest-infos")
       return secureGuestInfos(request,env);
+    if(url.pathname==="/api/secure/player-links")
+      return handleSelfPlayerLinks(request,env);
     if(url.pathname==="/api/secure/guest-rosters")
       return secureGuestRosters(request,env);
     if(url.pathname==="/api/secure/guest-evolution")
