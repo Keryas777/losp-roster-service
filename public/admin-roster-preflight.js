@@ -150,6 +150,35 @@ async function showRosterAutoStatus(){
 // Read-only directory; first visit backfills older consenting accounts.
 // The list never approves a new alliance or starts a roster collection.
 async function loadConnectedAlliances(bindingFeedback=null){
+  // MSF names may contain <color=red>, <color=#f60> or <#RRGGBB>.
+  // Render only text in spans; never interpret provider markup as HTML.
+  const allianceLabel=(node,prefix,name,suffix="")=>{
+    node.textContent=prefix;
+    const source=typeof name==="string"?name:"";
+    const markers=/<(?:color=(#[\da-f]{6}|#[\da-f]{3}|red|orange|white)|#([\da-f]{6}|[\da-f]{3})|\/color)>/gi;
+    let cursor=0,color="";
+    const appendPart=part=>{
+      if(!part)return;
+      const span=document.createElement("span");
+      span.textContent=part;
+      if(color)span.style.color=color;
+      // END is deliberately white; GAME and the rest use the MSF tag.
+      else if(part==="END"&&/^END<color=/i.test(source))
+        span.style.color="#fff";
+      node.appendChild(span);
+    };
+    for(const marker of source.matchAll(markers)){
+      appendPart(source.slice(cursor,marker.index));
+      color=marker[0].toLowerCase()==="</color>"?"":marker[1]||"#"+marker[2];
+      cursor=marker.index+marker[0].length;
+    }
+    appendPart(source.slice(cursor));
+    if(suffix){
+      const trailing=document.createElement("span");
+      trailing.textContent=suffix;
+      node.appendChild(trailing);
+    }
+  };
   const status=rosterEl("roster-connected-status");
   const parent=rosterEl("roster-connected-list");
   const button=rosterEl("roster-connected-refresh");
@@ -168,7 +197,8 @@ async function loadConnectedAlliances(bindingFeedback=null){
     if(!result.alliances.length)rosterLine(parent,
       "Aucune alliance identifiable parmi les sessions OAuth actives.");
     for(const alliance of result.alliances){
-      rosterLine(parent,alliance.name+" — "+
+      const summary=rosterLine(parent,"");
+      allianceLabel(summary,"",alliance.name," — "+
         alliance.captainConnections+" connexion(s) OAuth — "+
         (alliance.approved?"collecte LoSP approuvée":
           alliance.guestApproved?"collecte invitée approuvée":
@@ -176,9 +206,9 @@ async function loadConnectedAlliances(bindingFeedback=null){
       if(!alliance.approved){
         const guest=document.createElement("button");
         guest.type="button";
-        guest.textContent=alliance.guestApproved?
-          "Révoquer la collecte invitée — "+alliance.name:
-          "Autoriser la collecte invitée — "+alliance.name;
+        allianceLabel(guest,alliance.guestApproved?
+          "Révoquer la collecte invitée — ":
+          "Autoriser la collecte invitée — ",alliance.name);
         const guestStatus=document.createElement("p");
         guestStatus.setAttribute("role","status");
         guest.addEventListener("click",async()=>{
@@ -265,7 +295,7 @@ async function loadConnectedAlliances(bindingFeedback=null){
         const enable=document.createElement("button");
         enable.type="button";
         enable.className="roster-losp-enroll-danger";
-        enable.textContent="Inclure "+alliance.name+" dans les collectes LoSP";
+        allianceLabel(enable,"Inclure ",alliance.name," dans les collectes LoSP");
         const info=document.createElement("p");
         info.setAttribute("role","status");
         enable.addEventListener("click",async()=>{
