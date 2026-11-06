@@ -18,6 +18,13 @@
     return new Date(v).toLocaleString("fr-FR");
   };
   const count=x=>Number.isSafeInteger(x)?String(x):"—";
+  const elapsed=value=>{
+    if(!Number.isFinite(value)||value<0)return "—";
+    const sec=Math.round(value/1000);
+    if(sec<60)return sec+" s";
+    if(sec<3600)return Math.floor(sec/60)+" min "+sec%60+" s";
+    return Math.floor(sec/3600)+" h "+Math.floor(sec%3600/60)+" min";
+  };
   const beforeArenaArchive=checkedAt=>{
     const at=Date.parse(checkedAt||"");
     if(!Number.isFinite(at))return false;
@@ -237,6 +244,35 @@
         " · dernier changement : "+time(diff.lastChangedAt)+
         " · prochaine passe : "+time(diff.nextRunAt),
       g.status==="complete"?"ok":"neutral");
+    const perf=diff.performance||{};
+    const measured=perf.status==="recorded";
+    tile(cards,"Performances du différentiel /game",
+      measured?count(perf.provider?.gets)+" GET mesurés":
+        "En attente d'une collecte instrumentée",
+      measured?
+        "Mesures depuis "+time(perf.measuredFrom)+
+        (perf.coverage==="partial"?" (campagne déjà entamée). ":
+          " (campagne intégrale). ")+
+        "Indexation R2 : "+elapsed(perf.scan?.wallMs)+
+        " écoulées, "+elapsed(perf.scan?.activeMs)+" actives, "+
+        count(perf.scan?.entries)+" entrées parcourues. "+
+        "Vérifications : "+elapsed(perf.checking?.wallMs)+" écoulées. "+
+        "GET Scopely : "+elapsed(perf.provider?.fetchMs)+" de latence totale, "+
+        elapsed(perf.provider?.bodyMs)+" de lecture des réponses, "+
+        count(perf.provider?.meanFetchMs)+" ms/GET en moyenne. "+
+        "Débit sur 15 minutes : "+
+        (Number.isFinite(perf.last15Minutes?.getsPerMinute)?
+          perf.last15Minutes.getsPerMinute.toFixed(2):"—")+" GET/min. "+
+        "429 : "+count(perf.provider?.http429)+" · pause cumulée : "+
+        elapsed(perf.rateLimit?.waitMs)+". "+
+        "Quota : "+count(perf.dailyBudget?.lastUsed)+"/"+
+        count(perf.dailyBudget?.lastLimit)+
+        " (dernier relevé) · attente cumulée : "+
+        elapsed(perf.dailyBudget?.waitMs)+". "+
+        "Temps écoulé des phases = passages Cron inclus, pas CPU.":
+        "Les mesures débutent à la prochaine activité du collecteur. "+
+        "Lecture R2 uniquement, aucun GET Scopely à l'affichage.",
+      "neutral");
     tile(cards,"Sessions OAuth",
       count(o.checked)+" contrôlées",
       "Dernier contrôle : "+time(o.checkedAt)+
