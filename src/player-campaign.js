@@ -9,6 +9,9 @@ import {API_KEY} from "./player-card.js";
 import {readApproval} from "./roster-sync-preflight.js";
 import {CONNECTED_ALLIANCE_PREFIX,saveConnectedAlliance} from "./connected-alliance-index.js";
 import {discoverAlliance} from "./alliance-coverage.js";
+import {ensurePlayerPerf,playerFetchPerf,playerArchivePerf,
+  player429Perf,resumePlayer429Perf,viewPlayerPerf}
+  from "./player-campaign-performance.js";
 
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const ROOT="https://api.marvelstrikeforce.com";
@@ -59,6 +62,7 @@ function clean(s,autoEnabled=false,auto=null){
     requestsToday:s?.requestsToday||0,
     nextAttemptAt:s?.nextAttemptAt||null,
     lastError:s?.lastError||null,
+    performance:viewPlayerPerf(s),
     rosterCoverage:"handled-by-existing-roster-collection"};
 }
 async function read(bucket){
@@ -198,6 +202,9 @@ function fail(s,reason,now,stopReason=false){
   if(s.retries>=3){
     s.failed++;move(s);
   }
+  // The third failed attempt advances to the next target instead of pausing.
+  if(stopReason&&s.nextAttemptAt)
+    player429Perf(s,now,Date.parse(s.nextAttemptAt));
 }
 async function collect(req,env,fetchImpl,now){
   const r=await handlePlayerExtraArchive(new Request(ORIGIN+"/admin/api/player-extras",{
@@ -241,6 +248,7 @@ async function beginLocked(env,now,mode){
     sessionIndex:0,familyIndex:0,members:null,memberIndex:0,retries:0,doneShared:[],
     saved:0,alreadyPresent:0,skipped:0,failed:0,sharedSquads:0,
     requestsDate:date(now),requestsToday:0,nextAttemptAt:null,lastError:null};
+  ensurePlayerPerf(s,now);
   await save(bucket,s,now);
   return {state:s};
 }
@@ -339,6 +347,8 @@ export async function runPlayerCampaignTick(env,fetchImpl=fetch,now=Date.now()){
     }
     if(s.nextAttemptAt&&Date.parse(s.nextAttemptAt)>now)
       return {status:"cooldown"};
+    ensurePlayerPerf(s,now);
+    resumePlayer429Perf(s,now);
     if(s.requestsDate!==date(now)){
       s.requestsDate=date(now);s.requestsToday=0;
     }
@@ -349,11 +359,20 @@ export async function runPlayerCampaignTick(env,fetchImpl=fetch,now=Date.now()){
     await save(bucket,s,now);
     let used=0;
     const limitedFetch=async(url,options)=>{
-      if(new URL(url).hostname==="api.marvelstrikeforce.com"){
+      const upstream=new URL(url).hostname==="api.marvelstrikeforce.com";
+      if(upstream){
         if(used>=PER_TICK_BUDGET)throw Error("player-campaign-tick-budget");
         used++;
       }
-      return fetchImpl(url,options);
+      const started=Date.now();
+      try{
+        const response=await fetchImpl(url,options);
+        if(upstream)playerFetchPerf(s,now,Date.now()-started,response.status);
+        return response;
+      }catch(error){
+        if(upstream)playerFetchPerf(s,now,Date.now()-started,null,true);
+        throw error;
+      }
     };
     if(s.sessionIndex>=s.sessions.length){
       s.status=s.failed?"partial":"complete";s.completedAt=new Date(now).toISOString();
@@ -380,11 +399,15 @@ export async function runPlayerCampaignTick(env,fetchImpl=fetch,now=Date.now()){
         const active=await tokenForKey(env,CAPTAIN_PREFIX+sid);
         if(!active?.accessToken)return {status:"alliance-classification-pending"};
         const card=await discoverAlliance(active.accessToken,limitedFetch);
-        if(!card.ok)return {status:"alliance-classification-pending"};
+        if(!card.ok){
+          await save(bucket,s,now);return {status:"alliance-classification-pending"};
+        }
         await saveConnectedAlliance(env,CAPTAIN_PREFIX+sid,card);
         entry=await bucket.get(CONNECTED_ALLIANCE_PREFIX+sid);
       }
-      if(!entry)return {status:"alliance-classification-pending"};
+      if(!entry){
+        await save(bucket,s,now);return {status:"alliance-classification-pending"};
+      }
       const raw=await entry.text();
       if(raw.length>1024)return {status:"alliance-classification-pending"};
       const info=JSON.parse(raw);
@@ -404,7 +427,9 @@ export async function runPlayerCampaignTick(env,fetchImpl=fetch,now=Date.now()){
         s.alreadyPresent++;move(s);await save(bucket,s,now);
         return {status:"already-archived"};
       }
+      const archiveStarted=Date.now();
       const result=await collect({session:sid,resource:family},env,limitedFetch,now);
+      playerArchivePerf(s,now,Date.now()-archiveStarted);
       if(result.ok&&["archived","recent-capture"].includes(result.status)){
         s.saved+=Number(result.status==="archived");
         s.alreadyPresent+=Number(result.status==="recent-capture");
@@ -446,8 +471,10 @@ export async function runPlayerCampaignTick(env,fetchImpl=fetch,now=Date.now()){
       s.alreadyPresent++;s.doneShared.push(target);move(s);await save(bucket,s,now);
       return {status:"already-archived"};
     }
+    const archiveStarted=Date.now();
     const result=await collect({session:sid,resource:"shared-member-squads",member},
       env,limitedFetch,now);
+    playerArchivePerf(s,now,Date.now()-archiveStarted);
     if(result.ok&&["archived","recent-capture"].includes(result.status)){
       s.saved+=Number(result.status==="archived");
       s.alreadyPresent+=Number(result.status==="recent-capture");

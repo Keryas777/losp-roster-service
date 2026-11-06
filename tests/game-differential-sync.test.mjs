@@ -5,6 +5,7 @@ import {createHash} from "node:crypto";
 import {RosterBatchLock} from "../src/roster-batch-lock.js";
 import {runGameDifferentialTick,gameDifferentialStatus,gameScheduledSlot,nextGameScheduledAt} from "../src/game-differential-sync.js";
 import {GAME_ARCHIVE_ROOT} from "../src/game-catalog-archive.js";
+import {viewGamePerf} from "../src/game-differential-performance.js";
 import {publicAwakenedMaterials} from "../src/awakened-material-catalog.js";
 import {handleAdmin} from "../src/admin-routes.js";
 
@@ -211,6 +212,93 @@ test("429 protects provider, resumes after 1h, and does not claim completed",asy
   assert.equal(status.status,"checking");
   assert.ok(status.pauseUntil);
 });
+test("performance metrics persist scan, actual GET and 429 wait without extra provider calls",async()=>{
+  let first=true;
+  const f=fixture({api:()=>{
+    if(first){first=false;return new Response("slow",{status:429});}
+    return Response.json({data:[],meta:{asOf:"2026-10-23T00:00:00Z"}});
+  }});
+  await f.seed();
+  for(let i=0;i<5;i++)
+    await runGameDifferentialTick(f.env,f.provider,NOW+i*60000);
+  const stateKey="game-archive/v1/diff/state.json";
+  let state=JSON.parse(f.store.get(stateKey));
+  let m=viewGamePerf(state,NOW+5*60000);
+  assert.equal(m.status,"recorded");
+  assert.equal(m.scan.entries,1);
+  assert.equal(m.scan.ticks,4);
+  assert.equal(m.provider.gets,1);
+  assert.equal(m.provider.http429,1);
+  assert.equal(m.rateLimit.events,1);
+  assert.ok(m.rateLimit.activeUntil);
+  assert.ok(m.scan.wallMs>=3*60000);
+  assert.ok(m.provider.fetchMs>=0);
+  const n=f.calls.length;
+  await runGameDifferentialTick(f.env,f.provider,NOW+6*60000);
+  assert.equal(f.calls.length,n,"cooldown cannot send more provider GETs");
+  // After an hour the same checkpoint resumes; no duplicate 429 metric.
+  await runGameDifferentialTick(f.env,f.provider,NOW+65*60000);
+  state=JSON.parse(f.store.get(stateKey));
+  m=viewGamePerf(state,NOW+65*60000);
+  assert.equal(m.rateLimit.events,1);
+  assert.equal(m.rateLimit.waitMs,60*60000);
+  assert.ok(m.provider.gets>=2);
+  assert.ok(m.checking.ticks>=2);
+  const persisted=JSON.stringify(m);
+  assert.ok(!persisted.includes("TOKEN_DO_NOT_LEAK"));
+});
+
+test("daily /game cap records real quota wait and resumes next day",async()=>{
+  const f=fixture();await f.seed();
+  for(let i=0;i<4;i++)
+    await runGameDifferentialTick(f.env,f.provider,NOW+i*60000);
+  const day="2026-10-23";
+  f.store.set(GAME_ARCHIVE_ROOT+"budget/"+day+".json",
+    JSON.stringify({date:day,used:9000,diffUsed:9000}));
+  const tick=await runGameDifferentialTick(f.env,f.provider,NOW+4*60000);
+  assert.equal(tick.calls,0);
+  const stateKey="game-archive/v1/diff/state.json";
+  let state=JSON.parse(f.store.get(stateKey));
+  let p=viewGamePerf(state,NOW+4*60000);
+  assert.equal(p.dailyBudget.events,1);
+  assert.equal(p.dailyBudget.lastUsed,9000);
+  assert.equal(p.dailyBudget.lastLimit,9000);
+  assert.equal(p.dailyBudget.blockedTicks,1);
+  assert.equal(p.provider.gets,0);
+  await runGameDifferentialTick(f.env,f.provider,NOW+5*60000);
+  state=JSON.parse(f.store.get(stateKey));
+  p=viewGamePerf(state,NOW+5*60000);
+  assert.equal(p.dailyBudget.events,1);
+  assert.equal(p.dailyBudget.blockedTicks,2);
+  assert.equal(p.dailyBudget.waitMs,60_000);
+  await runGameDifferentialTick(f.env,f.provider,NOW+86400000);
+  state=JSON.parse(f.store.get(stateKey));
+  p=viewGamePerf(state,NOW+86400000);
+  assert.equal(p.dailyBudget.events,1);
+  assert.ok(p.dailyBudget.waitMs>=23*3600000);
+  assert.ok(p.provider.gets>0);
+  assert.ok(p.last15Minutes.gets>0);
+});
+
+test("old differential checkpoint starts partial telemetry without reset",async()=>{
+  const f=fixture();await f.seed();
+  const run="70aa2222-3333-4333-8333-aabbccddeeff";
+  const key="game-archive/v1/diff/state.json";
+  f.store.set(key,JSON.stringify({version:1,runId:run,sourceRun:SOURCE,
+    status:"checking",scanPhase:"done",writeIndex:1,readIndex:0,
+    readOffset:0,queued:1,checked:0,changed:0,unchanged:0,failed:0,
+    retries:0,pauseUntil:null,startedAt:new Date(NOW-3600000).toISOString()}));
+  f.store.set("game-archive/v1/diff/runs/"+run+"/tasks/0000000.json",
+    JSON.stringify([{path:"/game/v1/traits"}]));
+  assert.equal((await gameDifferentialStatus(f.env)).performance.status,"not-instrumented");
+  await runGameDifferentialTick(f.env,f.provider,NOW);
+  const s=JSON.parse(f.store.get(key)),m=viewGamePerf(s,NOW);
+  assert.equal(s.runId,run);
+  assert.equal(m.coverage,"partial");
+  assert.equal(m.scan.wallMs,null);
+  assert.equal(m.checking.wallMs,0);
+});
+
 test("diff is opt-in and does not consume OAuth with disabled configuration",async()=>{
   const f=fixture();await f.seed();
   f.env.GAME_DIFF_ENABLED="false";

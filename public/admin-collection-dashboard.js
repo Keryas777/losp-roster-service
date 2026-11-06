@@ -18,6 +18,13 @@
     return new Date(v).toLocaleString("fr-FR");
   };
   const count=x=>Number.isSafeInteger(x)?String(x):"—";
+  const elapsed=value=>{
+    if(!Number.isFinite(value)||value<0)return "—";
+    const sec=Math.round(value/1000);
+    if(sec<60)return sec+" s";
+    if(sec<3600)return Math.floor(sec/60)+" min "+sec%60+" s";
+    return Math.floor(sec/3600)+" h "+Math.floor(sec%3600/60)+" min";
+  };
   const beforeArenaArchive=checkedAt=>{
     const at=Date.parse(checkedAt||"");
     if(!Number.isFinite(at))return false;
@@ -223,13 +230,39 @@
       "Campagne complémentaire : "+label(player.status)+
         " · comptes OAuth actifs en R2 : "+count(pers.accountsActive),
       eligible&&archives===eligible?"ok":"warn");
+    const playerPerf=player.performance||{};
+    const playerMeasured=playerPerf.status==="recorded";
+    tile(cards,"Performances de la campagne /player",
+      playerMeasured?count(playerPerf.provider?.gets)+" GET mesurés":
+        "En attente d'une campagne instrumentée",
+      playerMeasured?
+        "Depuis "+time(playerPerf.measuredFrom)+
+        (playerPerf.coverage==="partial"?" (mesures partielles). ":
+          " (mesures complètes). ")+
+        "Durée de campagne : "+elapsed(playerPerf.elapsedMs)+
+        " · latence des en-têtes GET : "+elapsed(playerPerf.provider?.fetchMs)+
+        " au total · moyenne : "+count(playerPerf.provider?.meanFetchMs)+
+        " ms/GET. Traitement/archivage des familles : "+
+        elapsed(playerPerf.archive?.workMs)+" ("+
+        count(playerPerf.archive?.calls)+" opérations). "+
+        "429 : "+count(playerPerf.provider?.http429)+
+        " · pauses cumulées : "+elapsed(playerPerf.rateLimit?.waitMs)+
+        " · débit 15 min : "+
+        (Number.isFinite(playerPerf.last15Minutes?.getsPerMinute)?
+          playerPerf.last15Minutes.getsPerMinute.toFixed(2):"—")+" GET/min. "+
+        "Mesures limitées aux familles personnelles /player ; les rosters "+
+        "des alliances sont collectés séparément.":
+        "Le prochain passage actif commencera les statistiques. "+
+        "Le compteur requestsToday réserve jusqu'à 10 GET par tick, "+
+        "ce n'est pas une limite journalière Scopely.",
+      "neutral");
     tile(cards,"Archives /game",
       count(g.archivedResponses)+" réponses",
       "Collecte : "+label(g.status)+
         " · "+count(g.cursor)+"/"+count(g.totalTasks)+
         " tâches · "+count(g.gapCount)+" lacune(s). "+
         "Compteur du checkpoint, objets non vérifiés ici. "+
-        "Différentiel hebdomadaire : "+label(diff.status)+
+        "Différentiel lundi/jeudi : "+label(diff.status)+
         " · changements : "+count(diff.changed)+
         " · inchangés : "+count(diff.unchanged)+
         " · échecs : "+count(diff.failed)+
@@ -237,6 +270,35 @@
         " · dernier changement : "+time(diff.lastChangedAt)+
         " · prochaine passe : "+time(diff.nextRunAt),
       g.status==="complete"?"ok":"neutral");
+    const perf=diff.performance||{};
+    const measured=perf.status==="recorded";
+    tile(cards,"Performances du différentiel /game",
+      measured?count(perf.provider?.gets)+" GET mesurés":
+        "En attente d'une collecte instrumentée",
+      measured?
+        "Mesures depuis "+time(perf.measuredFrom)+
+        (perf.coverage==="partial"?" (campagne déjà entamée). ":
+          " (campagne intégrale). ")+
+        "Indexation R2 : "+elapsed(perf.scan?.wallMs)+
+        " écoulées, "+elapsed(perf.scan?.activeMs)+" actives, "+
+        count(perf.scan?.entries)+" entrées parcourues. "+
+        "Vérifications : "+elapsed(perf.checking?.wallMs)+" écoulées. "+
+        "GET Scopely : "+elapsed(perf.provider?.fetchMs)+" de latence totale, "+
+        elapsed(perf.provider?.bodyMs)+" de lecture des réponses, "+
+        count(perf.provider?.meanFetchMs)+" ms/GET en moyenne. "+
+        "Débit sur 15 minutes : "+
+        (Number.isFinite(perf.last15Minutes?.getsPerMinute)?
+          perf.last15Minutes.getsPerMinute.toFixed(2):"—")+" GET/min. "+
+        "429 : "+count(perf.provider?.http429)+" · pause cumulée : "+
+        elapsed(perf.rateLimit?.waitMs)+". "+
+        "Quota : "+count(perf.dailyBudget?.lastUsed)+"/"+
+        count(perf.dailyBudget?.lastLimit)+
+        " (dernier relevé) · attente cumulée : "+
+        elapsed(perf.dailyBudget?.waitMs)+". "+
+        "Temps écoulé des phases = passages Cron inclus, pas CPU.":
+        "Les mesures débutent à la prochaine activité du collecteur. "+
+        "Lecture R2 uniquement, aucun GET Scopely à l'affichage.",
+      "neutral");
     tile(cards,"Sessions OAuth",
       count(o.checked)+" contrôlées",
       "Dernier contrôle : "+time(o.checkedAt)+

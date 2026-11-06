@@ -8,6 +8,10 @@ import {GAME_ROOTS,GAME_ARCHIVE_ROOT,GAME_ARCHIVE_DAILY_LIMIT,
   appToken,readGameBody} from "./game-catalog-archive.js";
 import {discoverGamePhase2,phase2RootTasks} from "./game-phase2-discovery.js";
 import {characterRecoveryTasks,splitFailedAbilities} from "./game-archive-recovery.js";
+import {ensureGamePerf,scanPerf,providerFetchPerf,providerBodyPerf,
+  start429Perf,resume429Perf,noteBudgetPerf,blockedBudgetPerf,
+  resumeBudgetPerf,checkTickPerf,finishGamePerf,viewGamePerf}
+  from "./game-differential-performance.js";
 import {characterSegment} from "./game-differential-evidence.js";
 import {noteAwakenedMaterials} from "./awakened-material-catalog.js";
 import {markGameEventsDirty} from "./game-events-daily.js";
@@ -123,6 +127,7 @@ function visible(s,enabled=true,now=Date.now()){
     checked:s.checked||0,queued:s.queued||0,scanPhase:s.scanPhase||null,
     sourceRun:s.sourceRun||null,pauseUntil:s.pauseUntil||null,
     lastOutcome:s.lastOutcome||null,runId:s.runId||null,
+    performance:viewGamePerf(s,now),
     note:"Responses compared by SHA-256 and semantic body (excluding meta.asOf); "+
       "only changed source JSON gets a new R2 object."};
 }
@@ -246,7 +251,7 @@ async function queue(b,s,candidates,now=Date.now()){
 }
 function make(source,now,previous=null,trigger="initial"){
   const sameSource=previous?.sourceRun===source;
-  return {version:1,runId:crypto.randomUUID(),sourceRun:source,
+  const state={version:1,runId:crypto.randomUUID(),sourceRun:source,
     scheduleTrigger:trigger,
     scheduledSlot:gameScheduledSlot(now)||
       (sameSource?previous.scheduledSlot||null:null),
@@ -256,9 +261,12 @@ function make(source,now,previous=null,trigger="initial"){
     recoveryQueued:0,recoveryRecorded:0,
     startedAt:new Date(now).toISOString(),lastCheckedAt:null,
     lastChangedAt:null,completedAt:null,lastOutcome:null};
+  ensureGamePerf(state,now);
+  return state;
 }
 
 async function scan(b,s,now){
+  const tickStarted=Date.now();
   if(s.scanPhase==="roots"){
     const roots=GAME_ROOTS.map(r=>({path:r.path+
       (r.pageable?"?page=1&perPage=100":"")}));
@@ -272,6 +280,7 @@ async function scan(b,s,now){
     await queue(b,s,[...roots,...phase,frenchEvents],now);
     s.scanPhase="done";s.status="checking";s.cursor=null;
     s.lastOutcome="baseline-indexed";
+    scanPerf(s,now,0,Date.now()-tickStarted,true);
     await write(b,STATE,s);
     return "checking";
   }
@@ -305,6 +314,7 @@ async function scan(b,s,now){
     }catch{s.failed++;s.lastOutcome="unreadable-source-receipt";}
   }
   await queue(b,s,candidates,now);
+  scanPerf(s,now,listed.objects.length,Date.now()-tickStarted);
   if(listed.truncated){s.cursor=listed.cursor;}
   else{s.scanPhase=s.scanPhase==="base"?"latest":
     s.scanPhase==="latest"?"pending":"roots";s.cursor=null;}
@@ -580,21 +590,31 @@ async function checkOne(b,s,task,token,fetchImpl,now,committed=null){
   const h=await hash(task.path),last=await read(b,latestKey(h));
   const ref=last&&last.path===task.path?last:task;
   let response;
+  const fetchStarted=Date.now();
   try{
     response=await fetchImpl(API+task.path,{method:"GET",cache:"no-store",
       redirect:"manual",signal:AbortSignal.timeout(15000),headers:{
         "x-api-key":API_KEY,Authorization:"Bearer "+token,
         "User-Agent":"APIClient/1.0 (Server)",Accept:"application/json"
       }});
-  }catch{return {error:"network-error"};}
+  }catch{
+    providerFetchPerf(s,now,Date.now()-fetchStarted,null,true);
+    return {error:"network-error"};
+  }
+  providerFetchPerf(s,now,Date.now()-fetchStarted,response.status);
   if(response.status===429)return {error:"rate-limited",retry:true};
   if(response.status===472)return {error:"http-472",retry:false};
   if(!response.ok)return {error:"http-"+response.status,
     retry:![403,404,422,464,474].includes(response.status)};
   let parsed;
+  const bodyStarted=Date.now();
   try{parsed=await readGameBody(response,b,s.runId,
     ROOT+"runs/"+s.runId);}
-  catch{return {error:"parse-or-r2-error",retry:true};}
+  catch{
+    providerBodyPerf(s,now,Date.now()-bodyStarted);
+    return {error:"parse-or-r2-error",retry:true};
+  }
+  providerBodyPerf(s,now,Date.now()-bodyStarted);
   if(parsed.status==="archived-unindexed")
     return {error:"unindexed-large-json",objectKey:parsed.objectKey,retry:false};
   if(parsed.status!=="ok")return {error:parsed.status,retry:true};
@@ -633,6 +653,7 @@ async function checkOne(b,s,task,token,fetchImpl,now,committed=null){
   return finishCommitted(b,s,task,receipt,now);
 }
 function done(s,now){
+  finishGamePerf(s,now);
   s.status=s.failed?"partial":"completed";s.completedAt=new Date(now).toISOString();
   s.scanPhase="done";s.lastOutcome=s.status;
 }
@@ -691,6 +712,8 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
         ...visible(s,true),supersededAt:new Date(now).toISOString()});
       s=make(active.runId,now,null,"initial");await write(b,STATE,s);
     }
+    // Record only from deployment for pre-existing checkpoints.
+    ensureGamePerf(s,now);
     // Claim a slot even if the current campaign began earlier.
     // This prevents a duplicate launch if it finishes in the same hour.
     const currentSlot=gameScheduledSlot(now);
@@ -699,6 +722,7 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
     }
     if(s.pauseUntil&&Date.parse(s.pauseUntil)>now)
       return {status:"cooldown",nextAt:s.pauseUntil};
+    resume429Perf(s,now);
     if(s.status==="scanning"){
       await scan(b,s,now);
       return {status:s.status,queued:s.queued,scanPhase:s.scanPhase};
@@ -709,7 +733,7 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
     await backfillFailures(b,s,now);
     if(s.readIndex>=s.writeIndex&&
        s.recoveryBackfill.cursor>=s.recoveryBackfill.end){
-      done(s,now);await write(b,STATE,s);
+      done(s,now);checkTickPerf(s,now,0,0);await write(b,STATE,s);
       return {status:s.status,changed:s.changed,unchanged:s.unchanged,failed:s.failed};
     }
     // Shared global /game cap and Durable Object lock, no separate 1500/day throttle.
@@ -719,7 +743,9 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
       return {status:"invalid-budget"};
     if(budget.diffUsed!==undefined&&(!Number.isSafeInteger(budget.diffUsed)||
        budget.diffUsed<0||budget.diffUsed>DAILY))return {status:"invalid-diff-budget"};
+    noteBudgetPerf(s,now,budget.used,GAME_ARCHIVE_DAILY_LIMIT);
     let token=null,calls=0,processed=0;
+    const checkedAtStart=s.checked;
     // Replays do not consume a provider GET or its budget. The existing
     // journal is inspected before reserving a request.
     while(processed<TICK&&s.readIndex<s.writeIndex){
@@ -735,8 +761,10 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
       if(journal&&journal.path!==task.path)
         return {status:"receipt-task-mismatch"};
       if(!journal){
-        if(budget.used>=GAME_ARCHIVE_DAILY_LIMIT|| (budget.diffUsed||0)>=DAILY)
-          break;
+        if(budget.used>=GAME_ARCHIVE_DAILY_LIMIT|| (budget.diffUsed||0)>=DAILY){
+          blockedBudgetPerf(s,now);break;
+        }
+        resumeBudgetPerf(s,now);
         if(!token){
           token=await appToken(env,fetchImpl,now);
           if(!token){s.pauseUntil=new Date(now+HOUR).toISOString();
@@ -745,6 +773,7 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
         }
         budget.used++;budget.diffUsed=(budget.diffUsed||0)+1;
         calls++;await write(b,budgetKey(now),budget);
+        noteBudgetPerf(s,now,budget.used,GAME_ARCHIVE_DAILY_LIMIT);
       }
       processed++;
       const result=await checkOne(b,s,task,token,fetchImpl,now,journal);
@@ -754,6 +783,9 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
         if(result.error==="rate-limited"||result.retry&&s.retries<3){
           s.pauseUntil=new Date(now+(result.error==="rate-limited"?HOUR:
             15*60000)).toISOString();
+          if(result.error==="rate-limited")
+            start429Perf(s,now,Date.parse(s.pauseUntil));
+          checkTickPerf(s,now,calls,s.checked-checkedAtStart);
           await write(b,STATE,s);
           return {status:"cooldown",lastOutcome:result.error,calls};
         }
@@ -776,8 +808,11 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
       s.readIndex++;s.readOffset=0;await write(b,STATE,s);
     }
     if(s.readIndex>=s.writeIndex&&
-       s.recoveryBackfill.cursor>=s.recoveryBackfill.end){
-      done(s,now);await write(b,STATE,s);}
+       s.recoveryBackfill.cursor>=s.recoveryBackfill.end)
+      done(s,now);
+    checkTickPerf(s,now,calls,s.checked-checkedAtStart);
+    // One bounded checkpoint update per active minute; no new R2 key.
+    await write(b,STATE,s);
     return {status:s.status,checked:s.checked,changed:s.changed,
       unchanged:s.unchanged,failed:s.failed,calls};
   }catch{return {status:"unavailable"};}
