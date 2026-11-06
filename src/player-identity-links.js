@@ -5,6 +5,7 @@ import {readGuestApprovals} from "./guest-alliance-approvals.js";
 import {readApproval} from "./roster-sync-preflight.js";
 import {selectApproved} from "./secure-guest-arena-history.js";
 import {projectAlliance} from "./secure-guest-rosters.js";
+import FALLBACK_CATALOG from "./player-identity-catalog.json" with {type:"json"};
 
 export const PLAYER_LINKS_KEY="identity-links/v1/mappings.json";
 const SITE="https://keryas777.github.io";
@@ -57,13 +58,28 @@ const sha=async items=>{
   const digest=await crypto.subtle.digest("SHA-256",bytes);
   return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,"0")).join("");
 };
+// The source on GitHub Pages is authoritative. A bundled JSON snapshot avoids
+// an empty admin panel when a remote Pages fetch is temporarily unavailable.
+// The fallback is data, not hardcoded alliance logic, and is never used for
+// private guest roster identities or authorization decisions.
 async function publicJson(name,fetchImpl,max=12000000){
-  const response=await fetchImpl(DATA+name,{method:"GET",redirect:"error",
-    headers:{Accept:"application/json"}});
-  if(!response.ok)throw Error("public-data-http-"+response.status);
-  const text=await response.text();
-  if(text.length>max)throw Error("public-data-oversized");
-  return JSON.parse(text);
+  try{
+    const response=await fetchImpl(DATA+name,{method:"GET",redirect:"error",
+      headers:{Accept:"application/json"}});
+    if(!response.ok)throw Error("public-data-http-"+response.status);
+    const text=await response.text();
+    if(text.length>max)throw Error("public-data-oversized");
+    return JSON.parse(text);
+  }catch(error){
+    const fallbackKey={
+      "alliances.json":"alliances",
+      "access-groups.json":"access_groups",
+      "joueurs.json":"joueurs"
+    }[name];
+    const backup=fallbackKey&&FALLBACK_CATALOG[fallbackKey];
+    if(backup)return backup;
+    throw error;
+  }
 }
 async function catalog(fetchImpl){
   const [alliances,access]=await Promise.all([
