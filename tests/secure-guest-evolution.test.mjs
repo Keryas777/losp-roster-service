@@ -101,6 +101,10 @@ test("Sunday checkpoint is refused when the only real roster is from Saturday",a
   const record=JSON.parse(f.objects.get(name));
   record.capturedAt="2026-11-07T15:45:00Z";
   f.objects.set(name,JSON.stringify(record));
+  const memberKey=f.root+runId+"/member-self.json";
+  const member=JSON.parse(f.objects.get(memberKey));
+  member.capturedAt="2026-11-07T15:40:00Z";
+  f.objects.set(memberKey,JSON.stringify(member));
   const tick=await archiveGuestEvolutionTick(f.env,sunday);
   assert.equal(tick.status,"roster-not-ready");
   assert.equal(f.objects.has("roster-batches/v1/guest-evolution/"+
