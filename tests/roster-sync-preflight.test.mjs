@@ -169,7 +169,7 @@ test("LoSP-only enrollment action is red, while guest approval keeps the normal 
     readFile(new URL("../public/admin-explorer.css",import.meta.url),"utf8")
   ]);
   assert.match(js,/enable\.className="roster-losp-enroll-danger"/);
-  assert.match(js,/enable\.textContent="Inclure "\+alliance\.name\+" dans les collectes LoSP"/);
+  assert.match(js,/allianceLabel\(enable,"Inclure ",alliance\.name," dans les collectes LoSP"\)/);
   assert.doesNotMatch(js,/guest\.className="roster-losp-enroll-danger"/);
   assert.match(css,/#roster-connected-list button\.roster-losp-enroll-danger\{background:#a42131;border-color:#f1949e;color:#fff;font-weight:700\}/);
 });
