@@ -121,7 +121,7 @@ function projectMember(row,fp,manifest,index,now){
     // Never include volatileMemberId in any browser response.
     _privateId:row.volatileMemberId};
 }
-async function projectAlliance(bucket,fp,alliance,now){
+export async function projectAlliance(bucket,fp,alliance,now){
   const root=PREFIX+fp+"/";
   const m=await read(bucket,root+"latest-complete.json",MAX_RECEIPT);
   if(!m)return {alliance,state:"not-collected",rosters:[]};
