@@ -168,6 +168,47 @@ test("provider rate limit pauses campaign, without rapid retries",async()=>{
   assert.equal(state.status,"running");
   assert.equal(state.nextAttemptAt,new Date(f.now+3600000).toISOString());
 });
+test("player instrumentation records actual GETs, not pessimistic 10-request reservation",async()=>{
+  const f=await fixture();
+  await startPlayerCampaign(f.env,f.now);
+  const r=await runPlayerCampaignTick(f.env,f.provider,f.now);
+  assert.equal(r.status,"archived");
+  const status=await (await getPlayerCampaignStatus(f.env)).json();
+  const p=status.performance;
+  assert.equal(p.status,"recorded");
+  assert.equal(p.coverage,"full");
+  assert.equal(p.provider.gets,f.calls.length);
+  assert.ok(p.provider.gets>0&&p.provider.gets<status.requestsToday);
+  assert.ok(p.provider.fetchMs>=0);
+  assert.ok(p.archive.calls>=1);
+  assert.ok(p.archive.workMs>=0);
+  assert.ok(p.last15Minutes.gets>0);
+  assert.ok(!JSON.stringify(p).includes("TOKEN"));
+  const raw=JSON.parse(f.db.get(prefix+"player-campaign/current.json"));
+  assert.equal(raw.performance.provider.gets,p.provider.gets,
+    "metrics are stored in the existing checkpoint");
+});
+
+test("player instrumentation tracks 429 pause without rerunning during cooldown",async()=>{
+  const f=await fixture({providerStatus:429});
+  await startPlayerCampaign(f.env,f.now);
+  await runPlayerCampaignTick(f.env,f.provider,f.now);
+  const count=f.calls.length;
+  const current=await (await getPlayerCampaignStatus(f.env)).json();
+  assert.equal(current.performance.provider.http429,1);
+  assert.equal(current.performance.rateLimit.events,1);
+  assert.equal(current.performance.rateLimit.activeUntil,
+    new Date(f.now+3600000).toISOString());
+  await runPlayerCampaignTick(f.env,f.provider,f.now+60_000);
+  assert.equal(f.calls.length,count);
+  const again=await (await getPlayerCampaignStatus(f.env)).json();
+  assert.equal(again.performance.provider.gets,1);
+  await runPlayerCampaignTick(f.env,f.provider,f.now+3600000);
+  const next=await (await getPlayerCampaignStatus(f.env)).json();
+  assert.equal(next.performance.rateLimit.waitMs,3600000);
+  assert.ok(next.performance.provider.gets>1);
+});
+
 test("admin one-button endpoint rejects cross-origin and unauthorized clients",async()=>{
   const f=await fixture();
   const bad=new Request(URL,{method:"POST",headers:{
