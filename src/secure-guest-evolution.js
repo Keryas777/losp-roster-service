@@ -63,7 +63,7 @@ function recent(snap,now){
   return Number.isFinite(source)&&source<=now&&source>=now-MAX_AGE&&
     day<=now&&localDay(source)===snap.date;
 }
-async function activeSharers(bucket,fp,now){
+export async function activeSharers(bucket,fp,now){
   const utc=new Date(now).toISOString().slice(0,10)+"T00:00:00Z";
   const base=Date.parse(utc);
   for(let delta=0;delta<=7;delta++){
