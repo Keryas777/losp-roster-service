@@ -262,7 +262,7 @@
         " · "+count(g.cursor)+"/"+count(g.totalTasks)+
         " tâches · "+count(g.gapCount)+" lacune(s). "+
         "Compteur du checkpoint, objets non vérifiés ici. "+
-        "Différentiel hebdomadaire : "+label(diff.status)+
+        "Différentiel lundi/jeudi : "+label(diff.status)+
         " · changements : "+count(diff.changed)+
         " · inchangés : "+count(diff.unchanged)+
         " · échecs : "+count(diff.failed)+
