@@ -79,6 +79,11 @@ test("consent withdrawal hides past snapshots, no retrofit",async()=>{
   const date=Date.parse("2026-11-09T10:00:00Z");
   const body=await(await secureGuestEvolution(req(),f.env,date)).json();
   assert.equal(Object.keys(body.index.players).length,0);
+  const rotated=await archiveGuestEvolutionTick(f.env,date);
+  assert.equal(rotated.status,"refreshed");
+  const saved=JSON.parse(f.objects.get(
+    "roster-batches/v1/guest-evolution/"+fp+"/rolling.json"));
+  assert.equal(saved.checkpoints.length,0);
 });
 test("invalid session and forbidden origin do not read guest history",async()=>{
   const f=fixture();
@@ -88,4 +93,16 @@ test("invalid session and forbidden origin do not read guest history",async()=>{
   const origin=new Request(request.url,{headers:{
     Origin:"https://untrusted.example",Authorization:"Bearer "+signed}});
   assert.equal((await secureGuestEvolution(origin,f.env,sunday)).status,403);
+});
+
+test("Sunday checkpoint is refused when the only real roster is from Saturday",async()=>{
+  const f=fixture();
+  const name=f.root+"latest-complete.json";
+  const record=JSON.parse(f.objects.get(name));
+  record.capturedAt="2026-11-07T15:45:00Z";
+  f.objects.set(name,JSON.stringify(record));
+  const tick=await archiveGuestEvolutionTick(f.env,sunday);
+  assert.equal(tick.status,"roster-not-ready");
+  assert.equal(f.objects.has("roster-batches/v1/guest-evolution/"+
+    fp+"/rolling.json"),false);
 });
