@@ -183,7 +183,9 @@ export async function archiveGuestEvolutionTick(env,now=Date.now()){
         }
       }
     }
-    if(!archive.checkpoints.length)return {status:"no-checkpoints"};
+    // Rewrite a scrubbed empty archive, too: revoked sharing must not leave
+    // the old player payload behind in the rolling object.
+    if(!archive.checkpoints.length&&!existing)return {status:"no-checkpoints"};
     const body=JSON.stringify(archive);
     if(body.length>MAX_BYTES)return {status:"archive-too-large"};
     await bucket.put(archiveKey(selected.fingerprint),body,{
