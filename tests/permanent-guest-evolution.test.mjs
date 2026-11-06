@@ -197,3 +197,12 @@ test("two real weeks are recorded cumulatively and never pruned by later ticks",
   const index=JSON.parse(f.objects.get("webapp-evolution/v1/"+fp+"/index.json"));
   assert.deepEqual(index.checkpoints.map(c=>c.date),[date1,date2]);
 });
+
+test("versioned production Worker config activates the persistent history route",async()=>{
+  const {readFileSync}=await import("node:fs");
+  const config=readFileSync(new URL("../wrangler.jsonc",import.meta.url),"utf8");
+  assert.match(config,/"GUEST_EVOLUTION_LONG_TERM_AUTHORIZED"\s*:\s*"true"/);
+  const worker=readFileSync(new URL("../src/index.js",import.meta.url),"utf8");
+  assert.match(worker,/archivePermanentGuestEvolutionTick\(env,scheduled\)/);
+  assert.match(worker,/securePermanentGuestEvolution\(request,env\)/);
+});
