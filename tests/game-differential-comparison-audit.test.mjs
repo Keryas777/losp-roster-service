@@ -166,6 +166,101 @@ test("saved comparison report survives page reload and read-only consultation",a
   assert.equal(f.calls.filter(x=>x[0]==="put").length,writesBefore);
 });
 
+test("V1 and V2 receipts distinguish global metadata from actual data changes",async()=>{
+  const f=fixture();
+  const before={data:{power:100},meta:{asOf:"2026-10-20",hashes:{chars:"old"}}};
+  const global={data:{power:100},meta:{asOf:"2026-11-03",hashes:{chars:"new"}}};
+  const changed={data:{power:200},meta:{asOf:"2026-11-03",hashes:{chars:"new"}}};
+  const legacyHash=doc=>{
+    const copy={...doc,meta:{...doc.meta}};
+    delete copy.meta.asOf;
+    return sha(JSON.stringify(copy));
+  };
+  const v1=await add(f,"/game/v1/characters/LegacyV1",before,global);
+  const v2=await add(f,"/game/v1/items/CurrentV2",before,global);
+  const real=await add(f,"/game/v1/items/ActualChange",before,changed);
+  const baseline=await add(f,"/game/v1/events/OriginalNoSemantic",before,global);
+  for(const record of [v1,v2,real,baseline]){
+    const old=JSON.parse(f.stored.get(record.previousKey));
+    const current=JSON.parse(f.stored.get(record.currentKey));
+    if(record===v1){
+      old.semanticHash=legacyHash(before);old.semanticVersion=1;
+      current.semanticHash=legacyHash(global);current.semanticVersion=1;
+    }else if(record===v2){
+      old.semanticVersion=2;current.semanticVersion=2;
+    }else if(record===real){
+      old.semanticHash=legacyHash(before); // No version: infer V1.
+      current.semanticVersion=2;
+    }else {
+      delete old.semanticHash; // Original archive receipt has no semantic fingerprint.
+      current.semanticVersion=2;
+    }
+    f.stored.set(record.previousKey,JSON.stringify(old));
+    f.stored.set(record.currentKey,JSON.stringify(current));
+  }
+  await post(f);
+  const report=await runToEnd(f);
+  assert.equal(report.byClass["global-metadata-only"],3);
+  assert.equal(report.byClass["data-change"],1);
+  const v1row=report.rows.find(x=>x.path.endsWith("LegacyV1"));
+  assert.equal(v1row.priorSemanticProfile,"v1");
+  assert.equal(v1row.currentSemanticProfile,"v1");
+  assert.equal(v1row.dataChanged,false);
+  assert.equal(v1row.globalMetadataChanged,true);
+  const v2row=report.rows.find(x=>x.path.endsWith("CurrentV2"));
+  assert.equal(v2row.currentSemanticProfile,"v2");
+  assert.equal(report.rows.find(x=>x.path.endsWith("ActualChange")).priorSemanticProfile,"v1-inferred");
+  assert.equal(report.rows.find(x=>x.path.endsWith("OriginalNoSemantic")).priorSemanticProfile,"not-recorded");
+  assert.equal(f.calls.filter(x=>x[0]==="put"&&x[1]!==PROGRESS).length,0);
+});
+
+test("explicitly incorrect versioned semantic hashes are rejected without mutation",async()=>{
+  const f=fixture();
+  const old={data:{power:1},meta:{asOf:"A",hashes:{chars:"old"}}};
+  const newer={data:{power:1},meta:{asOf:"B",hashes:{chars:"new"}}};
+  const p=await add(f,"/game/v1/items/WrongVersion",old,newer);
+  const prior=JSON.parse(f.stored.get(p.previousKey));
+  prior.semanticVersion=1; // But its stored fingerprint is V2.
+  f.stored.set(p.previousKey,JSON.stringify(prior));
+  await post(f);
+  const report=await runToEnd(f);
+  assert.equal(report.byClass["semantic-receipt-mismatch"],1);
+  assert.equal(report.rows[0].priorSemanticProfile,"mismatch");
+  assert.equal(report.rows[0].currentSemanticProfile,"v2-inferred");
+});
+
+test("old completed checkpoint is reinterpreted without re-sampling or losing original",async()=>{
+  const f=fixture();
+  const metadata={path:"/game/v1/items/Old",classification:"semantic-receipt-mismatch",
+    semanticSame:true,changedFields:["meta.hashes.chars","meta.hashes.all"]};
+  const changed={path:"/game/v1/items/Changed",classification:"semantic-receipt-mismatch",
+    semanticSame:false,changedFields:["data.length","meta.hashes.all"]};
+  const unknown={path:"/game/v1/items/Unknown",classification:"no-linked-previous-version"};
+  f.stored.set(PROGRESS,JSON.stringify({version:1,status:"snapshot-complete",
+    sampled:3,byClass:{"semantic-receipt-mismatch":2,
+      "no-linked-previous-version":1},rows:[metadata,changed,unknown]}));
+  const saved=f.stored.get(PROGRESS);
+  const r=await (await get(f)).json();
+  assert.deepEqual(r.byClass,{"semantic-receipt-mismatch":2,"no-linked-previous-version":1});
+  assert.equal(r.reinterpretation.byClass["global-metadata-observed"],1);
+  assert.equal(r.reinterpretation.byClass["data-change-observed"],1);
+  assert.equal(r.reinterpretation.byClass["possible-new-or-unlinked"],1);
+  assert.equal(r.reinterpretation.verifiedProfiles,false);
+  assert.equal(f.stored.get(PROGRESS),saved);
+  assert.equal(f.calls.some(x=>x[0]==="put"||x[0]==="list"),false);
+});
+
+test("missing previous receipt link means possible new, not proven new",async()=>{
+  const f=fixture();
+  await add(f,"/game/v1/characters/PossiblyNew",{data:{a:1}},
+    {data:{a:2}},{link:false});
+  await post(f);
+  const r=await runToEnd(f);
+  assert.equal(r.byClass["possible-new-or-unlinked"],1);
+  assert.equal(r.rows[0].provenance,"indeterminate");
+  assert.equal(r.rows[0].possibleNew,true);
+});
+
 test("missing historical linkage, invalid receipt and corrupted bytes are not mislabelled as changes",async()=>{
   const f=fixture();
   // Different URLs can legitimately share a content-addressed R2 object.
@@ -180,7 +275,7 @@ test("missing historical linkage, invalid receipt and corrupted bytes are not mi
   }));
   await post(f);
   const report=await runToEnd(f);
-  assert.equal(report.byClass["no-linked-previous-version"],1);
+  assert.equal(report.byClass["possible-new-or-unlinked"],1);
   assert.equal(report.byClass["previous-invalid-storage-reference"],1);
   assert.equal(report.byClass["current-stored-sha-mismatch"],1);
   assert.equal(report.byClass["data-change"]||0,0);

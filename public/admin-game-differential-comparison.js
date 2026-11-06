@@ -18,6 +18,12 @@
     "metadata-other-change":"Autres métadonnées modifiées",
     "serialization-order-change":"Ordre des propriétés JSON modifié, valeurs identiques",
     "data-change":"Données métier modifiées",
+    "data-change-observed":"Données métier différentes (observation historique)",
+    "global-metadata-only":"Seules les empreintes globales meta.hashes ont changé",
+    "global-metadata-observed":"Seuls les meta.hashes diffèrent (observation historique)",
+    "historical-hash-unverified":"Ancienne empreinte non revalidée",
+    "possible-new-or-unlinked":"Nouvelle URL possible ou lien historique manquant",
+    "invalid-previous-receipt-link":"Lien historique invalide",
     "no-linked-previous-version":"Version précédente non liée",
     "previous-receipt-missing":"Ancien reçu manquant",
     "previous-receipt-inconsistent":"Ancien reçu incohérent",
@@ -69,17 +75,19 @@
     el("p","Arrêt de l'échantillonnage : "+(report.reason||"en cours"),counts);
     if(report.sourceChanged)
       el("p","La campagne source a évolué pendant l'audit : les observations ne forment pas un instantané transactionnel.",counts);
+    const interpretation=report.reinterpretation||null;
     const categories=el("div",undefined,summary,"health-card");
-    el("strong","Classements observés",categories);
-    for(const [kind,n] of Object.entries(report.byClass||{}).
+    el("strong",interpretation?"Relecture du rapport existant":"Classements observés",categories);
+    if(interpretation)el("p",interpretation.note,categories);
+    for(const [kind,n] of Object.entries(interpretation?.byClass||report.byClass||{}).
       sort((a,b)=>b[1]-a[1])){
       const text=(labels[kind]||kind)+" : "+n;
       el("p",text,categories);
     }
     if(!Object.keys(report.byClass||{}).length)
       el("p","Aucun échantillon encore analysé.",categories);
-    el("p","Échantillon exploratoire : ces proportions ne sont pas représentatives des 12 232 URL. Un reçu sans version précédente liée n'autorise aucune conclusion sur les différences.",summary,"muted");
-    for(const item of report.rows||[]){
+    el("p","Échantillon exploratoire non représentatif. Une URL sans lien de version antérieure peut être nouvelle, mais l'absence de lien ne prouve pas sa nouveauté.",summary,"muted");
+    for(const item of interpretation?.rows||report.rows||[]){
       const card=el("div",undefined,results,"member-card");
       el("strong",item.path||"(chemin non identifié)",card);
       el("p",(labels[item.classification]||item.classification)+

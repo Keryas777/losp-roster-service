@@ -75,7 +75,14 @@ async function object(b,ref){
   catch{return {error:"invalid-json"};}
   if(!body||typeof body!=="object"||Array.isArray(body)||
      !Object.hasOwn(body,"data"))return {error:"invalid-envelope"};
-  return {body,digest,semantic:await gameSemanticHash(body)};
+  // V1 ignored meta.asOf only; V2 also ignores global meta.hashes.
+  // Recalculate both from the verified bytes; never rewrite old receipts.
+  const legacy={...body};
+  if(legacy.meta&&typeof legacy.meta==="object"&&!Array.isArray(legacy.meta)){
+    legacy.meta={...legacy.meta};delete legacy.meta.asOf;
+  }
+  return {body,digest,semantic:await gameSemanticHash(body),
+    legacySemantic:await hash(JSON.stringify(legacy))};
 }
 // This is a SECOND, diagnostic-only check. Production intentionally uses
 // JSON.stringify ordering. Stable ordering tells us whether that detail alone
@@ -93,6 +100,7 @@ function normalizedStable(doc){
   const value={...doc};
   if(value.meta&&typeof value.meta==="object"&&!Array.isArray(value.meta)){
     value.meta={...value.meta};delete value.meta.asOf;
+    delete value.meta.hashes;
   }
   return JSON.stringify(sorted(value));
 }
@@ -131,6 +139,51 @@ function changedFields(before,after){
 function result(path,group,kind,extra={}){
   return {path,group,classification:kind,...extra};
 }
+// A missing semantic hash is normal for some original archive receipts.
+// An explicit profile version MUST match; unversioned legacy hashes are
+// inferred only when their value matches an actual verified object.
+function profile(ref,obj){
+  const value=ref?.semanticHash,version=ref?.semanticVersion;
+  if(!SHA.test(value||""))
+    return version===undefined||version===null?"not-recorded":"mismatch";
+  if(version===2)return value===obj.semantic?"v2":"mismatch";
+  if(version===1)return value===obj.legacySemantic?"v1":"mismatch";
+  if(version!==undefined&&version!==null)return "mismatch";
+  if(value===obj.semantic)return "v2-inferred";
+  if(value===obj.legacySemantic)return "v1-inferred";
+  return "mismatch";
+}
+const newOrUnlinked=(path,group,recordedStatus)=>result(path,group,
+  "possible-new-or-unlinked",{recordedStatus,possibleNew:true,
+    provenance:"indeterminate",note:"Missing previous receipt link can mean a new URL or incomplete legacy provenance; neither is proven."});
+function existingReportInterpretation(s){
+  // Interpret ONLY observations already persisted in the completed V1
+  // checkpoint. No R2 reads, writes, provider requests, or re-sampling.
+  if(s?.schemaVersion===2||s?.status!=="snapshot-complete"||
+     !Array.isArray(s.rows))return null;
+  const rows=s.rows.map(item=>{
+    let classification=item.classification;
+    if(classification==="no-linked-previous-version")
+      classification="possible-new-or-unlinked";
+    else if(classification==="semantic-receipt-mismatch"){
+      const fields=item.changedFields||[];
+      if(item.semanticSame===true&&fields.length>0&&
+         fields.every(x=>x.startsWith("meta.hashes")))
+        classification="global-metadata-observed";
+      else if(item.semanticSame===false&&fields.some(x=>x==="data"||
+          x.startsWith("data." )||x.startsWith("data[")))
+        classification="data-change-observed";
+      else classification="historical-hash-unverified";
+    }
+    return {path:item.path,group:item.group,classification,
+      recordedStatus:item.recordedStatus||null};
+  });
+  const byClass={};
+  for(const row of rows)
+    byClass[row.classification]=(byClass[row.classification]||0)+1;
+  return {byClass,rows,verifiedProfiles:false,note:
+    "Relecture indicative des 24 observations sauvegardées : les anciennes empreintes V1/V2 n'ont pas été revalidées. Le classement original reste inchangé."};
+}
 async function evaluate(b,pointer,key){
   const path=pointer?.path;
   const group=family(path);
@@ -144,8 +197,10 @@ async function evaluate(b,pointer,key){
      receipt.objectKey!==pointer.objectKey)
     return result(path,group,"current-receipt-inconsistent");
   const oldKey=receipt.sourceReceipt;
-  if(!RECEIPT.test(oldKey||""))
-    return result(path,group,"no-linked-previous-version",{
+  if(!oldKey)
+    return newOrUnlinked(path,group,receipt.status);
+  if(!RECEIPT.test(oldKey))
+    return result(path,group,"invalid-previous-receipt-link",{
       recordedStatus:receipt.status});
   if(oldKey===refKey)return result(path,group,"invalid-self-link");
   const previous=await read(b,oldKey);
@@ -160,27 +215,33 @@ async function evaluate(b,pointer,key){
   const exactSame=current.digest===old.digest;
   const semanticSame=current.semantic===old.semantic;
   const recorded=receipt.status;
+  const priorProfile=profile(previous,old),currentProfile=profile(receipt,current);
+  const globalHashesSame=JSON.stringify(sorted(old.body.meta?.hashes))===
+    JSON.stringify(sorted(current.body.meta?.hashes));
+  const dataSame=JSON.stringify(sorted(old.body.data))===
+    JSON.stringify(sorted(current.body.data));
+  const otherStableSame=normalizedStable(old.body)===normalizedStable(current.body);
   const base={recordedStatus:recorded,exactSame,semanticSame,
-    changedFields:changed,
-    priorReceiptMatches:old.semantic===previous.semanticHash||
-      !SHA.test(previous.semanticHash||""),
-    currentReceiptMatches:current.semantic===receipt.semanticHash};
+    changedFields:changed,priorSemanticProfile:priorProfile,
+    currentSemanticProfile:currentProfile,
+    priorReceiptMatches:priorProfile!=="mismatch",
+    currentReceiptMatches:currentProfile!=="mismatch",
+    globalMetadataChanged:!globalHashesSame,dataChanged:!dataSame};
   if(!base.currentReceiptMatches||!base.priorReceiptMatches)
     return result(path,group,"semantic-receipt-mismatch",base);
+  if(semanticSame&&otherStableSame&&!globalHashesSame)
+    return result(path,group,"global-metadata-only",base);
   if(semanticSame&&recorded==="changed")
     return result(path,group,"false-change",base);
   if(!semanticSame&&recorded==="unchanged")
     return result(path,group,"missed-change",base);
   if(exactSame||semanticSame)
     return result(path,group,exactSame?"byte-identical":"only-asof-or-order",base);
-  if(normalizedStable(old.body)===normalizedStable(current.body))
-    return result(path,group,"serialization-order-change",base);
-  const dataSame=JSON.stringify(sorted(old.body.data))===
-    JSON.stringify(sorted(current.body.data));
+  if(otherStableSame)return result(path,group,"serialization-order-change",base);
   return result(path,group,dataSame?"metadata-other-change":"data-change",base);
 }
 function initial(source,now){
-  return {version:1,status:"running",startedAt:stamp(now),
+  return {version:1,schemaVersion:2,status:"running",startedAt:stamp(now),
     updatedAt:stamp(now),finishedAt:null,cursor:null,end:false,keys:[],
     scanned:0,sampled:0,skipped:0,sourceAtStart:sourceView(source),
     sourceAtEnd:null,sourceChanged:false,groups:{},byClass:{},rows:[],
@@ -190,7 +251,9 @@ function visible(s){
   if(!s)return {status:"not-started",
     note:"Diagnostic manuel : aucune requête Scopely."};
   const {cursor,keys,...report}=s;
-  return {...report,note:s.status==="running"?
+  const reinterpretation=existingReportInterpretation(s);
+  return {...report,...(reinterpretation?{reinterpretation}:{}),
+    note:s.status==="running"?
     "Lecture progressive R2 en cours par le Cron existant, indépendante du navigateur.":
     "Échantillon exploratoire non représentatif de tout /game. Aucune donnée brute copiée."};
 }
