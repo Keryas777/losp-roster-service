@@ -130,3 +130,20 @@ test("admin mutations reject CSRF and no Discord token fails safely",async()=>{
   assert.equal(res.status,503);
   assert.equal((await res.json()).status,"discord-not-configured");
 });
+
+test("admin catalogs remain usable when GitHub Pages is unreachable",async()=>{
+  const f=fixture();
+  const offline=async()=>{throw Error("Pages temporarily unreachable");};
+  let response=await handleAdminPlayerLinks(admin("alliances"),f.env,offline);
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.ok(body.alliances.some(a=>a.key==="marines"));
+  assert.ok(body.alliances.some(a=>a.key==="zeus"));
+  response=await handleAdminPlayerLinks(admin("players&alliance=zeus"),
+    f.env,offline);
+  assert.equal(response.status,200);
+  const players=(await response.json()).players;
+  assert.ok(players.length>0);
+  assert.ok(players.includes("Keryas I"));
+  assert.deepEqual(f.writes,[]);
+});
