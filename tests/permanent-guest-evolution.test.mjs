@@ -109,3 +109,91 @@ test("same-week replay is idempotent; no rolling auto-delete",async()=>{
   assert.equal(f.writes.length,writes);
   assert.ok([...f.objects.keys()].some(k=>k.startsWith("webapp-evolution/v1/")));
 });
+
+
+test("interrupted index write is recovered without rewriting the immutable checkpoint",async()=>{
+  const f=make();f.infos(date1);f.staged([checkpoint(date1,1000)]);
+  const originalPut=f.env.CAPTAIN_BUCKET.put;
+  let failOnce=true;
+  f.env.CAPTAIN_BUCKET.put=async(key,value,options)=>{
+    if(key.endsWith("/index.json")&&failOnce){
+      failOnce=false;
+      throw Error("simulated-index-write-interruption");
+    }
+    return originalPut(key,value,options);
+  };
+  const firstAttempt=await archivePermanentGuestEvolutionTick(f.env,first);
+  assert.equal(firstAttempt.status,"unavailable");
+  const immutableKey="webapp-evolution/v1/"+fp+"/checkpoints/"+date1+".json";
+  const originalBytes=f.objects.get(immutableKey);
+  assert.ok(originalBytes);
+  assert.ok(!f.objects.has("webapp-evolution/v1/"+fp+"/index.json"));
+  const retried=await archivePermanentGuestEvolutionTick(f.env,first);
+  assert.equal(retried.status,"recovered");
+  assert.equal(retried.recovered,1);
+  assert.equal(f.objects.get(immutableKey),originalBytes);
+  assert.deepEqual(JSON.parse(f.objects.get(
+    "webapp-evolution/v1/"+fp+"/index.json")).checkpoints.map(c=>c.date),[date1]);
+  assert.equal((await archivePermanentGuestEvolutionTick(f.env,first)).status,
+    "unchanged");
+});
+test("corrupt orphan is never adopted or overwritten",async()=>{
+  const f=make();f.infos(date1);f.staged([checkpoint(date1,1000)]);
+  const path="webapp-evolution/v1/"+fp+"/checkpoints/"+date1+".json";
+  f.objects.set(path,JSON.stringify({
+    version:1,fingerprint:fp,allianceKey:"someone-else",
+    date:date1,sourceCapturedAt:date1+"T15:45:00Z",
+    players:[{player:"Shared",alliance:"someone-else",
+      chars:{blob:{power:999999}},iso:{}}]}));
+  const original=f.objects.get(path);
+  const result=await archivePermanentGuestEvolutionTick(f.env,first);
+  assert.equal(result.status,"orphan-conflict");
+  assert.equal(f.objects.get(path),original);
+  assert.equal(f.writes.length,0);
+});
+test("missing indexed historical object triggers integrity warning, never silent deletion",async()=>{
+  const f=make();f.infos(date1);f.staged([checkpoint(date1,1000)]);
+  await archivePermanentGuestEvolutionTick(f.env,first);
+  const indexKey="webapp-evolution/v1/"+fp+"/index.json";
+  const savedIndex=f.objects.get(indexKey);
+  const immutableKey="webapp-evolution/v1/"+fp+"/checkpoints/"+date1+".json";
+  f.objects.delete(immutableKey);
+  const result=await archivePermanentGuestEvolutionTick(f.env,first);
+  assert.equal(result.status,"archive-integrity-error");
+  assert.equal(f.objects.get(indexKey),savedIndex);
+});
+test("player leaving alliance disappears from all WebApp views, archives remain intact",async()=>{
+  const f=make();f.infos(date1);f.staged([checkpoint(date1,1000)]);
+  await archivePermanentGuestEvolutionTick(f.env,first);
+  const older="webapp-evolution/v1/"+fp+"/checkpoints/"+date1+".json";
+  const bytes=f.objects.get(older);
+  const receipt=r2Base+fp+"/campaigns/"+date2+"-pm-infos.json";
+  f.infos(date2);
+  const recent=JSON.parse(f.objects.get(receipt));
+  recent.rows=[]; // Player is no longer in the live alliance census.
+  f.objects.set(receipt,JSON.stringify(recent));
+  const body=await(await securePermanentGuestEvolution(f.request("index"),
+    f.env,second)).json();
+  assert.equal(body.status,"ok");
+  assert.equal(Object.keys(body.index.players).length,0);
+  assert.equal(body.index.checkpoints.length,0);
+  const group=await(await securePermanentGuestEvolution(f.request("group",
+    {date:date1}),f.env,second)).json();
+  assert.deepEqual(group.group.players,[]);
+  const player=await(await securePermanentGuestEvolution(f.request("player",{
+    date:date1,playerKey:"g_marines__shared"}),f.env,second)).json();
+  assert.equal(player.snapshot,null);
+  assert.equal(f.objects.get(older),bytes);
+});
+test("two real weeks are recorded cumulatively and never pruned by later ticks",async()=>{
+  const f=make();f.infos(date1);f.staged([checkpoint(date1,1000)]);
+  await archivePermanentGuestEvolutionTick(f.env,first);
+  f.infos(date2);f.staged([checkpoint(date2,2000)]);
+  await archivePermanentGuestEvolutionTick(f.env,second);
+  const totalWrites=f.writes.length;
+  const result=await archivePermanentGuestEvolutionTick(f.env,second);
+  assert.equal(result.status,"unchanged");
+  assert.equal(f.writes.length,totalWrites);
+  const index=JSON.parse(f.objects.get("webapp-evolution/v1/"+fp+"/index.json"));
+  assert.deepEqual(index.checkpoints.map(c=>c.date),[date1,date2]);
+});
