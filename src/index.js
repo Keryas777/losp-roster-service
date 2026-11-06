@@ -243,9 +243,9 @@ export default {
       const guestEvolution=await archiveGuestEvolutionTick(env,scheduled);
       if(!["outside-window","idle","disabled"].includes(guestEvolution.status))
         console.info("guest-evolution-cron",JSON.stringify(guestEvolution));
-      // An optional, separately reviewed historical archive for the WebApp.
-      // Disabled unless the operator has confirmed long-term rights for API-
-      // derived data and explicitly enables the dedicated environment flag.
+      // Cumulative WebApp history, separate from temporary R2 receipts.
+      // Enabled in wrangler.jsonc: immutable Sunday files + recoverable index.
+      // Never queries Scopely; current alliance membership gates API reads.
       if(env?.GUEST_EVOLUTION_LONG_TERM_AUTHORIZED==="true"){
         const archive=await archivePermanentGuestEvolutionTick(env,scheduled);
         if(!["outside-window","unchanged","idle","disabled"].includes(archive.status))
