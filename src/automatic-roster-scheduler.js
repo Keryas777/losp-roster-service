@@ -3,6 +3,7 @@ import {captainConfigReady} from "./captain-vault.js";
 import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
 import {handleRosterMicrobatch,BATCH_PREFIX} from "./private-roster-batches.js";
 import {dispatchCompleteRosterCampaign} from "./roster-github-dispatch.js";
+import {dispatchGuestRosterCampaigns} from "./guest-roster-github-dispatch.js";
 import {dispatchCompleteTrophyCards} from "./trophy-github-dispatch.js";
 import {rosterAttemptKey,rosterCooldownKey,rosterAttemptRecord}
   from "./roster-auto-diagnostics.js";
@@ -304,6 +305,16 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
         approval.lospAlliances.map(a=>a.fingerprint),options.githubFetch||fetch);}
       catch{githubDispatch="unavailable";}
     }
+    // Guest campaigns publish independently as soon as EACH approved,
+    // WebApp-bound alliance has its own complete R2 receipt. They never delay
+    // LoSP publication or change provider collection requests.
+    let guestRosterDispatch=null;
+    if(slot.tick%5===0||(used>0&&outcomes.some(o=>
+      o.status==="complete"||o.status==="partial-consent"))){
+      try{guestRosterDispatch=await dispatchGuestRosterCampaigns(
+        env,slot,options.githubFetch||fetch);}
+      catch{guestRosterDispatch={status:"unavailable"};}
+    }
     // Trophy cards are available at the beginning of the roster microbatches:
     // trigger independently of member-roster completion, with five-minute
     // retry checks and an immediate check after every actual provider tick.
@@ -318,6 +329,13 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
     return {status:outcome,requestsThisTick:used,
       requestsToday:d.used+used,campaign:slot.campaign,
       ...(githubDispatch!=="disabled"?{githubDispatch}:{}),
+      ...(guestRosterDispatch?.status==="ok"?
+        {guestRosterDispatch:{
+          dispatched:guestRosterDispatch.dispatched,
+          already:guestRosterDispatch.already,
+          awaiting:guestRosterDispatch.awaiting,
+          failed:guestRosterDispatch.failed
+        }}:{}),
       ...(trophyDispatch!=="disabled"?{trophyDispatch}:{}),
       ...(outcomes.length===1?{httpStatus:outcomes[0].httpStatus}:{}),
       alliancesProcessed:outcomes.length,
