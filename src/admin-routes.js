@@ -1,4 +1,5 @@
 import {diagnoseAdminAuth,adminReady} from "./admin-auth.js";
+import {handleAdminPlayerLinks} from "./player-identity-links.js";
 import {rosterSyncPreflight,saveRosterSyncApprovals,approveOneRosterAlliance} from "./roster-sync-preflight.js";
 import {handlePrivateRosterPilot} from "./private-roster-pilot.js";
 import {handleRosterMicrobatch,getRosterBatchStatus} from "./private-roster-batches.js";
@@ -69,6 +70,15 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<label><input id="guest-rank-backfill-confirm" type="checkbox"> Je confirme avoir vérifié dans le jeu la saison des rangs Guerre et Raid affichés.</label>'+
 '<button type="button" id="guest-rank-backfill-publish" disabled>Enregistrer ces rangs pour la saison confirmée</button>'+
 '<p id="guest-rank-backfill-status" role="status"></p></div></section>'+
+'<section id="player-links-admin"><h2>Associations Discord / MSF</h2>'+ 
+'<p>Relie un membre Discord à son pseudo MSF dans une alliance. Enregistrement privé R2 ; aucune collecte Scopely déclenchée.</p>'+ 
+'<div class="controls"><label>Alliance<select id="player-links-alliance"></select></label>'+ 
+'<label>Pseudo MSF<select id="player-links-msf"></select></label>'+ 
+'<label>Compte Discord<select id="player-links-discord"></select></label></div>'+ 
+'<button type="button" id="player-links-load">Charger les membres et joueurs</button> '+
+'<button type="button" id="player-links-save" disabled>Associer les comptes</button>'+ 
+'<p id="player-links-status" role="status">Ouvre ce panneau pour charger les associations.</p>'+ 
+'<div id="player-links-list" class="scroll"></div></section>'+ 
 '<section id="connected-alliance-directory"><h2>Alliances connectées automatiquement</h2>'+
 '<p>Les alliances des joueurs connectés via Scopely apparaissent ici automatiquement. Leur approbation pour les collectes LoSP ou invitées est explicite et distincte.</p>'+
 '<button id="roster-connected-refresh" type="button">Actualiser les alliances connectées</button>'+
@@ -264,6 +274,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<button id="load">Afficher les données</button><p id="status" role="status"></p></section>'+
 '<section id="output">Choisis un compte et une rubrique.</section></main>'+
 '<script src="/admin-navigation.js" defer></script>'+ 
+'<script src="/admin-player-links.js" defer></script>'+ 
 '<script src="/admin-collection-dashboard.js" defer></script>'+
 '<script src="/admin-explorer.js" defer></script>'+
 '<script src="/admin-season-ranks.js?v=2" defer></script>'+
@@ -304,7 +315,8 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
         "/admin/api/game-differential-failure-audit",
         "/admin/api/game-differential-comparison-audit",
         "/admin/api/alliance-season-ranks","/admin/api/guest-season-rank-backfill","/admin/api/player-extras",
-         "/admin/api/player-campaign", "/admin/api/reward-infos-manual"].includes(endpoint)))
+         "/admin/api/player-campaign", "/admin/api/reward-infos-manual",
+         "/admin/api/player-links"].includes(endpoint)))
     return new Response("Method Not Allowed",{status:405});
   if(!adminReady(env))return new Response("Administration désactivée",{
     status:503,headers:{"Cache-Control":"no-store"}
@@ -336,6 +348,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     return handleGameDifferentialFailureDiagnostic(request,env);
   if(pathname==="/admin/api/game-differential")return Response.json(
     await gameDifferentialStatus(env),{headers:{"Cache-Control":"private, no-store"}});
+  if(pathname==="/admin/api/player-links")return handleAdminPlayerLinks(request,env,fetchImpl);
   if(pathname==="/admin/api/collection-overview")return handleCollectionOverview(request,env);
   if(pathname==="/admin/api/catalog")return adminCatalog();
   if(pathname==="/admin/api/sessions")return adminSessionList(env,fetchImpl,new URL(request.url));

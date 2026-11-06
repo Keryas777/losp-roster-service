@@ -4,6 +4,9 @@ on:
     paths:
       - "src/admin-arena-coverage.js"
       - "src/admin-routes.js"
+      - "src/player-identity-links.js"
+      - "public/admin-player-links.js"
+      - "tests/player-identity-links.test.mjs"
       - "src/member-info-reward.js"
       - "src/public-arena-history.js"
       - "src/index.js"
@@ -50,6 +53,8 @@ jobs:
         run: |
           node --check src/admin-arena-coverage.js
           node --check src/admin-routes.js
+          node --check src/player-identity-links.js
+          node --check public/admin-player-links.js
           node --check src/member-info-reward.js
           node --check src/public-arena-history.js
           node --check src/secure-guest-arena-history.js
@@ -66,4 +71,4 @@ jobs:
           node --check public/admin-collection-dashboard.js
           node --check public/admin-navigation.js
           node --check public/admin-roster-preflight.js
-          node --test tests/permanent-guest-evolution.test.mjs tests/secure-guest-evolution.test.mjs tests/secure-guest-infos.test.mjs tests/admin-guest-webapp-binding-feedback.test.mjs tests/secure-guest-arena-history.test.mjs tests/secure-guest-rosters.test.mjs tests/admin-arena-coverage.test.mjs tests/admin-arena-pending-labels.test.mjs tests/member-info-reward-manual.test.mjs tests/member-info-reward.test.mjs tests/alliance-season-ranks.test.mjs tests/public-arena-history.test.mjs tests/collection-overview.test.mjs tests/roster-r2-coverage.test.mjs tests/guest-alliance-approvals.test.mjs
+          node --test tests/player-identity-links.test.mjs tests/permanent-guest-evolution.test.mjs tests/secure-guest-evolution.test.mjs tests/secure-guest-infos.test.mjs tests/admin-guest-webapp-binding-feedback.test.mjs tests/secure-guest-arena-history.test.mjs tests/secure-guest-rosters.test.mjs tests/admin-arena-coverage.test.mjs tests/admin-arena-pending-labels.test.mjs tests/member-info-reward-manual.test.mjs tests/member-info-reward.test.mjs tests/alliance-season-ranks.test.mjs tests/public-arena-history.test.mjs tests/collection-overview.test.mjs tests/roster-r2-coverage.test.mjs tests/guest-alliance-approvals.test.mjs

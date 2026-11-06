@@ -7,7 +7,7 @@
     {id:"overview",label:"Vue d’ensemble",targets:[
       "collection-dashboard-refresh","refresh","check-refresh","season-ranks-refresh"]},
     {id:"rosters",label:"Rosters",targets:[
-      "connected-alliance-directory","check-coverage","roster-preflight",
+      "connected-alliance-directory","player-links-admin","check-coverage","roster-preflight",
       "roster-r2-refresh","arena-coverage-refresh","reward-info-manual-refresh"]},
     {id:"archives",label:"Archives R2",targets:[
       "player-campaign-start","player-r2-load","game-archive-status","game-diff-diagnostic-refresh",
