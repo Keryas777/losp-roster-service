@@ -150,14 +150,15 @@ export async function archiveGuestEvolutionTick(env,now=Date.now()){
     return {status:"disabled"};
   const p=localParts(now),hour=Number(p.hour),minute=Number(p.minute);
   const sunday=p.weekday==="Sun";
-  const capture=sunday&&hour===23&&
-    ((minute>=0&&minute<30)||(minute>=30&&minute<60));
-  const rotation=hour===11&&minute<30;
+  const capture=sunday&&hour===23;
+  const rotation=hour===11;
   if(!capture&&!rotation)return {status:"outside-window"};
-  const targetIndex=capture?minute%30:minute;
   try{
     const list=await approved(env);
-    if(list.length>30)return {status:"too-many-guests"};
+    if(list.length>60)return {status:"too-many-guests"};
+    // Within 30 tenants, retry each Sunday checkpoint a second time.
+    // Above 30 tenants, use all 60 Sunday minute slots once.
+    const targetIndex=capture&&list.length<=30?minute%30:minute;
     if(targetIndex>=list.length)return {status:"idle"};
     const selected=list[targetIndex],bucket=env.CAPTAIN_BUCKET;
     const allowed=await activeSharers(bucket,selected.fingerprint,now);
