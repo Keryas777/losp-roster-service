@@ -1,8 +1,9 @@
-// Separate, persistent archive for the static WebApp's guest Evolution page.
-// This must not be confused with the seven-day R2 staging prefix. Deploy only
-// after confirming Scopely authorization for historical retention beyond 30d.
-// Each week is stored separately, so the archive does not grow into one
-// oversized rolling JSON object. No additional Scopely/provider requests.
+// Separate, cumulative archive for the static WebApp's guest Evolution page.
+// Unlike the seven-day R2 staging prefix, historical WebApp checkpoints never
+// age out automatically. One immutable object per Sunday and a dated index.
+// Visibility follows the latest alliance census; members who leave disappear
+// from API reads without deleting their historical checkpoint.
+// No additional Scopely/provider requests.
 import {readGuestApprovals} from "./guest-alliance-approvals.js";
 import {readApproval} from "./roster-sync-preflight.js";
 import {verifiedDiscord,selectApproved,headers} from "./secure-guest-arena-history.js";
@@ -74,6 +75,16 @@ function validateIndex(index,fp,alliance){
     dates.add(checkpoint.date);
   }
   return true;
+}
+function checkpointRecord(snapshot){
+  return {date:snapshot.date,sourceCapturedAt:snapshot.sourceCapturedAt,
+    players:snapshot.players.map(p=>p.player)};
+}
+function matchesRecord(snapshot,record){
+  return snapshot.date===record.date&&
+    snapshot.sourceCapturedAt===record.sourceCapturedAt&&
+    snapshot.players.length===record.players.length&&
+    snapshot.players.every((p,i)=>p.player===record.players[i]);
 }
 function blank(fp,alliance){
   return {version:1,fingerprint:fp,allianceKey:alliance,checkpoints:[]};
@@ -157,27 +168,50 @@ export async function archivePermanentGuestEvolutionTick(env,now=Date.now()){
       return {status:"invalid-index"};
     const updated=original?structuredClone(original):
       blank(selected.fingerprint,selected.allianceKey);
-    const existing=new Set(updated.checkpoints.map(s=>s.date));
-    // Two at most per invocation; later ticks catch up without bursts.
-    let added=0;
+    const recorded=new Map(updated.checkpoints.map(c=>[c.date,c]));
+    // Each immutable checkpoint is written BEFORE its index entry.
+    // A failed index write leaves a recoverable orphan. The next tick
+    // validates and adopts the existing bytes instead of overwriting them.
+    let added=0,recovered=0;
     for(const c of staging.checkpoints){
       if(added>=2)break;
-      if(existing.has(c.date))continue;
-      const snapshot={version:1,fingerprint:selected.fingerprint,
-        allianceKey:selected.allianceKey,date:c.date,
-        sourceCapturedAt:c.sourceCapturedAt,
-        players:c.players.filter(p=>allowed.has(norm(p.player)))};
-      if(!validateSnapshot(snapshot,selected.fingerprint,selected.allianceKey))
+      if(!isSunday(c?.date)||!Array.isArray(c.players))
         return {status:"invalid-checkpoint"};
-      if(!snapshot.players.length)continue;
       const path=checkpointKey(selected.fingerprint,c.date);
-      // An immutable checkpoint may not be overwritten by later imports.
-      if(await read(bucket,path))return {status:"orphan-checkpoint"};
-      await write(bucket,path,snapshot);
-      updated.checkpoints.push({date:c.date,
-        sourceCapturedAt:c.sourceCapturedAt,
-        players:snapshot.players.map(p=>p.player)});
-      existing.add(c.date);
+      const prior=recorded.get(c.date);
+      const saved=await read(bucket,path);
+      if(prior){
+        // An index pointing to absent/corrupt content is an integrity alarm.
+        // Never silently re-create an indexed historical observation.
+        if(!validateSnapshot(saved,selected.fingerprint,selected.allianceKey)||
+           !matchesRecord(saved,prior))
+          return {status:"archive-integrity-error"};
+        continue;
+      }
+      let snapshot=saved;
+      if(snapshot){
+        // Orphan from a crash after checkpoint PUT but before index PUT.
+        // Adopt the original immutable observation, even if the latest
+        // rosterShare/census excludes some past members. Reads enforce
+        // current membership and sharing on every request.
+        if(!validateSnapshot(snapshot,selected.fingerprint,selected.allianceKey)||
+           snapshot.date!==c.date||
+           snapshot.sourceCapturedAt!==c.sourceCapturedAt)
+          return {status:"orphan-conflict"};
+        recovered++;
+      }else{
+        snapshot={version:1,fingerprint:selected.fingerprint,
+          allianceKey:selected.allianceKey,date:c.date,
+          sourceCapturedAt:c.sourceCapturedAt,
+          players:c.players.filter(p=>allowed.has(norm(p.player)))};
+        if(!validateSnapshot(snapshot,selected.fingerprint,selected.allianceKey))
+          return {status:"invalid-checkpoint"};
+        if(!snapshot.players.length)continue;
+        await write(bucket,path,snapshot);
+      }
+      const record=checkpointRecord(snapshot);
+      updated.checkpoints.push(record);
+      recorded.set(record.date,record);
       added++;
     }
     if(!added)return {status:"unchanged",count:updated.checkpoints.length};
@@ -185,7 +219,8 @@ export async function archivePermanentGuestEvolutionTick(env,now=Date.now()){
     const encoded=JSON.stringify(updated);
     if(encoded.length>MAX_INDEX_BYTES)throw Error("index-too-large");
     await write(bucket,indexKey(selected.fingerprint),updated);
-    return {status:"archived",added,total:updated.checkpoints.length};
+    return {status:recovered?"recovered":"archived",
+      added,recovered,total:updated.checkpoints.length};
   }catch{
     return {status:"unavailable"};
   }
