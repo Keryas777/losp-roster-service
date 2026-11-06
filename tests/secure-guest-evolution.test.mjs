@@ -110,3 +110,25 @@ test("Sunday checkpoint is refused when the only real roster is from Saturday",a
   assert.equal(f.objects.has("roster-batches/v1/guest-evolution/"+
     fp+"/rolling.json"),false);
 });
+
+test("Discord allowlist is mandatory even when a tenant archive exists",async()=>{
+  const f=fixture();
+  await archiveGuestEvolutionTick(f.env,sunday);
+  f.env.LOSP_AUTH.fetch=async()=>Response.json({
+    ok:true,signedSession:true,role:"guest",
+    groupKey:"marines",allowedAlliances:["zeus"]});
+  const response=await secureGuestEvolution(req(),f.env,sunday);
+  assert.equal(response.status,403);
+  assert.doesNotMatch(JSON.stringify(await response.json()),new RegExp(fp));
+});
+test("a client cannot access unrelated player keys or weekdays",async()=>{
+  const f=fixture();
+  await archiveGuestEvolutionTick(f.env,sunday);
+  const other=await secureGuestEvolution(req("player",{
+    date:"2026-11-08",playerKey:"g_marines__other"}),f.env,sunday);
+  assert.equal(other.status,200);
+  assert.equal((await other.json()).snapshot,null);
+  const wrongDay=await secureGuestEvolution(req("group",{
+    date:"2026-11-09"}),f.env,sunday);
+  assert.equal(wrongDay.status,400);
+});
