@@ -16,6 +16,7 @@ import {publicArenaHistory,archiveArenaHistory,archiveArenaHistoryWhenReady} fro
 import {secureGuestArenaHistory} from "./secure-guest-arena-history.js";
 import {secureGuestInfos} from "./secure-guest-infos.js";
 import {secureGuestRosters} from "./secure-guest-rosters.js";
+import {secureGuestEvolution,archiveGuestEvolutionTick} from "./secure-guest-evolution.js";
 import {publicTrophyHistory,archiveTrophyHistory} from "./public-trophy-history.js";
 import {publicGuestSeasonRanks} from "./public-guest-season-ranks.js";
 import {GAME_ARCHIVE_CRON,runGameArchiveTick} from "./game-catalog-archive.js";
@@ -235,6 +236,12 @@ export default {
           console.warn("msf-characters-dispatch",JSON.stringify({status:"unavailable"}));
         }
       }
+      // Guest Evolution uses only existing PRIVATE R2 receipts.
+      // One approved tenant per minute; Sunday snapshots and daily TTL rotation.
+      // Never delays LoSP roster publication or sends another Scopely GET.
+      const guestEvolution=await archiveGuestEvolutionTick(env,scheduled);
+      if(!["outside-window","idle","disabled"].includes(guestEvolution.status))
+        console.info("guest-evolution-cron",JSON.stringify(guestEvolution));
       // R2-only scheduled backup at 20:17/22:17 Paris.
       // Ready-to-publish snapshots are already handled after quiet ticks.
       const arenaHistory=await archiveArenaHistory(env,controller.scheduledTime);
@@ -427,6 +434,8 @@ export default {
       return secureGuestInfos(request,env);
     if(url.pathname==="/api/secure/guest-rosters")
       return secureGuestRosters(request,env);
+    if(url.pathname==="/api/secure/guest-evolution")
+      return secureGuestEvolution(request,env);
     if(url.pathname==="/api/public/trophy-history")
       return publicTrophyHistory(request,env);
     if(url.pathname==="/api/public/guest-season-ranks")
