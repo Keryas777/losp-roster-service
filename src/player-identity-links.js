@@ -113,10 +113,12 @@ async function playersFor(meta,fetchImpl,env,now=Date.now()){
   return [...new Set(names.map(clean).filter(n=>NAME.test(n)))].sort((a,b)=>
     a.localeCompare(b,"fr"));
 }
-const rolesFor=(group,groups)=>{
+const rolesFor=(group,groups,alliance)=>{
   const entry=groups.find(g=>g.key===group);
   if(!entry)return [];
-  return [...new Set([...(entry.roleIds||[]),...Object.keys(entry.allianceRoles||{})])];
+  const scoped=Object.entries(entry.allianceRoles||{})
+    .filter(([,key])=>key===alliance).map(([role])=>role);
+  return [...new Set([...(entry.roleIds||[]),...scoped])];
 };
 async function discordMember(env,id,fetchImpl){
   if(!env?.DISCORD_BOT_TOKEN)throw Error("discord-bot-token-not-configured");
@@ -179,7 +181,7 @@ export async function handleAdminPlayerLinks(request,env,fetchImpl=fetch){
       if(view==="players")return reply({status:"ok",
         players:await playersFor(meta,fetchImpl,env)});
       return reply({status:"ok",members:await discordDirectory(env,
-        rolesFor(meta.group,data.groups),fetchImpl)});
+        rolesFor(meta.group,data.groups,meta.key),fetchImpl)});
     }
     if(request.method!=="POST"||view!=="links")
       return reply({status:"invalid-query"},400);
@@ -206,7 +208,7 @@ export async function handleAdminPlayerLinks(request,env,fetchImpl=fetch){
         discordMember(env,discordId,fetchImpl)
       ]);
       if(!names.includes(input.player)||!Array.isArray(member.roles)||
-         !member.roles.some(r=>rolesFor(meta.group,data.groups).includes(r)))
+         !member.roles.some(r=>rolesFor(meta.group,data.groups,meta.key).includes(r)))
         return reply({status:"identity-not-in-registered-group"},422);
       if(next.some(x=>x.alliance===key&&normalized(x.player)===normalized(input.player)))
         return reply({status:"player-already-linked"},409);
