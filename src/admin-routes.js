@@ -337,7 +337,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
       "Content-Type":"text/html; charset=utf-8",
       "Cache-Control":"private, no-store","Referrer-Policy":"no-referrer",
       "X-Robots-Tag":"noindex, nofollow, noarchive","X-Frame-Options":"DENY",
-      "Content-Security-Policy":"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src https://assets.marvelstrikeforce.com; base-uri 'none'; frame-ancestors 'none'"
+      "Content-Security-Policy":"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' https://raw.githubusercontent.com; img-src https://assets.marvelstrikeforce.com; base-uri 'none'; frame-ancestors 'none'"
     }});
   }
   if(pathname==="/admin/api/game-differential-comparison-audit")

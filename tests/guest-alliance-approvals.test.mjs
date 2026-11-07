@@ -151,3 +151,58 @@ test("an approved guest can be bound to exactly one stable WebApp key",async()=>
   assert.deepEqual((await readApproval(f.env)).alliances,
     [{fingerprint:losp,name:"Zeus"}]);
 });
+
+test("admin approval records the guest WebApp key atomically",async()=>{
+  const f=fixture();
+  const req=(fingerprint,allianceKey)=>new Request(origin+
+    "/admin/api/guest-alliance-approval",{
+      method:"POST",headers:{Origin:origin,"Content-Type":"application/json"},
+      body:JSON.stringify({fingerprint,action:"approve",allianceKey})
+    });
+  const response=await handleGuestAllianceApproval(
+    req(guest,"endgame-revolution-orange"),f.env,f.provider);
+  assert.equal(response.status,200);
+  assert.equal((await response.json()).status,"approved");
+  assert.deepEqual((await readGuestApprovals(f.env)).alliances,
+    [{fingerprint:guest,allianceKey:"endgame-revolution-orange"}]);
+  assert.ok(f.calls.every(url=>!url.includes("/roster")));
+  const repeat=await handleGuestAllianceApproval(
+    req(guest,"endgame-revolution-orange"),f.env,f.provider);
+  assert.equal((await repeat.json()).status,"already-approved");
+  assert.equal((await handleGuestAllianceApproval(
+    req(guest,"endgame-revolution-red"),f.env,f.provider)).status,409);
+  assert.equal((await readGuestApprovals(f.env)).alliances[0].allianceKey,
+    "endgame-revolution-orange");
+});
+test("previously approved unbound alliance can be bound without new Scopely calls",async()=>{
+  const f=fixture();
+  await handleGuestAllianceApproval(f.request(guest),f.env,f.provider);
+  const before=f.calls.length;
+  const response=await handleGuestAllianceApproval(new Request(origin+
+    "/admin/api/guest-alliance-approval",{
+      method:"POST",headers:{Origin:origin,"Content-Type":"application/json"},
+      body:JSON.stringify({fingerprint:guest,action:"approve",
+        allianceKey:"marines"})
+    }),f.env,f.provider);
+  assert.equal(response.status,200);
+  assert.equal((await response.json()).status,"already-approved");
+  assert.equal(f.calls.length,before);
+  assert.deepEqual((await readGuestApprovals(f.env)).alliances,
+    [{fingerprint:guest,allianceKey:"marines"}]);
+});
+test("atomic binding refuses a duplicate or malformed guest key",async()=>{
+  const f=fixture(),other=hash("another-aid");
+  f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,
+    alliances:[{fingerprint:other,allianceKey:"marines"}]}));
+  const req=allianceKey=>new Request(origin+"/admin/api/guest-alliance-approval",{
+    method:"POST",headers:{Origin:origin,"Content-Type":"application/json"},
+    body:JSON.stringify({fingerprint:guest,action:"approve",allianceKey})
+  });
+  let response=await handleGuestAllianceApproval(req("marines"),f.env,f.provider);
+  assert.equal(response.status,409);
+  assert.equal((await response.json()).error,"alliance-key-already-bound");
+  response=await handleGuestAllianceApproval(req("bad key"),f.env,f.provider);
+  assert.equal(response.status,400);
+  assert.deepEqual((await readGuestApprovals(f.env)).alliances,
+    [{fingerprint:other,allianceKey:"marines"}]);
+});

@@ -2,6 +2,61 @@
 // Alliance approval is an explicit action independent of OAuth consent.
 const rosterEl=id=>document.getElementById(id);
 let rosterSnapshot=null;
+const WEBAPP_ALLIANCES_URL="https://raw.githubusercontent.com/Keryas777/msf/main/docs/data/alliances.json";
+let webappAlliancesPromise=null;
+function fetchWebappAlliances(){
+  if(!webappAlliancesPromise)webappAlliancesPromise=fetch(WEBAPP_ALLIANCES_URL,{
+    mode:"cors",cache:"no-store",credentials:"omit"
+  }).then(r=>{if(!r.ok)throw Error("webapp-registry-unavailable");return r.json();})
+    .then(rows=>Array.isArray(rows)?rows.filter(a=>
+      a&&a.group&&a.group!=="losp"&&
+      /^[a-z][a-z0-9-]{1,63}$/.test(a.key||"")):[])
+    .catch(()=>[]);
+  return webappAlliancesPromise;
+}
+function normalizedAllianceName(value){
+  return String(value||"").replace(/<[^>]*>/g,"")
+    .replace(/[ΔΛΑ]/g,"A").replace(/Π/g,"N").replace(/Σ/g,"E")
+    .replace(/Я/g,"R").replace(/Ƨ/g,"S")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .toLowerCase().replace(/[^a-z0-9]/g,"");
+}
+function scopelyNameColor(value){
+  const tags=String(value||"").matchAll(/<(?:color=)?(#[0-9a-f]{3,6}|red|orange)>/gi);
+  for(const tag of tags){
+    let code=tag[1].toLowerCase();
+    if(code==="red")code="#ff0000";
+    if(code==="orange")code="#ffa500";
+    if(code.length===4)code="#"+[...code.slice(1)].map(c=>c+c).join("");
+    if(!/^#[0-9a-f]{6}$/.test(code))continue;
+    return [1,3,5].map(n=>parseInt(code.slice(n,n+2),16));
+  }
+  return null;
+}
+function suggestWebappKey(alliance,rows){
+  const name=normalizedAllianceName(alliance?.name);
+  if(!name)return "";
+  const matches=rows.filter(a=>
+    [a.name,a.displayName,...(Array.isArray(a.aliases)?a.aliases:[])]
+      .some(label=>normalizedAllianceName(label)===name));
+  if(matches.length===1)return matches[0].key;
+  if(matches.length<2)return "";
+  // Never guess between tenants sharing a name without Scopely colour evidence.
+  const color=scopelyNameColor(alliance.name);
+  if(!color)return "";
+  const scored=matches.map(a=>{
+    const code=String(a.color||"");
+    if(!/^#[0-9a-f]{6}$/i.test(code))return null;
+    const rgb=[1,3,5].map(n=>parseInt(code.slice(n,n+2),16));
+    return {key:a.key,dist:rgb.reduce((sum,v,i)=>sum+(v-color[i])**2,0)};
+  });
+  if(scored.some(x=>!x))return "";
+  scored.sort((a,b)=>a.dist-b.dist);
+  const [best,second]=scored;
+  return best.dist<=28000&&second.dist-best.dist>=1300&&
+    second.dist>=1.3*best.dist?best.key:"";
+}
+
 function rosterClear(){
   rosterSnapshot=null;
   rosterEl("roster-preflight-list").replaceChildren();
@@ -194,9 +249,14 @@ async function loadConnectedAlliances(bindingFeedback=null){
     const result=await res.json();
     if(!res.ok||result.status!=="ok"||!Array.isArray(result.alliances))
       throw Error("unavailable");
+    // The admin directory remains usable even if registry discovery fails.
+    const registered=typeof fetchWebappAlliances==="function"?
+      await fetchWebappAlliances():[];
     if(!result.alliances.length)rosterLine(parent,
       "Aucune alliance identifiable parmi les sessions OAuth actives.");
     for(const alliance of result.alliances){
+      const suggestedKey=typeof suggestWebappKey==="function"?
+        suggestWebappKey(alliance,registered):"";
       const summary=rosterLine(parent,"");
       allianceLabel(summary,"",alliance.name," — "+
         alliance.captainConnections+" connexion(s) OAuth — "+
@@ -219,12 +279,17 @@ async function loadConnectedAlliances(bindingFeedback=null){
               method:"POST",credentials:"same-origin",cache:"no-store",
               headers:{"Content-Type":"application/json",Accept:"application/json"},
               body:JSON.stringify({fingerprint:alliance.fingerprint,
-                action:alliance.guestApproved?"revoke":"approve"})
+                 action:alliance.guestApproved?"revoke":"approve",
+                 ...(!alliance.guestApproved&&suggestedKey?
+                   {allianceKey:suggestedKey}:{})})
             });
             const result=await response.json();
             if(!response.ok)throw Error(result.error||"approval-unavailable");
             guestStatus.textContent=alliance.guestApproved?
-              "Collecte invitée révoquée.":"Alliance invitée autorisée pour les rosters partagés.";
+               "Collecte invitée révoquée.":
+               suggestedKey?
+                 "Collecte approuvée et association WebApp enregistrée : "+suggestedKey+".":
+                 "Collecte approuvée. Clé WebApp à confirmer : nom absent du registre ou ambigu.";
             void loadConnectedAlliances();
           }catch(error){
             guestStatus.textContent="Impossible : "+(error.message||"indisponible");
@@ -238,7 +303,7 @@ async function loadConnectedAlliances(bindingFeedback=null){
           const field=document.createElement("input");
           field.type="text";field.autocomplete="off";field.spellcheck=false;
           field.placeholder="ex. endgame-revolution-red";
-          field.value=alliance.guestAllianceKey||"";
+          field.value=alliance.guestAllianceKey||suggestedKey;
           field.maxLength=64;
           identity.append(field);
           const bind=document.createElement("button");
