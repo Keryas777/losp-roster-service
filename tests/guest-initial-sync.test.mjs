@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {enqueueGuestInitialSync,guestInitialSyncStatus,
-  runGuestInitialSyncTick,handleGuestInitialSync} from "../src/guest-initial-sync.js";
+  runGuestInitialSyncTick,handleGuestInitialSync,
+  dispatchInitialGuestDirectory} from "../src/guest-initial-sync.js";
 import {GUEST_APPROVAL_KEY} from "../src/guest-alliance-approvals.js";
 
 const FP="a".repeat(64),KEY="questionable-propriety";
@@ -91,4 +92,22 @@ test("admin-only GET status and explicit POST retry validate scope and Origin",a
   assert.equal((await guestInitialSyncStatus(f.env,FP)).status,"queued");
   assert.equal((await handleGuestInitialSync(new Request(URL+
     "/admin/api/guest-initial-sync?fingerprint=bad"),f.env,START)).status,400);
+});
+
+test("first complete Infos wakes the public guest directory without leaking identities",async()=>{
+  let count=0;
+  const env={ROSTER_GITHUB_DISPATCH_ENABLED:"true",
+    ROSTER_GITHUB_DISPATCH_TOKEN:"SERVER_ONLY_TEST_TOKEN"};
+  const result=await dispatchInitialGuestDirectory(env,async(url,options)=>{
+    count++;
+    assert.equal(url,"https://api.github.com/repos/Keryas777/msf/actions/workflows/publish-guest-joueurs.yml/dispatches");
+    assert.equal(options.method,"POST");
+    assert.equal(options.headers.Authorization,"Bearer SERVER_ONLY_TEST_TOKEN");
+    assert.deepEqual(JSON.parse(options.body),{ref:"main"});
+    return new Response(null,{status:204});
+  });
+  assert.equal(result,"dispatched");
+  assert.equal(count,1);
+  assert.equal(await dispatchInitialGuestDirectory({},async()=>{throw Error("never called");}),"not-configured");
+  assert.equal(await dispatchInitialGuestDirectory(env,async()=>new Response(null,{status:403})),"github-unavailable");
 });
