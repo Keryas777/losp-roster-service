@@ -213,7 +213,7 @@ test("Sunday repairs only missing guest Saturday trophies using true source time
           warRank:27,raidRank:14,warTrophies:3026},
         {allianceFingerprint:orange,name:"END<color=#f60>GAME R-évolution",
           warRank:1021,raidRank:842,warTrophies:2534}]}));
-  const before=JSON.stringify(f.data.get(key));
+  const before=f.data.get(key);
   assert.equal((await recoverPreviousSaturdayGuestTrophies(
     f.env,Date.parse("2026-11-07T23:30:00Z"))).status,
     "outside-recovery-window");
