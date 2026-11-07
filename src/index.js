@@ -305,7 +305,7 @@ export default {
           status:differential.status,changed:differential.changed||0,
           unchanged:differential.unchanged||0,failed:differential.failed||0
         }));
-      // Daily events: 03:17 UTC, same shared lock and Scopely budget.
+      // Daily events: 21:05 UTC (22:05 winter in France), shared lock/budget.
       const dailyEvents=await runGameDailyEventsTick(env);
       if(!["disabled","not-due","up-to-date","cooldown","busy"].includes(dailyEvents.status))
         console.info("game-events-daily-cron",JSON.stringify({
