@@ -53,7 +53,7 @@ test("new approved and bound alliance is queued once; phases finish after restar
       async()=>{throw Error("No unmocked Scopely calls");},deps(steps));
     assert.notEqual(res.status,"unavailable");
   }
-  assert.deepEqual(steps,["infos","infos","ranks","arena","roster"]);
+  assert.deepEqual(steps,["infos","infos","roster","ranks","arena"]);
   const end=await guestInitialSyncStatus(f.env,FP);
   assert.equal(end.status,"complete");
   assert.equal(end.phase,"done");
