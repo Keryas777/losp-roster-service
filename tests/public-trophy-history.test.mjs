@@ -59,6 +59,9 @@ test("publishes actual LoSP and connected, approved guest trophies without finge
   assert.deepEqual(publicData.snapshots[0].alliances.map(a=>a.nameAtCapture)
     .sort(),["MARINES","Zeus"]);
   assert.equal(publicData.snapshots[0].coverage.complete,true);
+  assert.ok(publicData.snapshots[0].alliances.every(a=>
+    !Object.hasOwn(a,"allianceKey")),
+    "unbound guests and LoSP must not receive an inferred key");
   const json=JSON.stringify(publicData);
   for(const privateString of [losp,guest,"aid-zeus","aid-marines",
     "NEVER_PUBLISH_PRIVATE","provider-source","accessToken"]){
@@ -118,4 +121,66 @@ test("guest approval revocation hides earlier readings immediately without a cro
   f.data.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[]}));
   const response=await (await publicTrophyHistory(new Request(url),f.env,NOW)).json();
   assert.deepEqual(response.snapshots[0].alliances.map(a=>a.nameAtCapture),["Zeus"]);
+});
+
+test("the current approved guest WebApp key is projected only after R2 binding",async()=>{
+  const f=fixture();
+  add(f,source(losp,"aid-zeus","Zeus",3010),losp);
+  add(f,source(guest,"aid-marines","<color=red>MARINES</color>",2280),guest);
+  assert.equal((await archiveTrophyHistory(f.env,slot,NOW)).status,"updated");
+  const readPublic=async()=>(await (await publicTrophyHistory(
+    new Request(url),f.env,NOW)).json()).snapshots[0].alliances;
+  let rows=await readPublic();
+  assert.equal(rows.find(a=>a.nameAtCapture.includes("MARINES")).allianceKey,undefined);
+  f.data.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,
+    alliances:[{fingerprint:guest,allianceKey:"marines"}]}));
+  const before=f.ops.length;
+  rows=await readPublic();
+  assert.equal(rows.find(a=>a.nameAtCapture.includes("MARINES")).allianceKey,"marines");
+  assert.equal(rows.find(a=>a.nameAtCapture==="Zeus").allianceKey,undefined);
+  assert.ok(f.ops.slice(before).every(([action])=>action==="get"),
+    "projection must never write, collect or contact Scopely");
+  const json=JSON.stringify(rows);
+  assert.ok(!json.includes(guest),"no fingerprint in public response");
+  f.data.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,
+    alliances:[{fingerprint:guest}]}));
+  rows=await readPublic();
+  assert.equal(rows.find(a=>a.nameAtCapture.includes("MARINES")).allianceKey,undefined,
+    "unbinding takes effect on next GET, without a new trophy capture");
+});
+test("eight same-name, different-colour ENDGAME guests each get a distinct R2 key",async()=>{
+  const f=fixture();
+  const colours=["#ee0000","#f60","#0073ff","#00a164",
+    "#9900cc","#ffff00","#ffffff","#222222"];
+  const slugs=["red","orange","blue","green","purple","yellow","white","black"];
+  const guests=slugs.map((colour,i)=>{
+    const aid="aid-endgame-"+colour, fingerprint=fp(aid);
+    add(f,source(fingerprint,aid,
+      "END<color="+colours[i]+">GAME R-évolution",2500+i),fingerprint);
+    return {fingerprint,allianceKey:"endgame-revolution-"+colour};
+  });
+  f.data.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:guests}));
+  add(f,source(losp,"aid-zeus","Zeus",3010),losp);
+  const outcome=await archiveTrophyHistory(f.env,slot,NOW);
+  assert.equal(outcome.observed,9);
+  assert.equal(outcome.complete,true);
+  const result=await (await publicTrophyHistory(new Request(url),f.env,NOW)).json();
+  const rows=result.snapshots[0].alliances;
+  assert.equal(rows.length,9);
+  assert.deepEqual(new Set(rows.map(a=>a.allianceKey).filter(Boolean)),
+    new Set(guests.map(a=>a.allianceKey)));
+  assert.equal(rows.find(a=>a.nameAtCapture==="Zeus").allianceKey,undefined);
+  assert.equal(new Set(rows.map(a=>a.publicId)).size,9);
+  assert.ok(!JSON.stringify(result).includes(guests[0].fingerprint));
+});
+test("guest revocation removes public readings even when a bound key still exists in old archive",async()=>{
+  const f=fixture();
+  add(f,source(losp,"aid-zeus","Zeus",3010),losp);
+  add(f,source(guest,"aid-marines","MARINES",2280),guest);
+  f.data.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,
+    alliances:[{fingerprint:guest,allianceKey:"marines"}]}));
+  await archiveTrophyHistory(f.env,slot,NOW);
+  f.data.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[]}));
+  const result=await (await publicTrophyHistory(new Request(url),f.env,NOW)).json();
+  assert.deepEqual(result.snapshots[0].alliances.map(a=>a.nameAtCapture),["Zeus"]);
 });
