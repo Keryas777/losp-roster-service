@@ -19,8 +19,9 @@ function element(tag){
     replaceChildren(...nodes){this.children=nodes;}};
 }
 const FP="b".repeat(64);
-function fixture({stale=false,postFails=false}={}){
-  let linked="",writes=0;
+function fixture({stale=false,postFails=false,initialLinked="",
+  suggestedKey=""}={}){
+  let linked=initialLinked,writes=0;
   const nodes={
     "roster-connected-refresh":element("button"),
     "roster-connected-list":element("div"),
@@ -52,9 +53,13 @@ function fixture({stale=false,postFails=false}={}){
     const child=element(tag);child.textContent=text;parent.appendChild(child);
     return child;
   };
+  const suggestWebappKey=()=>suggestedKey;
+  const fetchWebappAlliances=async()=>[];
   const load=new Function("document","fetch","rosterEl","rosterLine",
+    "suggestWebappKey","fetchWebappAlliances",
     isolated+";return loadConnectedAlliances;")(
-    document,fetch,rosterEl,rosterLine);
+    document,fetch,rosterEl,rosterLine,
+    suggestWebappKey,fetchWebappAlliances);
   const find=tag=>nodes["roster-connected-list"].children.find(
     el=>el.tag===tag);
   const bindButton=()=>nodes["roster-connected-list"].children.find(
@@ -91,4 +96,21 @@ test("failed binding keeps a visible error without re-rendering away the message
   await f.bindButton().listeners.click();
   assert.match(f.feedback(),/Association impossible : test-denied/);
   assert.equal(f.bindButton().disabled,false);
+});
+
+test("an auto-filled ENDGAME suggestion is explicitly not registered in R2",async()=>{
+  const f=fixture({suggestedKey:"endgame-revolution-orange"});
+  await f.load();
+  assert.equal(f.find("label").children[0].value,"endgame-revolution-orange");
+  assert.match(f.feedback(),/Association non enregistrée dans R2/);
+  assert.match(f.feedback(),/Clé proposée automatiquement : endgame-revolution-orange/);
+  assert.equal(f.writes,0);
+});
+test("a previously saved binding is marked as confirmed on the first load",async()=>{
+  const f=fixture({initialLinked:"marines",suggestedKey:"endgame-revolution-orange"});
+  await f.load();
+  assert.equal(f.find("label").children[0].value,"marines");
+  assert.match(f.feedback(),/Association confirmée : marines.*R2/);
+  assert.doesNotMatch(f.feedback(),/non enregistrée/);
+  assert.equal(f.writes,0);
 });
