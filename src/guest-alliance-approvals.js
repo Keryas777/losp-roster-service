@@ -85,9 +85,11 @@ export async function handleGuestAllianceApproval(request,env,fetchImpl=fetch){
     if(!body||typeof body!=="object"||Array.isArray(body)||
        !FP.test(body.fingerprint)||
        !["approve","revoke","bind","unbind"].includes(body.action)||
-       Object.keys(body).length!==(body.action==="bind"?3:2)||
+       Object.keys(body).length!==((body.action==="bind"||
+         (body.action==="approve"&&Object.hasOwn(body,"allianceKey")))?3:2)||
        Object.keys(body).some(key=>!["fingerprint","action","allianceKey"].includes(key))||
-       (body.action==="bind"&&!ALLIANCE_KEY.test(body.allianceKey)))
+       ((body.action==="bind"||Object.hasOwn(body,"allianceKey"))&&
+         !ALLIANCE_KEY.test(body.allianceKey)))
       throw Error("invalid-body");
     ({fingerprint,action,allianceKey}=body);
   }catch{return reply({error:"invalid-selection"},400);}
@@ -101,9 +103,17 @@ export async function handleGuestAllianceApproval(request,env,fetchImpl=fetch){
     const already=guest.alliances.some(a=>a.fingerprint===fingerprint);
     if(["bind","unbind"].includes(action)&&!already)
       return reply({error:"guest-not-approved"},409);
-    if(action==="bind"&&guest.alliances.some(a=>
-      a.allianceKey===allianceKey&&a.fingerprint!==fingerprint))
+    // Record the approved tenant key in the SAME R2 write, when supplied by
+    // the administrator. Never silently change an existing association.
+    if(["approve","bind"].includes(action)&&allianceKey&&
+       guest.alliances.some(a=>a.allianceKey===allianceKey&&
+         a.fingerprint!==fingerprint))
       return reply({error:"alliance-key-already-bound"},409);
+    if(action==="approve"&&already&&allianceKey){
+      const bound=guest.alliances.find(a=>a.fingerprint===fingerprint);
+      if(bound.allianceKey&&bound.allianceKey!==allianceKey)
+        return reply({error:"alliance-already-bound"},409);
+    }
     if(action==="approve"&&!already){
       const scan=await scanPrivateCoverage(env,fetchImpl);
       const verified=scan?.alliances?.find(a=>
@@ -111,7 +121,9 @@ export async function handleGuestAllianceApproval(request,env,fetchImpl=fetch){
       if(!verified)return reply({error:"alliance-not-currently-verifiable"},409);
     }
     const alliances=action==="approve"?
-      already?guest.alliances:[...guest.alliances,{fingerprint}]:
+      already?guest.alliances.map(a=>a.fingerprint!==fingerprint?a:
+        allianceKey&&!a.allianceKey?{fingerprint,allianceKey}:a):
+        [...guest.alliances,{fingerprint,...(allianceKey?{allianceKey}:{})}]:
       action==="revoke"?guest.alliances.filter(a=>a.fingerprint!==fingerprint):
       guest.alliances.map(a=>a.fingerprint!==fingerprint?a:
         action==="bind"?{fingerprint,allianceKey}:{fingerprint});
