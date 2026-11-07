@@ -23,6 +23,7 @@ const HEADERS={"Cache-Control":"private, no-store","X-Robots-Tag":"noindex",
   "X-Content-Type-Options":"nosniff"};
 const recordKey=fp=>ROOT+fp+".json";
 const currentCardKey=fp=>ROOT+fp+"-card.json";
+const DIRECTORY_DISPATCH="https://api.github.com/repos/Keryas777/msf/actions/workflows/publish-guest-joueurs.yml/dispatches";
 const stamp=now=>new Date(now).toISOString();
 const answer=(body,status=200)=>Response.json(body,{status,headers:HEADERS});
 const pending=s=>["queued","running"].includes(s);
@@ -86,7 +87,8 @@ function publicState(record){
   return {status:record.status,phase:record.phase,
     requestedAt:record.requestedAt,updatedAt:record.updatedAt,
     attempts:record.attempts,lastOutcome:record.lastOutcome,
-    nextAt:record.nextAt};
+    nextAt:record.nextAt,
+    ...(record.directoryDispatch?{directoryDispatch:record.directoryDispatch}:{})};
 }
 
 // Called only AFTER successful explicit admin approval AND binding, not on
@@ -125,6 +127,27 @@ export async function guestInitialSyncStatus(env,fp){
 // Read fresh official AllianceCard for *this* approved alliance only.
 // Current trophies are retained as CURRENT observations, not forged war-day
 // history. Ranks feed the normal guest-season rolling reader when available.
+// The public guest player directory is published from verified private Infos,
+ // not by the Worker itself. A single wake-up saves waiting for the next
+ // scheduled GitHub Actions slot. Never forward any names or roster data.
+export async function dispatchInitialGuestDirectory(env,fetchGithub=fetch){
+  if(env?.ROSTER_GITHUB_DISPATCH_ENABLED!=="true"||
+     !env?.ROSTER_GITHUB_DISPATCH_TOKEN)
+    return "not-configured";
+  try{
+    const response=await fetchGithub(DIRECTORY_DISPATCH,{
+      method:"POST",headers:{
+        Accept:"application/vnd.github+json",
+        "X-GitHub-Api-Version":"2022-11-28",
+        "User-Agent":"LoSP-Roster-Service",
+        Authorization:"Bearer "+env.ROSTER_GITHUB_DISPATCH_TOKEN,
+        "Content-Type":"application/json"
+      },
+      body:JSON.stringify({ref:"main"}),redirect:"manual"
+    });
+    return response.status===204?"dispatched":"github-unavailable";
+  }catch{return "github-unavailable";}
+}
 export async function captureInitialGuestCard(env,fp,key,now,fetchImpl=fetch){
   const selected=await chooseAccount(env,fp,fetchImpl);
   if(selected.status!=="ok")return {status:selected.status};
@@ -238,9 +261,14 @@ export async function runGuestInitialSyncTick(env,now=Date.now(),fetchImpl=fetch
       const pause=done?0:result.status==="rate-limited"?60:
         result.status==="campaign-not-open"?5:
         ["unavailable","busy","already-processed"].includes(result.status)?2:1;
+      // Nonblocking: roster/rank/arena collection must never wait for GitHub.
+      // Existing scheduled publishing remains the fallback if dispatch fails.
+      const directoryDispatch=latest.phase==="infos"&&done?
+        await dispatchInitialGuestDirectory(env,deps.githubFetch||fetch):null;
       const saved={...latest,status:fatal?"failed":next==="done"?"complete":"queued",
         phase:next,attempts:latest.attempts+1,updatedAt:stamp(now),
-        nextAt:stamp(now+pause*60000),lastOutcome:result.status};
+        nextAt:stamp(now+pause*60000),lastOutcome:result.status,
+        ...(directoryDispatch?{directoryDispatch}:{})};
       await write(bucket,recordKey(fp),saved);
       return {status:saved.status,phase:saved.phase,lastOutcome:result.status,
         requests:result.requests||0};
