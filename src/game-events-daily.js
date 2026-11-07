@@ -13,7 +13,7 @@ const BUDGET=GAME_ARCHIVE_ROOT+"budget/";
 const API="https://api.marvelstrikeforce.com";
 const LOCK="e".repeat(64);
 const PAGE_SIZE=100,MAX_PAGES=10,MAX_BYTES=1_500_000;
-const UTC_SLOT=21*60+5,RETRY=15*60000;
+const UTC_SLOT=21*60+5,LATE_GRACE_UTC=3*60,RETRY=15*60000;
 const opts={httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}};
 const read=async(bucket,key)=>{
   const obj=await bucket.get(key);
@@ -22,6 +22,17 @@ const read=async(bucket,key)=>{
 const write=(bucket,key,object)=>bucket.put(key,JSON.stringify(object),opts);
 const iso=now=>new Date(now).toISOString();
 const day=now=>iso(now).slice(0,10);
+// The daily slot belongs to the previous UTC date until 03:00 UTC:
+// a deploy or transient outage after midnight can still recover the
+// 21:05 collection, but never launches an extra ordinary daily run.
+function dailyWindow(now){
+  const clock=new Date(now);
+  const minutes=clock.getUTCHours()*60+clock.getUTCMinutes();
+  return {
+    due:minutes>=UTC_SLOT||minutes<LATE_GRACE_UTC,
+    date:day(now-(minutes<UTC_SLOT?86400000:0))
+  };
+}
 const digest=async text=>[...new Uint8Array(await crypto.subtle.digest(
   "SHA-256",new TextEncoder().encode(text)))]
   .map(value=>value.toString(16).padStart(2,"0")).join("");
@@ -124,14 +135,14 @@ export async function runGameDailyEventsTick(env,fetchImpl=fetch,now=Date.now())
   if(env?.GAME_EVENTS_DAILY_ENABLED==="false")return {status:"disabled"};
   if(!env?.CAPTAIN_BUCKET?.get||!env.CAPTAIN_BUCKET.put||
      !env.ROSTER_BATCH_LOCK?.get)return {status:"storage-unavailable"};
-  const date=day(now),clock=new Date(now);
+  const {date,due}=dailyWindow(now);
   const bucket=env.CAPTAIN_BUCKET;
   let holder=null,acquired=false;
   try{
     const current=await read(bucket,STATE);
     const dirty=await read(bucket,EVENTS_DIRTY_KEY);
     const forced=needsRefresh(current,dirty,now);
-    if(!forced&&clock.getUTCHours()*60+clock.getUTCMinutes()<UTC_SLOT)
+    if(!forced&&!due)
       return {status:"not-due"};
     if(!forced&&completedInDailySlot(current,date))
       return {status:"up-to-date",checkedAt:current.checkedAt};
@@ -147,7 +158,7 @@ export async function runGameDailyEventsTick(env,fetchImpl=fetch,now=Date.now())
     const forceNow=needsRefresh(state,committedDirty,now);
     if(!forceNow&&completedInDailySlot(state,date))
       return {status:"up-to-date",checkedAt:state.checkedAt};
-    if(!forceNow&&clock.getUTCHours()*60+clock.getUTCMinutes()<UTC_SLOT)
+    if(!forceNow&&!due)
       return {status:"not-due"};
     if(state?.date===date&&Number.isFinite(Date.parse(state.attemptAt||""))&&
        now-Date.parse(state.attemptAt)<(state.retryAfterMs||RETRY))

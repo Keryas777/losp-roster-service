@@ -126,6 +126,39 @@ test("03:17 UTC is no longer due and the next UTC day waits for 21:05",async()=>
   assert.equal(f.calls.filter(url=>url.startsWith(API)).length,8);
 });
 
+test("missed 21:05 UTC slot is recovered after midnight, without repeating it",async()=>{
+  const f=fixture();
+  const previousDate="2026-11-05";
+  f.objects.set(ROOT+"events-daily/state.json",JSON.stringify({
+    date:previousDate,status:"completed",
+    checkedAt:previousDate+"T03:17:00.000Z",
+    attemptAt:previousDate+"T03:17:00.000Z"
+  }));
+  const afterMidnight=Date.parse("2026-11-06T00:15:00Z");
+  const result=await runGameDailyEventsTick(f.env,f.fetchImpl,afterMidnight);
+  assert.equal(result.status,"completed");
+  const state=JSON.parse(f.objects.get(ROOT+"events-daily/state.json"));
+  assert.equal(state.date,previousDate);
+  assert.equal(state.checkedAt,new Date(afterMidnight).toISOString());
+  assert.equal((await runGameDailyEventsTick(f.env,f.fetchImpl,
+    afterMidnight+60000)).status,"up-to-date");
+  assert.equal((await runGameDailyEventsTick(f.env,f.fetchImpl,
+    Date.parse("2026-11-06T03:17:00Z"))).status,"not-due");
+  assert.equal(f.calls.filter(url=>url.startsWith(API)).length,4);
+  assert.equal((await runGameDailyEventsTick(f.env,f.fetchImpl,
+    Date.parse("2026-11-06T21:05:00Z"))).status,"completed");
+  assert.equal(f.calls.filter(url=>url.startsWith(API)).length,8);
+});
+
+test("the old 03:17 run is never moved to a second collection by grace window",async()=>{
+  const f=fixture();
+  assert.equal((await runGameDailyEventsTick(f.env,f.fetchImpl,
+    Date.parse("2026-11-05T03:17:00Z"))).status,"not-due");
+  assert.equal((await runGameDailyEventsTick(f.env,f.fetchImpl,
+    Date.parse("2026-11-05T21:04:00Z"))).status,"not-due");
+  assert.equal(f.calls.length,0);
+});
+
 test("failed English page never overwrites a previously committed catalogue",async()=>{
   const f=fixture();
   const ok=await runGameDailyEventsTick(f.env,f.fetchImpl,NOW);
