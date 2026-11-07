@@ -433,6 +433,60 @@ async function loadConnectedAlliances(bindingFeedback=null){
             }
           });
           parent.append(identity,bind,identityStatus);
+          if(savedKey){
+            const title=document.createElement("p");
+            title.textContent="Rattrapage automatique à l’arrivée — "+savedKey;
+            const progress=document.createElement("p");
+            progress.setAttribute("role","status");
+            progress.setAttribute("aria-live","polite");
+            const check=document.createElement("button");
+            check.type="button";check.textContent="Voir le rattrapage initial";
+            const restart=document.createElement("button");
+            restart.type="button";restart.textContent="Relancer les collectes initiales";
+            const labels={roster:"Rosters partagés",infos:"Infos enrichies",
+              ranks:"Rangs de saison et trophées actuels",
+              arena:"Premier relevé d'Arène",done:"Terminé"};
+            const update=async()=>{
+              check.disabled=true;
+              try{
+                const res=await fetch("/admin/api/guest-initial-sync?fingerprint="+
+                  encodeURIComponent(alliance.fingerprint),{
+                  credentials:"same-origin",cache:"no-store",
+                  headers:{Accept:"application/json"}});
+                const body=await res.json();
+                if(!res.ok)throw Error(body.status||"unavailable");
+                progress.textContent="État : "+body.status+
+                  (body.phase?" — "+(labels[body.phase]||body.phase):"")+
+                  (body.lastOutcome?" ("+body.lastOutcome+")":"")+
+                  (body.updatedAt?" — "+body.updatedAt:"");
+              }catch(error){
+                progress.textContent="Impossible de lire la progression : "+
+                  (error.message||"indisponible");
+              }finally{check.disabled=false;}
+            };
+            check.addEventListener("click",update);
+            restart.addEventListener("click",async()=>{
+              restart.disabled=true;
+              progress.textContent="Relance de la collecte initiale…";
+              try{
+                const res=await fetch("/admin/api/guest-initial-sync?fingerprint="+
+                  encodeURIComponent(alliance.fingerprint),{
+                  method:"POST",credentials:"same-origin",cache:"no-store",
+                  headers:{"Content-Type":"application/json",Accept:"application/json"},
+                  body:JSON.stringify({action:"restart"})
+                });
+                const body=await res.json();
+                if(res.status!==202||body.status!=="queued")
+                  throw Error(body.status||"unavailable");
+                await update();
+              }catch(error){
+                progress.textContent="Relance impossible : "+
+                  (error.message||"indisponible");
+              }finally{restart.disabled=false;}
+            });
+            parent.append(title,progress,check,restart);
+            void update();
+          }
         }
       }
       if(!alliance.approved&&!alliance.guestApproved){
