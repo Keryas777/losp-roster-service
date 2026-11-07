@@ -36,7 +36,7 @@ Une fois terminée, aucun nouveau balayage périodique n'était lancé.
 
 ## Événements : collecte quotidienne indépendante (5 novembre 2026)
 
-- Le catalogue public `/game/v1/events` est vérifié chaque jour à partir de **03:17 UTC**, indépendamment de la cadence du différentiel général. Une modification réelle d'une route d'événements peut toutefois forcer un second passage le même jour.
+- Le catalogue public `/game/v1/events` est vérifié chaque jour à partir de **21:05 UTC (22:05 en France en hiver ; 23:05 en été)**, indépendamment de la cadence du différentiel général. Une modification réelle d'une route d'événements peut toutefois forcer un second passage le même jour.
 - Le Cron Cloudflare `* * * * *`, OAuth `client_credentials`, le verrou Durable Object et le budget global `/game` de 9 000 GET/jour sont réutilisés. Aucune nouvelle tâche planifiée, clé ni accès `/player`.
 - Récupération complète de toutes les pages anglaises (100 éléments/page, maximum 10 pages), puis tentative de récupération des pages françaises. Toute page anglaise invalide ou manquante bloque la publication ; les textes français incomplets retombent sur un **catalogue anglais complet de la même collecte**.
 - Un **seul objet R2** `game-archive/v1/events-daily/current.json` est remplacé après vérification de l'ensemble, avec empreinte SHA-256. Aucune mise à jour partielle ; cet objet R2 sert de **source de vérification** à la publication GitHub Pages.
