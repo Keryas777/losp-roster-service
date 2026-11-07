@@ -13,7 +13,7 @@ const BUDGET=GAME_ARCHIVE_ROOT+"budget/";
 const API="https://api.marvelstrikeforce.com";
 const LOCK="e".repeat(64);
 const PAGE_SIZE=100,MAX_PAGES=10,MAX_BYTES=1_500_000;
-const UTC_SLOT=3*60+17,RETRY=15*60000;
+const UTC_SLOT=21*60+5,RETRY=15*60000;
 const opts={httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}};
 const read=async(bucket,key)=>{
   const obj=await bucket.get(key);
@@ -102,6 +102,15 @@ export async function markGameEventsDirty(bucket,now=Date.now()){
   if(!bucket?.put)throw Error("events-dirty-storage-unavailable");
   await write(bucket,EVENTS_DIRTY_KEY,{version:1,changedAt:iso(now)});
 }
+// A previous 03:17 UTC collection on deployment day must not mark the
+// new 21:05 UTC slot as completed. Compare the actual successful timestamp
+// to this day's slot, not only the UTC calendar date.
+function completedInDailySlot(state,date){
+  if(state?.date!==date||state.status!=="completed")return false;
+  const checked=Date.parse(state.checkedAt||"");
+  const slot=Date.parse(date+"T00:00:00.000Z")+UTC_SLOT*60000;
+  return Number.isFinite(checked)&&checked>=slot;
+}
 function needsRefresh(state,dirty,now){
   const stamp=Date.parse(dirty?.changedAt||"");
   if(dirty?.version!==1||!Number.isFinite(stamp)||stamp>now+300000)return false;
@@ -124,7 +133,7 @@ export async function runGameDailyEventsTick(env,fetchImpl=fetch,now=Date.now())
     const forced=needsRefresh(current,dirty,now);
     if(!forced&&clock.getUTCHours()*60+clock.getUTCMinutes()<UTC_SLOT)
       return {status:"not-due"};
-    if(!forced&&current?.date===date&&current.status==="completed")
+    if(!forced&&completedInDailySlot(current,date))
       return {status:"up-to-date",checkedAt:current.checkedAt};
     if(current?.date===date&&Number.isFinite(Date.parse(current.attemptAt||""))&&
        now-Date.parse(current.attemptAt)<(current.retryAfterMs||RETRY))
@@ -136,7 +145,7 @@ export async function runGameDailyEventsTick(env,fetchImpl=fetch,now=Date.now())
     const state=await read(bucket,STATE);
     const committedDirty=await read(bucket,EVENTS_DIRTY_KEY);
     const forceNow=needsRefresh(state,committedDirty,now);
-    if(!forceNow&&state?.date===date&&state.status==="completed")
+    if(!forceNow&&completedInDailySlot(state,date))
       return {status:"up-to-date",checkedAt:state.checkedAt};
     if(!forceNow&&clock.getUTCHours()*60+clock.getUTCMinutes()<UTC_SLOT)
       return {status:"not-due"};
