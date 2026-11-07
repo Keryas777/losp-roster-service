@@ -6,6 +6,12 @@ on:
       - "src/admin-routes.js"
       - "src/player-identity-links.js"
       - "src/guest-webapp-onboarding.js"
+      - "src/guest-initial-sync.js"
+      - "src/guest-alliance-approvals.js"
+      - "src/member-info-campaign.js"
+      - "src/automatic-roster-scheduler.js"
+      - "tests/guest-initial-sync.test.mjs"
+      - "tests/guest-initial-arena.test.mjs"
       - "tests/guest-webapp-onboarding.test.mjs"
       - "src/player-identity-catalog.json"
       - "public/admin-player-links.js"
@@ -58,6 +64,9 @@ jobs:
           node --check src/admin-routes.js
           node --check src/player-identity-links.js
           node --check src/guest-webapp-onboarding.js
+          node --check src/guest-initial-sync.js
+          node --check src/member-info-campaign.js
+          node --check src/automatic-roster-scheduler.js
           node --check public/admin-player-links.js
           node --check src/member-info-reward.js
           node --check src/public-arena-history.js
@@ -75,4 +84,4 @@ jobs:
           node --check public/admin-collection-dashboard.js
           node --check public/admin-navigation.js
           node --check public/admin-roster-preflight.js
-          node --test tests/guest-webapp-onboarding.test.mjs tests/player-identity-links.test.mjs tests/permanent-guest-evolution.test.mjs tests/secure-guest-evolution.test.mjs tests/secure-guest-infos.test.mjs tests/admin-guest-webapp-binding-feedback.test.mjs tests/secure-guest-arena-history.test.mjs tests/secure-guest-rosters.test.mjs tests/admin-arena-coverage.test.mjs tests/admin-arena-pending-labels.test.mjs tests/member-info-reward-manual.test.mjs tests/member-info-reward.test.mjs tests/alliance-season-ranks.test.mjs tests/public-arena-history.test.mjs tests/collection-overview.test.mjs tests/roster-r2-coverage.test.mjs tests/guest-alliance-approvals.test.mjs
+          node --test tests/guest-initial-sync.test.mjs tests/guest-initial-arena.test.mjs tests/guest-webapp-onboarding.test.mjs tests/player-identity-links.test.mjs tests/permanent-guest-evolution.test.mjs tests/secure-guest-evolution.test.mjs tests/secure-guest-infos.test.mjs tests/admin-guest-webapp-binding-feedback.test.mjs tests/secure-guest-arena-history.test.mjs tests/secure-guest-rosters.test.mjs tests/admin-arena-coverage.test.mjs tests/admin-arena-pending-labels.test.mjs tests/member-info-reward-manual.test.mjs tests/member-info-reward.test.mjs tests/alliance-season-ranks.test.mjs tests/public-arena-history.test.mjs tests/collection-overview.test.mjs tests/roster-r2-coverage.test.mjs tests/guest-alliance-approvals.test.mjs
