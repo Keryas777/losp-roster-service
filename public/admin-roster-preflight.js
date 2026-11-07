@@ -249,11 +249,14 @@ async function loadConnectedAlliances(bindingFeedback=null){
     const result=await res.json();
     if(!res.ok||result.status!=="ok"||!Array.isArray(result.alliances))
       throw Error("unavailable");
-    const registered=await fetchWebappAlliances();
+    // The admin directory remains usable even if registry discovery fails.
+    const registered=typeof fetchWebappAlliances==="function"?
+      await fetchWebappAlliances():[];
     if(!result.alliances.length)rosterLine(parent,
       "Aucune alliance identifiable parmi les sessions OAuth actives.");
     for(const alliance of result.alliances){
-      const suggestedKey=suggestWebappKey(alliance,registered);
+      const suggestedKey=typeof suggestWebappKey==="function"?
+        suggestWebappKey(alliance,registered):"";
       const summary=rosterLine(parent,"");
       allianceLabel(summary,"",alliance.name," — "+
         alliance.captainConnections+" connexion(s) OAuth — "+
