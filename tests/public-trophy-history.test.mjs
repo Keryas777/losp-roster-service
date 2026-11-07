@@ -4,7 +4,8 @@ import {createHash,webcrypto} from "node:crypto";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 import {GUEST_APPROVAL_KEY} from "../src/guest-alliance-approvals.js";
 import {BATCH_PREFIX,trophyCardKey} from "../src/private-roster-batches.js";
-import {archiveTrophyHistory,publicTrophyHistory,readTrophyCard}
+import {archiveTrophyHistory,publicTrophyHistory,readTrophyCard,
+  recoverPreviousSaturdayGuestTrophies}
   from "../src/public-trophy-history.js";
 
 if(!globalThis.crypto)globalThis.crypto=webcrypto;
@@ -21,7 +22,9 @@ function fixture(){
   const bucket={
     get:async k=>{ops.push(["get",k]);return data.has(k)?
       {text:async()=>data.get(k),size:data.get(k).length}:null;},
-    put:async(k,v)=>{ops.push(["put",k]);data.set(k,v);}
+    put:async(k,v)=>{ops.push(["put",k]);data.set(k,v);},
+    list:async({prefix})=>({truncated:false,objects:[...data.keys()]
+      .filter(key=>key.startsWith(prefix)).map(key=>({key}))})
   };
   return {data,ops,bucket,env:{CAPTAIN_BUCKET:bucket}};
 }
@@ -183,4 +186,63 @@ test("guest revocation removes public readings even when a bound key still exist
   f.data.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[]}));
   const result=await (await publicTrophyHistory(new Request(url),f.env,NOW)).json();
   assert.deepEqual(result.snapshots[0].alliances.map(a=>a.nameAtCapture),["Zeus"]);
+});
+
+
+test("Sunday repairs only missing guest Saturday trophies using true source timestamp",async()=>{
+  const f=fixture();
+  const red=fp("aid-endgame-red"),orange=fp("aid-endgame-orange");
+  const orangeId="11111111-2222-4333-8444-555555555555";
+  const saturday="2026-11-07", observed="2026-11-07T23:09:34.879Z";
+  const sunday=Date.parse("2026-11-08T10:08:00.000Z");
+  const key=BATCH_PREFIX+"trophy-history/rolling.json";
+  f.data.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
+    {fingerprint:red,allianceKey:"endgame-revolution-red"},
+    {fingerprint:orange,allianceKey:"endgame-revolution-orange"}]}));
+  f.data.set(key,JSON.stringify({version:1,kind:"connected-alliance-trophy-history",
+    ids:{[orange]:orangeId},updatedAt:"2026-11-07T02:30:00Z",
+    snapshots:[{collectionDayUtc:saturday,capturedAt:"2026-11-07T02:08:00Z",
+      complete:false,expected:3,alliances:[{
+        publicId:orangeId,nameAtCapture:"END<color=#f60>GAME R-évolution",
+        warTrophies:2534,capturedAt:"2026-11-07T02:08:00Z"}]}]}));
+  f.data.set(BATCH_PREFIX+"guest-season-ranks/captures/"+
+    "2026-11-07T23-09-34-879Z-01234567-89ab-cdef-0123-456789abcdef.json",
+    JSON.stringify({version:1,source:"/player/v1/alliance/card",
+      capturedAt:observed,completeSessionScan:true,alliances:[
+        {allianceFingerprint:red,name:"END<color=#f00>GΔME R-évolution",
+          warRank:27,raidRank:14,warTrophies:3026},
+        {allianceFingerprint:orange,name:"END<color=#f60>GAME R-évolution",
+          warRank:1021,raidRank:842,warTrophies:2534}]}));
+  const before=JSON.stringify(f.data.get(key));
+  assert.equal((await recoverPreviousSaturdayGuestTrophies(
+    f.env,Date.parse("2026-11-07T23:30:00Z"))).status,
+    "outside-recovery-window");
+  assert.equal(f.data.get(key),before);
+  const result=await recoverPreviousSaturdayGuestTrophies(f.env,sunday);
+  assert.deepEqual(result,{status:"updated",added:1,day:saturday});
+  const response=await(await publicTrophyHistory(
+    new Request(url),f.env,sunday)).json();
+  assert.equal(response.snapshots.length,1);
+  const rows=response.snapshots[0].alliances;
+  assert.equal(rows.length,2);
+  const r=rows.find(a=>a.allianceKey==="endgame-revolution-red");
+  const o=rows.find(a=>a.allianceKey==="endgame-revolution-orange");
+  assert.equal(r.warTrophies,3026);
+  assert.equal(r.capturedAt,observed);
+  assert.equal(o.warTrophies,2534);
+  assert.equal(o.publicId,orangeId);
+  assert.equal(o.capturedAt,"2026-11-07T02:08:00Z");
+  assert.equal(response.snapshots[0].coverage.complete,false);
+  const json=JSON.stringify(response);
+  for(const privateId of [red,orange,"aid-endgame-red"])
+    assert.ok(!json.includes(privateId));
+  assert.equal((await recoverPreviousSaturdayGuestTrophies(f.env,sunday))
+    .status,"unchanged","idempotent repeated cron must not alter readings");
+  // Withdrawal hides recovered trophies immediately, just like normal ones.
+  f.data.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
+    {fingerprint:orange,allianceKey:"endgame-revolution-orange"}]}));
+  const after=await(await publicTrophyHistory(
+    new Request(url),f.env,sunday)).json();
+  assert.deepEqual(after.snapshots[0].alliances.map(a=>a.allianceKey),
+    ["endgame-revolution-orange"]);
 });
