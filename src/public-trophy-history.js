@@ -192,3 +192,109 @@ export async function archiveTrophyHistory(env,slot,now=Date.now()){
   return {status:"updated",observed:alliances.length,
     expected:fps.length,complete:unavailable===0};
 }
+
+
+// Repair a missing guest's Saturday trophy point from a REAL, immutable
+// AllianceCard capture already held in private R2. No provider calls, posted
+// values, guessed identities, or fabricated Saturday-morning timestamps.
+// Sunday-only recovery keeps ordinary Thursday/Saturday trophy cadence intact.
+export async function recoverPreviousSaturdayGuestTrophies(env,now=Date.now()){
+  const yesterday=new Date(now-DAY_MS).toISOString().slice(0,10);
+  if(new Date(now).getUTCDay()!==0||!isTrophyDay(yesterday))
+    return {status:"outside-recovery-window"};
+  const bucket=env?.CAPTAIN_BUCKET;
+  if(!bucket?.get||!bucket?.put||!bucket?.list)
+    return {status:"storage-unavailable"};
+  try{
+    const [approved,guests]=await Promise.all([
+      readCollectibleApprovals(env),readGuestApprovals(env)]);
+    if(approved.status!=="configured"||guests.status==="invalid-registry")
+      return {status:"invalid-approvals"};
+    const permitted=new Set((approved.guestAlliances||[]).map(a=>a.fingerprint));
+    const bound=new Set((guests.alliances||[]).filter(a=>
+      permitted.has(a.fingerprint)&&typeof a.allianceKey==="string"&&
+      /^[a-z][a-z0-9-]{1,63}$/.test(a.allianceKey))
+      .map(a=>a.fingerprint));
+    if(!bound.size)return {status:"no-bound-guests"};
+    // Captures are persisted by the existing authenticated admin endpoint.
+    // Query one calendar day, not the entire R2 namespace.
+    const prefix=BATCH_PREFIX+"guest-season-ranks/captures/"+yesterday+"T";
+    const listing=await bucket.list({prefix,limit:100});
+    if(!listing||listing.truncated||!Array.isArray(listing.objects)||
+      listing.objects.length>48)
+      return {status:"too-many-captures"};
+    const newest=new Map();
+    for(const item of listing.objects){
+      if(typeof item?.key!=="string"||!item.key.startsWith(prefix))continue;
+      const source=await read(bucket,item.key,200000);
+      const stamp=Date.parse(source?.capturedAt);
+      if(source?.version!==1||
+         source.source!=="/player/v1/alliance/card"||
+         !Number.isFinite(stamp)||stamp>now||
+         new Date(stamp).toISOString().slice(0,10)!==yesterday||
+         !Array.isArray(source.alliances)||source.alliances.length>30)continue;
+      const seen=new Set();
+      for(const row of source.alliances){
+        const fp=row?.allianceFingerprint;
+        if(!bound.has(fp)||seen.has(fp)||!safeName(row.name)||
+           !validNumber(row.warTrophies)||!validNumber(row.warRank)||
+           !validNumber(row.raidRank))continue;
+        seen.add(fp);
+        const prior=newest.get(fp);
+        if(!prior||stamp>prior.stamp)
+          newest.set(fp,{fingerprint:fp,stamp,
+            nameAtCapture:row.name,warTrophies:row.warTrophies,
+            capturedAt:source.capturedAt});
+      }
+    }
+    if(!newest.size)return {status:"no-verified-saturday-captures"};
+    const previous=await read(bucket,KEY);
+    if(previous&&!validHistory(previous))
+      return {status:"invalid-history"};
+    const existing=previous||{version:1,
+      kind:"connected-alliance-trophy-history",ids:{},snapshots:[]};
+    const ids={...existing.ids};
+    const original=existing.snapshots.find(s=>s.collectionDayUtc===yesterday);
+    const alliances=[...(original?.alliances||[])];
+    const used=new Set(alliances.map(a=>a.publicId));
+    const allocated=new Set(Object.values(ids));
+    let added=0;
+    for(const [fp,item] of newest){
+      if(ids[fp]&&used.has(ids[fp]))continue; // Never overwrite a real observation.
+      if(!UUID.test(ids[fp]||"")){
+        let generated;
+        do{generated=crypto.randomUUID();}while(allocated.has(generated));
+        ids[fp]=generated;
+      }
+      if(used.has(ids[fp]))continue; // Identity collision: fail closed.
+      allocated.add(ids[fp]);
+      used.add(ids[fp]);
+      alliances.push({publicId:ids[fp],nameAtCapture:item.nameAtCapture,
+        warTrophies:item.warTrophies,capturedAt:item.capturedAt});
+      added++;
+    }
+    if(!added)return {status:"unchanged"};
+    if(alliances.length>30)return {status:"too-many-alliances"};
+    alliances.sort((a,b)=>a.publicId.localeCompare(b.publicId));
+    const snapshot={collectionDayUtc:yesterday,
+      capturedAt:alliances.map(a=>a.capturedAt).sort().at(-1),
+      alliances,expected:original?.expected??approved.alliances.length,
+      // Preserve any existing partial status: a late guest backfill does not
+      // prove the original post-war morning cohort was complete.
+      complete:original?.complete===true};
+    const snapshots=existing.snapshots.filter(s=>
+      isTrophyDay(s.collectionDayUtc)&&s.collectionDayUtc>=minDay(now)&&
+      s.collectionDayUtc!==yesterday).concat(snapshot)
+      .sort((a,b)=>a.collectionDayUtc.localeCompare(b.collectionDayUtc));
+    if(snapshots.length>30)return {status:"too-many-snapshots"};
+    const retained=new Set(snapshots.flatMap(s=>s.alliances.map(a=>a.publicId)));
+    for(const fp of Object.keys(ids))if(!retained.has(ids[fp]))delete ids[fp];
+    const payload=JSON.stringify({version:1,
+      kind:"connected-alliance-trophy-history",
+      updatedAt:new Date(now).toISOString(),ids,snapshots});
+    if(payload.length>500000)return {status:"history-too-large"};
+    await bucket.put(KEY,payload,{httpMetadata:{
+      contentType:"application/json",cacheControl:"private, no-store"}});
+    return {status:"updated",added,day:yesterday};
+  }catch{return {status:"recovery-unavailable"};}
+}
