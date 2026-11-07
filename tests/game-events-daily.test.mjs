@@ -5,7 +5,7 @@ import {dispatchGameEventsToGithub} from "../src/game-events-github-dispatch.js"
 import {buildPublicEvents,DAILY_EVENTS_KEY,
   buildDailyPublicEvents} from "../src/public-events.js";
 
-const NOW=Date.parse("2026-11-05T03:17:00Z");
+const NOW=Date.parse("2026-11-05T21:05:00Z");
 const ROOT="game-archive/v1/";
 const API="https://api.marvelstrikeforce.com";
 const OAUTH="https://hydra-public.prod.m3.scopelypv.com/oauth2/token";
@@ -94,6 +94,36 @@ test("collects four pages, publishes one atomic verified R2 catalogue",async()=>
     NOW+3600000)).status,"up-to-date");
   assert.equal(f.calls.filter(x=>x.startsWith(API)).length,4);
   assert.equal((await f.bucket.get(ROOT+"budget/2026-11-05.json"))!==null,true);
+});
+
+test("21:05 UTC collection still runs if the old 03:17 slot already completed",async()=>{
+  const f=fixture();
+  f.objects.set(ROOT+"events-daily/state.json",JSON.stringify({
+    date:"2026-11-05",status:"completed",
+    checkedAt:"2026-11-05T03:17:00.000Z",
+    attemptAt:"2026-11-05T03:17:00.000Z"
+  }));
+  assert.equal((await runGameDailyEventsTick(f.env,f.fetchImpl,
+    Date.parse("2026-11-05T20:59:00Z"))).status,"not-due");
+  assert.equal(f.calls.length,0);
+  assert.equal((await runGameDailyEventsTick(f.env,f.fetchImpl,NOW)).status,
+    "completed");
+  assert.equal(f.calls.filter(url=>url.startsWith(API)).length,4);
+  assert.equal((await runGameDailyEventsTick(f.env,f.fetchImpl,NOW+60000))
+    .status,"up-to-date");
+});
+
+test("03:17 UTC is no longer due and the next UTC day waits for 21:05",async()=>{
+  const f=fixture();
+  assert.equal((await runGameDailyEventsTick(f.env,f.fetchImpl,
+    Date.parse("2026-11-05T03:17:00Z"))).status,"not-due");
+  assert.equal((await runGameDailyEventsTick(f.env,f.fetchImpl,NOW)).status,
+    "completed");
+  assert.equal((await runGameDailyEventsTick(f.env,f.fetchImpl,
+    NOW+24*3600000-60000)).status,"not-due");
+  assert.equal((await runGameDailyEventsTick(f.env,f.fetchImpl,
+    NOW+24*3600000)).status,"completed");
+  assert.equal(f.calls.filter(url=>url.startsWith(API)).length,8);
 });
 
 test("failed English page never overwrites a previously committed catalogue",async()=>{
