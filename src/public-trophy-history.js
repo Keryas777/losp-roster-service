@@ -2,7 +2,7 @@
 // No Scopely requests, OAuth tokens, member data, fingerprints or R2 paths leave R2.
 // Records live under the EXISTING seven-day R2 lifecycle. Retain at most 22
 // days of readings in each rewrite (22 + 7 < the provider's 30-day limit).
-import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
+import {readCollectibleApprovals,readGuestApprovals} from "./guest-alliance-approvals.js";
 import {trophyCardKey,BATCH_PREFIX} from "./private-roster-batches.js";
 
 const KEY=BATCH_PREFIX+"trophy-history/rolling.json";
@@ -71,7 +71,7 @@ function validHistory(x){
     Array.isArray(x.snapshots)&&x.snapshots.length<=30&&
     x.ids&&typeof x.ids==="object"&&!Array.isArray(x.ids);
 }
-function publicHistory(archive,now,allowedIds){
+function publicHistory(archive,now,allowedIds,guestKeys){
   const snapshots=validHistory(archive)?archive.snapshots.filter(row=>
     isTrophyDay(row?.collectionDayUtc)&&row.collectionDayUtc>=minDay(now)&&
     Array.isArray(row.alliances)&&row.alliances.length<=30).map(row=>({
@@ -82,7 +82,12 @@ function publicHistory(archive,now,allowedIds){
         expected:row.expected,complete:row.complete},
       alliances:row.alliances.map(a=>({
         publicId:a.publicId,nameAtCapture:a.nameAtCapture,
-        capturedAt:a.capturedAt,warTrophies:a.warTrophies
+        capturedAt:a.capturedAt,warTrophies:a.warTrophies,
+        // Resolve the CURRENT approved R2 binding on each GET, not when
+        // collecting. Public UUIDs may rotate; neither names nor colour
+        // markup establish an alliance's identity.
+        ...(guestKeys.has(a.publicId)?
+          {allianceKey:guestKeys.get(a.publicId)}:{})
       })).filter(a=>allowedIds.has(a.publicId)&&UUID.test(a.publicId)&&safeName(a.nameAtCapture)&&
         validNumber(a.warTrophies)&&Number.isFinite(asDate(a.capturedAt)))
     })).filter(row=>row.alliances.length):[];
@@ -101,9 +106,33 @@ export async function publicTrophyHistory(request,env,now=Date.now()){
     // refuse access to any published identity no longer approved.
     const approved=await readCollectibleApprovals(env);
     if(approved.status==="invalid-registry")throw Error("invalid-approvals");
-    const allowedIds=new Set((approved.alliances||[])
-      .map(a=>archive?.ids?.[a.fingerprint]).filter(id=>UUID.test(id||"")));
-    return Response.json(publicHistory(archive,now,allowedIds),{headers:HEADERS});
+    // Intersect with the current guest registry again, so a revoked guest
+    // cannot be exposed if the approvals change between the two R2 reads.
+    // LoSP access remains independent of the guest registry.
+    const guests=approved.guestAlliances?.length?
+      await readGuestApprovals(env):null;
+    const guestAllowed=new Set(guests?.status==="configured"?
+      guests.alliances.map(a=>a.fingerprint):[]);
+    const permitted=(approved.lospAlliances||[]).concat(
+      (approved.guestAlliances||[]).filter(a=>guestAllowed.has(a.fingerprint)));
+    const allowedIds=new Set(permitted.map(a=>archive?.ids?.[a.fingerprint])
+      .filter(id=>UUID.test(id||"")));
+    const guestFingerprints=new Set((approved.guestAlliances||[])
+      .map(a=>a.fingerprint));
+    const guestKeys=new Map(),conflictedIds=new Set();
+    for(const guest of guests?.status==="configured"?guests.alliances:[]){
+      if(!guestFingerprints.has(guest.fingerprint)||!guest.allianceKey)continue;
+      const id=archive?.ids?.[guest.fingerprint];
+      if(!UUID.test(id||"")||!allowedIds.has(id)||conflictedIds.has(id))continue;
+      // If a damaged archive reuses a public UUID, do not attribute either
+      // guest's readings to a wrong tenant.
+      if(guestKeys.has(id)&&guestKeys.get(id)!==guest.allianceKey){
+        guestKeys.delete(id);
+        conflictedIds.add(id);
+      }else guestKeys.set(id,guest.allianceKey);
+    }
+    return Response.json(publicHistory(archive,now,allowedIds,guestKeys),
+      {headers:HEADERS});
   }catch{return Response.json({status:"unavailable",snapshots:[]},
     {status:503,headers:HEADERS});}
 }
