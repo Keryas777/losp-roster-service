@@ -19,7 +19,7 @@ import {secureGuestRosters} from "./secure-guest-rosters.js";
 import {handleSelfPlayerLinks} from "./player-identity-links.js";
 import {secureGuestEvolution,archiveGuestEvolutionTick} from "./secure-guest-evolution.js";
 import {securePermanentGuestEvolution,archivePermanentGuestEvolutionTick} from "./permanent-guest-evolution.js";
-import {publicTrophyHistory,archiveTrophyHistory} from "./public-trophy-history.js";
+import {publicTrophyHistory,archiveTrophyHistory,recoverPreviousSaturdayGuestTrophies} from "./public-trophy-history.js";
 import {publicGuestSeasonRanks} from "./public-guest-season-ranks.js";
 import {GAME_ARCHIVE_CRON,runGameArchiveTick} from "./game-catalog-archive.js";
 import {runGameArchiveSchemaAuditTick} from "./game-archive-schema-audit.js";
@@ -273,6 +273,20 @@ export default {
             console.info("trophy-history-cron",JSON.stringify(trophy));
         }catch{
           console.warn("trophy-history-cron",JSON.stringify({status:"unavailable"}));
+        }
+      }
+      // Sunday R2-only repair: incorporate truly captured Saturday guest
+      // AllianceCards missed by the early roster-based trophy marker.
+      // Retains each source's real time (including late Saturday captures).
+      if(slot.getUTCDay()===0&&slot.getUTCMinutes()%15===8){
+        try{
+          const recovered=await recoverPreviousSaturdayGuestTrophies(env,scheduled);
+          if(!["unchanged","no-verified-saturday-captures",
+                 "no-bound-guests"].includes(recovered.status))
+            console.info("guest-trophies-recovery",JSON.stringify(recovered));
+        }catch{
+          console.warn("guest-trophies-recovery",
+            JSON.stringify({status:"unavailable"}));
         }
       }
       // An approved R2 recovery queue can run while Safari is closed.
