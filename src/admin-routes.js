@@ -7,6 +7,7 @@ import {rosterAutoStatus,handleAdminRosterAutoTest,handleAdminRosterAutoResume} 
 import {handleAdminRosterRecovery} from "./roster-auto-recovery.js";
 import {handleConnectedAlliances} from "./connected-alliance-index.js";
 import {handleGuestAllianceApproval} from "./guest-alliance-approvals.js";
+import {handleGuestWebappOnboarding} from "./guest-webapp-onboarding.js";
 import {handleRosterR2Coverage} from "./roster-r2-coverage.js";
 import {PUBLIC_SOURCE_ROUTES,handlePublicSourceProbe} from "./public-msf-source-probe.js";
 import {handleGameArchiveAdmin} from "./game-catalog-archive.js";
@@ -304,7 +305,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 export async function handleAdmin(request,env,fetchImpl=fetch){
   const endpoint=new URL(request.url).pathname;
   if(request.method!=="GET"&&!(request.method==="POST"&&
-       ["/admin/api/roster-approvals","/admin/api/roster-approve-one","/admin/api/guest-alliance-approval","/admin/api/roster-pilot",
+       ["/admin/api/roster-approvals","/admin/api/roster-approve-one","/admin/api/guest-alliance-approval","/admin/api/guest-webapp-onboarding","/admin/api/roster-pilot",
         "/admin/api/roster-batch","/admin/api/roster-auto-test",
         "/admin/api/roster-auto-resume","/admin/api/roster-auto-recovery",
         "/admin/api/msf-secondary-probe","/admin/api/game-archive",
@@ -361,6 +362,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   if(pathname==="/admin/api/roster-approvals")return saveRosterSyncApprovals(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-approve-one")return approveOneRosterAlliance(request,env,fetchImpl);
   if(pathname==="/admin/api/guest-alliance-approval")return handleGuestAllianceApproval(request,env,fetchImpl);
+  if(pathname==="/admin/api/guest-webapp-onboarding")return handleGuestWebappOnboarding(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-pilot")return handlePrivateRosterPilot(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-batch")return handleRosterMicrobatch(request,env,fetchImpl);
   if(pathname==="/admin/api/roster-batch-status")return getRosterBatchStatus(request,env);
