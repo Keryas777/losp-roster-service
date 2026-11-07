@@ -92,6 +92,32 @@ test("guest enrollment rejects foreign origin, nonexistent alliance and LoSP pro
     f.env,f.provider)).status,409);
   assert.equal(f.store.has(GUEST_APPROVAL_KEY),false);
 });
+test("guest approval + WebApp binding enqueues the immediate catch-up without any roster GET",async()=>{
+  const f=fixture();
+  f.env.ROSTER_BATCH_LOCK={idFromName:name=>name,
+    get:()=>({fetch:async req=>{
+      const body=await req.json();
+      return Response.json({status:body.action==="acquire"?"acquired":"released"});
+    }})};
+  const req=new Request(origin+"/admin/api/guest-alliance-approval",{
+    method:"POST",headers:{Origin:origin,"Content-Type":"application/json"},
+    body:JSON.stringify({fingerprint:guest,action:"approve",
+      allianceKey:"questionable-propriety"})
+  });
+  const result=await handleGuestAllianceApproval(req,f.env,f.provider);
+  assert.equal(result.status,200);
+  const response=await result.json();
+  assert.equal(response.status,"approved");
+  assert.equal(response.initialSync,"queued");
+  const queue=f.store.get("roster-batches/v1/guest-initial-sync/"+guest+".json");
+  assert.ok(queue);
+  const saved=JSON.parse(queue);
+  assert.equal(saved.phase,"infos");
+  assert.equal(saved.allianceKey,"questionable-propriety");
+  assert.doesNotMatch(queue,/SECRET|Leader|Membre|outside-aid/);
+  assert.ok(f.calls.every(uri=>!uri.includes("/roster")));
+});
+
 test("a broken guest registry fails closed for guests but leaves LoSP available",async()=>{
   const f=fixture();
   f.store.set(GUEST_APPROVAL_KEY,'{"version":1,"alliances":[{"fingerprint":"bad"}]}');
