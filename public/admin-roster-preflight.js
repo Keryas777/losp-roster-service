@@ -303,7 +303,11 @@ async function loadConnectedAlliances(bindingFeedback=null){
           const field=document.createElement("input");
           field.type="text";field.autocomplete="off";field.spellcheck=false;
           field.placeholder="ex. endgame-revolution-red";
-          field.value=alliance.guestAllianceKey||suggestedKey;
+          // Only guestAllianceKey comes from the persisted R2 approval registry.
+          // A colour-based suggestion must never be presented as a saved link.
+          const savedKey=typeof alliance.guestAllianceKey==="string"?
+            alliance.guestAllianceKey:"";
+          field.value=savedKey||suggestedKey;
           field.maxLength=64;
           identity.append(field);
           const bind=document.createElement("button");
@@ -311,18 +315,22 @@ async function loadConnectedAlliances(bindingFeedback=null){
           const identityStatus=document.createElement("p");
           identityStatus.setAttribute("role","status");
           identityStatus.setAttribute("aria-live","polite");
-          // The connected-alliance directory is refreshed after a binding
-          // write. Render confirmation in the NEW DOM, only if the GET
-          // confirms the exact key persisted in R2.
+          // The authenticated directory reads this binding from R2 on EVERY
+          // refresh. A pre-filled suggestion is never proof of association.
+          identityStatus.textContent=savedKey?
+            "✅ Association confirmée : "+savedKey+" (enregistrée dans R2).":
+            "⚠️ Association non enregistrée dans R2."+
+              (suggestedKey?" Clé proposée automatiquement : "+suggestedKey+
+                " (non enregistrée ; utiliser « Associer à la WebApp »).":"");
+          // A successful POST is not enough: the subsequent GET must confirm
+          // the requested binding, including explicit unbinding.
           if(bindingFeedback?.fingerprint===alliance.fingerprint){
-            identityStatus.textContent=
-              (alliance.guestAllianceKey||"")===bindingFeedback.expectedKey?
-                (bindingFeedback.expectedKey?
-                  "Association confirmée : "+bindingFeedback.expectedKey+
-                    " (enregistrée dans R2).":
-                  "Association WebApp supprimée (confirmée dans R2)."):
-                "Association non confirmée dans R2. Actualise les alliances "+
-                  "connectées avant de réessayer.";
+            if(savedKey!==bindingFeedback.expectedKey)
+              identityStatus.textContent="⚠️ Association non confirmée dans R2. "+
+                "Actualise les alliances connectées avant de réessayer.";
+            else if(!savedKey)
+              identityStatus.textContent="Association WebApp supprimée "+
+                "(confirmée dans R2).";
           }
           bind.addEventListener("click",async()=>{
             const key=field.value.trim();
