@@ -254,7 +254,7 @@ export async function runGuestInitialSyncTick(env,now=Date.now(),fetchImpl=fetch
           ["updated","unchanged","already-reward-captured"].includes(result.status))||
         (["roster","infos"].includes(latest.phase)&&
           ["complete","partial-consent"].includes(result.status));
-      const stages=["infos","ranks","arena","roster","done"];
+      const stages=["infos","roster","ranks","arena","done"];
       const next=done?stages[stages.indexOf(latest.phase)+1]:latest.phase;
       const fatal=["alliance-not-approved","approval-withdrawn",
         "invalid-selection","invalid-approvals"].includes(result.status);
