@@ -99,7 +99,7 @@ export function projectInfoRows(members,extras,alliance){
     return result;
   });
 }
-export async function runMemberInfoTick(env,fp,slot,fetchImpl=fetch){
+export async function runMemberInfoTick(env,fp,slot,fetchImpl=fetch,options={}){
   if(env?.MEMBER_INFO_AUTO_ENABLED!=="true")return {status:"disabled"};
   if(!FP.test(fp)||!/^\d{4}-\d{2}-\d{2}-(am|pm)$/.test(slot?.campaign))
     return {status:"invalid-campaign"};
@@ -133,7 +133,10 @@ export async function runMemberInfoTick(env,fp,slot,fetchImpl=fetch){
       state={version:1,campaign:slot.campaign,allianceFingerprint:fp,
         allianceId:account.aid,membership:identity(members),cursor:0,extras:{}};
     }
-    for(let i=0;i<CARDS_PER_TICK&&state.cursor<members.length;i++){
+    // Initial catch-up has its own minute invocation and may collect up to
+    // eight cards (ordinary AM/PM collection remains two per tick).
+    const perTick=options?.maxCardsPerTick===8?8:CARDS_PER_TICK;
+    for(let i=0;i<perTick&&state.cursor<members.length;i++){
       const member=members[state.cursor];
       const card=await provider(account.token,
         "/player/v1/card/member/"+encodeURIComponent(member.id),fetchImpl);
