@@ -266,10 +266,9 @@ async function loadConnectedAlliances(bindingFeedback=null){
       // Future guest enrollment: one admin dispatch produces a reviewable
       // WebApp PR containing both JSON registries. Never approves collection.
       const unstyled=String(alliance.name||"").replace(/<[^>]*>/g,"").trim();
-      const alreadyNamed=Array.isArray(registered)&&registered.some(row=>
-        String(row?.name||"").trim().toLocaleLowerCase()===
-        unstyled.toLocaleLowerCase());
-      if(!alliance.approved&&!suggestedKey&&!alreadyNamed){
+      // Two separate approved Scopely alliances can share the SAME name.
+      // A display-name match must never suppress guest onboarding.
+      if(!alliance.approved&&!suggestedKey&&!alliance.guestAllianceKey){
         const section=document.createElement("div");
         const heading=document.createElement("p");
         heading.textContent="Nouvelle alliance détectée : préparer son accès WebApp";
