@@ -239,18 +239,27 @@ export async function archiveGuestInitialArena(env,fp,allianceKey,now=Date.now()
        !guest.alliances.some(a=>a.fingerprint===fp&&a.allianceKey===allianceKey))
       return {status:"not-approved-and-bound"};
     const todayUtc=new Date(now).toISOString().slice(0,10);
-    let source=null,sourceDay=null;
+    let source=null,sourceDay=null,sourceProfiles=[];
     for(const day of [todayUtc,dateOffset(todayUtc,-1)]){
       for(const period of ["pm","am"]){
         const campaign=day+"-"+period;
         const raw=await json(bucket,ROOT+fp+"/campaigns/"+campaign+"-infos.json");
         const valid=raw&&sanitizeReceipt(raw,fp,day,period,now);
-        if(valid){source=valid;sourceDay=day;break;}
+        if(valid){source=valid;sourceDay=day;sourceProfiles=raw.rows;break;}
       }
       if(source)break;
     }
     if(!source)return {status:"awaiting-infos"};
-    const players=source.rows.map(row=>({...row,allianceKey}));
+    // Keep available portraits/frames in the PRIVATE baseline only.
+    // The signed Arena endpoint still validates every asset host/path.
+    const media=new Map(sourceProfiles.filter(x=>
+      typeof x?.name==="string").map(x=>[x.name,x]));
+    const players=source.rows.map(row=>{
+      const profile=media.get(row.name);
+      return {...row,allianceKey,
+        ...(typeof profile?.icon==="string"?{icon:profile.icon}:{}),
+        ...(typeof profile?.frame==="string"?{frame:profile.frame}:{})};
+    });
     if(!players.length)return {status:"awaiting-arena-ranks"};
     const today=parisParts(now).day;
     const previous=await json(bucket,GUEST_HISTORY_KEY,2400000);
