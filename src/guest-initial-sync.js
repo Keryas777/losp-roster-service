@@ -106,7 +106,7 @@ export async function enqueueGuestInitialSync(env,fp,key,now=Date.now(),{restart
     if(previous&&!restart)return {status:previous.status,
       progress:publicState(previous)};
     const record={version:1,fingerprint:fp,allianceKey:key,
-      status:"queued",phase:"roster",requestedAt:stamp(now),
+      status:"queued",phase:"infos",requestedAt:stamp(now),
       updatedAt:stamp(now),deadlineAt:stamp(now+DEADLINE_MS),
       nextAt:stamp(now),attempts:0,lastOutcome:null};
     await write(env.CAPTAIN_BUCKET,recordKey(fp),record);
@@ -231,7 +231,7 @@ export async function runGuestInitialSyncTick(env,now=Date.now(),fetchImpl=fetch
           ["updated","unchanged","already-reward-captured"].includes(result.status))||
         (["roster","infos"].includes(latest.phase)&&
           ["complete","partial-consent"].includes(result.status));
-      const stages=["roster","infos","ranks","arena","done"];
+      const stages=["infos","ranks","arena","roster","done"];
       const next=done?stages[stages.indexOf(latest.phase)+1]:latest.phase;
       const fatal=["alliance-not-approved","approval-withdrawn",
         "invalid-selection","invalid-approvals"].includes(result.status);
