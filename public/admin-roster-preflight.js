@@ -444,7 +444,8 @@ async function loadConnectedAlliances(bindingFeedback=null){
             const restart=document.createElement("button");
             restart.type="button";restart.textContent="Relancer les collectes initiales";
             const labels={roster:"Rosters partagés",infos:"Infos enrichies",
-              ranks:"Rangs de saison et trophées actuels",
+              ranks:"Rangs Guerre / Raid de la saison précédente",
+              trophies:"Trophées rattachés au dernier relevé groupé",
               arena:"Premier relevé d'Arène",done:"Terminé"};
             const update=async()=>{
               check.disabled=true;
