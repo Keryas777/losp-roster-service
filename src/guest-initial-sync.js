@@ -11,6 +11,7 @@ import {runMemberInfoTick} from "./member-info-campaign.js";
 import {chooseAccount} from "./private-roster-pilot.js";
 import {discoverAlliance} from "./alliance-coverage.js";
 import {archiveGuestSeasonRankSample} from "./public-guest-season-ranks.js";
+import {archiveInitialGuestTrophies} from "./public-trophy-history.js";
 import {archiveGuestInitialArena} from "./public-arena-history.js";
 
 const ROOT="roster-batches/v1/guest-initial-sync/";
@@ -45,7 +46,7 @@ function valid(record,fp){
   return record?.version===1&&record.fingerprint===fp&&
     KEY.test(record.allianceKey||"")&&
     ["queued","running","complete","stopped","failed"].includes(record.status)&&
-    ["roster","infos","ranks","arena","done"].includes(record.phase)&&
+    ["roster","infos","ranks","arena","trophies","done"].includes(record.phase)&&
     Number.isFinite(Date.parse(record.requestedAt))&&
     Number.isFinite(Date.parse(record.updatedAt))&&
     Number.isFinite(Date.parse(record.deadlineAt))&&
@@ -164,15 +165,44 @@ export async function captureInitialGuestCard(env,fp,key,now,fetchImpl=fetch){
   await write(env.CAPTAIN_BUCKET,currentCardKey(fp),{
     version:1,fingerprint:fp,allianceKey:key,
     source:capture.source,capturedAt:capture.capturedAt,
-    warTrophies:validCardInt(card.warTrophies)?card.warTrophies:null,
+    nameAtCapture:card.name,warTrophies:validCardInt(card.warTrophies)?card.warTrophies:null,
     warRank:validCardInt(card.warRank)?card.warRank:null,
     raidRank:validCardInt(card.raidRank)?card.raidRank:null
   });
   if(!validCardInt(card.warRank)||!validCardInt(card.raidRank))
     return {status:"ranks-unavailable"};
   const projected=await archiveGuestSeasonRankSample(env,capture,now);
+  // The first trophy value is attached to the latest REAL grouped capture
+  // day, while its own actual Scopely capture timestamp remains unchanged.
+  // If no grouped source exists yet, a later R2-only phase retries it.
+  let trophyStatus="not-collected";
+  if(validCardInt(card.warTrophies)){
+    try{
+      const trophies=await archiveInitialGuestTrophies(env,{
+        fingerprint:fp,allianceKey:key,nameAtCapture:card.name,
+        warTrophies:card.warTrophies,capturedAt:capture.capturedAt
+      },now);
+      trophyStatus=trophies.status;
+    }catch{trophyStatus="unavailable";}
+  }
   return {status:["updated","unchanged"].includes(projected.status)?
-    "captured":projected.status};
+    "captured":projected.status,trophyStatus};
+}
+
+// No second AllianceCard GET: retry only the authentic first card held in R2.
+export async function archiveCachedInitialGuestTrophies(env,fp,key,now=Date.now()){
+  if(!FP.test(fp||"")||!KEY.test(key||""))
+    return {status:"invalid-selection"};
+  try{
+    const row=await read(env.CAPTAIN_BUCKET,currentCardKey(fp));
+    if(row?.version!==1||row.fingerprint!==fp||row.allianceKey!==key||
+       row.source!=="/player/v1/alliance/card")
+      return {status:"awaiting-card"};
+    return archiveInitialGuestTrophies(env,{
+      fingerprint:fp,allianceKey:key,nameAtCapture:row.nameAtCapture,
+      warTrophies:row.warTrophies,capturedAt:row.capturedAt
+    },now);
+  }catch{return {status:"unavailable"};}
 }
 
 const phaseOptions={
@@ -247,14 +277,19 @@ export async function runGuestInitialSyncTick(env,now=Date.now(),fetchImpl=fetch
           const arena=deps.arena||archiveGuestInitialArena;
           const value=await arena(env,fp,key,now);
           result={status:value.status,requests:0};
+        }else if(latest.phase==="trophies"){
+          const trophies=deps.trophies||archiveCachedInitialGuestTrophies;
+          result=await trophies(env,fp,key,now);
         }
       }catch{result={status:"unavailable",requests:0};}
       const done=(latest.phase==="ranks"&&result.status==="captured")||
+        (latest.phase==="trophies"&&
+          ["updated","already-recorded"].includes(result.status))||
         (latest.phase==="arena"&&
           ["updated","unchanged","already-reward-captured"].includes(result.status))||
         (["roster","infos"].includes(latest.phase)&&
           ["complete","partial-consent"].includes(result.status));
-      const stages=["infos","roster","ranks","arena","done"];
+      const stages=["infos","roster","ranks","arena","trophies","done"];
       const next=done?stages[stages.indexOf(latest.phase)+1]:latest.phase;
       const fatal=["alliance-not-approved","approval-withdrawn",
         "invalid-selection","invalid-approvals"].includes(result.status);
