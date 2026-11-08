@@ -16,13 +16,15 @@ Lorsque **l'approbation ET la liaison `allianceKey` sont présentes**, `handleGu
 ## Phases
 
 1. **Infos enrichies** : réutilisation de `runMemberInfoTick`, avec au plus 8 fiches par passage au lieu des 2 habituelles. Crée un reçu AM/PM vérifié, sans toucher au collecteur quotidien ni publier les données privées dans GitHub.
-3. **Rangs et trophées courants** : lecture officielle de `/player/v1/alliance/card` par `chooseAccount` et `discoverAlliance`, avec contrôle de l'alliance réelle. Archive les rangs Guerre/Raid via la projection existante ; stocke le **total de trophées actuel**, à sa date réelle, dans un objet R2 privé.
+3. **Rangs Guerre/Raid de la saison précédente** : lecture officielle de `/player/v1/alliance/card` par `chooseAccount` et `discoverAlliance`, avec contrôle de l'alliance réelle. Archive les rangs Guerre/Raid via la projection existante, qui les rattache à la **dernière saison terminée** grâce au calendrier JSON dynamique ; stocke le **total de trophées actuel** dans un objet R2 privé, avec son heure réelle de récupération.
 4. **Arène** : capture à partir des vrais reçus Infos. La première observation porte `sourceKind: onboarding` et `attribution: onboarding-current-observation` ; elle ne simule pas le relevé quotidien après récompenses. Le vrai relevé `reward` remplace ce point lorsqu'il existe.
 2. **Rosters partagés** : relance ciblée du collecteur incrémental existant dans sa campagne AM/PM réelle, sous verrou, limite initiale de 20 GET par tick. Le respect de `rosterShare`, de la liste réelle des membres et de la rétention reste inchangé. Le mécanisme existant publie les rosters invités complets via GitHub Actions lorsque la publication est autorisée.
 
 À la fin de la collecte Infos, la file déclenche également le workflow GitHub Actions déjà existant `publish-guest-joueurs.yml` pour publier le répertoire minimal des pseudos invités sans attendre l'heure programmée. Le dispatch ne transmet aucun pseudo ni roster au service GitHub et n'empêche pas les autres phases si GitHub est indisponible.
 
-La file **n'invente aucune date historique** : les points de trophées post-guerre restent collectés aux jours prévus et les premiers vrais checkpoints hebdomadaires d'Évolution ont lieu le dimanche. La connexion OAuth et le partage de roster restent nécessaires pour les membres concernés.
+5. **Trophées — rattachement initial** : réutilise le total réel extrait de la première AllianceCard, sans second appel Scopely. Le point est intégré **à la dernière date de collecte groupée réelle enregistrée** dans l’historique partagé. L’heure d’observation Scopely reste celle de la collecte initiale : `capturedAt` ne subit aucun antidatage. Le relevé groupé original et les autres alliances sont préservés ; une répétition ne remplace pas un point déjà enregistré. Si aucune collecte groupée réelle n’existe, la file retente depuis R2, sans fabriquer une date.
+
+Les futurs relevés post-guerre restent collectés selon la cadence habituelle et les premiers checkpoints hebdomadaires d’Évolution ont lieu le dimanche. La connexion OAuth et le partage de roster restent nécessaires pour les membres concernés.
 
 ## Administration et diagnostic
 
@@ -30,7 +32,7 @@ Dans **Rosters → Alliances connectées**, après l'association WebApp confirm�
 
 - `GET /admin/api/guest-initial-sync?fingerprint=<sha256>` : statut et phase, aucune donnée privée.
 - `POST /admin/api/guest-initial-sync?fingerprint=<sha256>` avec `{"action":"restart"}` : relance **après validation Cloudflare Access** et vérification des approbations.
-- État : `queued`, `running`, `complete`, `stopped`, `failed` ; phase `infos`, `roster`, `ranks`, `arena`, `done` ; le statut expose aussi l’envoi éventuel du workflow d’annuaire invité.
+- État : `queued`, `running`, `complete`, `stopped`, `failed` ; phase `infos`, `roster`, `ranks`, `arena`, `trophies`, `done` ; le statut expose aussi l’envoi éventuel du workflow d’annuaire invité.
 
 Aucune URL de capture non authentifiée n'est créée. Les endpoints invités WebApp continuent d'exiger une session Discord signée, l'association `allianceKey` et les autorisations R2 actuelles.
 
