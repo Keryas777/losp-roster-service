@@ -163,6 +163,17 @@
       "aliases": [
         "endgame-revolution-orange"
       ]
+    },
+    {
+      "key": "questionable-propriety",
+      "name": "Questionable Propriety",
+      "group": "questionable-propriety",
+      "color": "#FFFFFF",
+      "nameColor": "#FFFFFF",
+      "order": 10,
+      "aliases": [
+        "Questionable Propriety"
+      ]
     }
   ],
   "access_groups": {
@@ -207,6 +218,16 @@
         ],
         "roleIds": [
           "1567461415495667823"
+        ]
+      },
+      {
+        "key": "questionable-propriety",
+        "name": "Questionable Propriety",
+        "alliances": [
+          "questionable-propriety"
+        ],
+        "roleIds": [
+          "1568752859137318963"
         ]
       }
     ]

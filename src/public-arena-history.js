@@ -116,7 +116,9 @@ export function mergeArenaHistory(history,incoming,today){
   for(const item of incoming){
     if(item?.date>=first&&item?.date<=today&&
        Array.isArray(item.players)&&item.players.length<=500&&
-       !dates.has(item.date))dates.set(item.date,item);
+       (!dates.has(item.date)||
+         (dates.get(item.date)?.sourceKind==="onboarding"&&
+          item.sourceKind==="reward")))dates.set(item.date,item);
   }
   return {version:1,retentionDays:30,generatedAt:new Date().toISOString(),
     snapshots:[...dates.values()].sort((a,b)=>a.date.localeCompare(b.date))};
@@ -143,7 +145,7 @@ export async function buildArenaHistory(env,now=Date.now(),scope="losp"){
   }
   for(const day of [dateOffset(today,-1),today]){
     if(day<FIRST_SOURCE_DAY||day>today)continue;
-    if((previous?.snapshots||[]).some(s=>s.date===day))continue;
+    if((previous?.snapshots||[]).some(s=>s.date===day&&s.sourceKind!=="onboarding"))continue;
     const point=await snapshot(bucket,fps,day,"reward",now,guestKeys);
     if(point)incoming.push(point);
   }
@@ -218,4 +220,75 @@ export async function archiveArenaHistory(env,now=Date.now()){
   if(!([20,22].includes(local.hour)&&local.minute===17))
     return {status:"outside-window"};
   return archiveBothScopes(env,now,false);
+}
+
+
+// Capture a genuine "current at onboarding" Arena observation as soon as
+// AM/PM Infos receipts are collected. Never label it as the 17:01 reward.
+// The later real reward snapshot replaces this initial point for that date.
+export async function archiveGuestInitialArena(env,fp,allianceKey,now=Date.now()){
+  if(!FP.test(fp||"")||!/^[a-z][a-z0-9-]{1,63}$/.test(allianceKey||"")||
+     !Number.isFinite(now)||!env?.CAPTAIN_BUCKET?.get||
+     !env.CAPTAIN_BUCKET.put)return {status:"invalid-input"};
+  const bucket=env.CAPTAIN_BUCKET;
+  try{
+    const guest=await readGuestApprovals(env);
+    const approved=await readCollectibleApprovals(env);
+    if(guest.status!=="configured"||approved.status!=="configured"||
+       !approved.guestAlliances?.some(a=>a.fingerprint===fp)||
+       !guest.alliances.some(a=>a.fingerprint===fp&&a.allianceKey===allianceKey))
+      return {status:"not-approved-and-bound"};
+    const todayUtc=new Date(now).toISOString().slice(0,10);
+    let source=null,sourceDay=null,sourceProfiles=[];
+    for(const day of [todayUtc,dateOffset(todayUtc,-1)]){
+      for(const period of ["pm","am"]){
+        const campaign=day+"-"+period;
+        const raw=await json(bucket,ROOT+fp+"/campaigns/"+campaign+"-infos.json");
+        const valid=raw&&sanitizeReceipt(raw,fp,day,period,now);
+        if(valid){source=valid;sourceDay=day;sourceProfiles=raw.rows;break;}
+      }
+      if(source)break;
+    }
+    if(!source)return {status:"awaiting-infos"};
+    // Keep available portraits/frames in the PRIVATE baseline only.
+    // The signed Arena endpoint still validates every asset host/path.
+    const media=new Map(sourceProfiles.filter(x=>
+      typeof x?.name==="string").map(x=>[x.name,x]));
+    const players=source.rows.map(row=>{
+      const profile=media.get(row.name);
+      return {...row,allianceKey,
+        ...(typeof profile?.icon==="string"?{icon:profile.icon}:{}),
+        ...(typeof profile?.frame==="string"?{frame:profile.frame}:{})};
+    });
+    if(!players.length)return {status:"awaiting-arena-ranks"};
+    const today=parisParts(now).day;
+    const previous=await json(bucket,GUEST_HISTORY_KEY,2400000);
+    if(previous&&(previous.version!==1||!Array.isArray(previous.snapshots)))
+      return {status:"invalid-history"};
+    const saved=previous?.snapshots.find(s=>s.date===today);
+    if(saved?.sourceKind==="reward")return {status:"already-reward-captured"};
+    if(saved&&saved.sourceKind!=="onboarding")
+      return {status:"existing-historical-observation"};
+    const retained=(saved?.players||[]).filter(p=>p.allianceKey!==allianceKey);
+    const combined=retained.concat(players);
+    if(combined.length>500)return {status:"too-many-players"};
+    const point={date:today,sourceDay,
+      attribution:"onboarding-current-observation",sourceKind:"onboarding",
+      alliancesComplete:new Set(combined.map(x=>x.allianceKey)).size,
+      capturedAt:source.capturedAt,players:combined};
+    const snapshots=(previous?.snapshots||[])
+      .filter(s=>s.date!==today).concat(point)
+      .filter(s=>s.date>=earliest(today)&&s.date<=today)
+      .sort((a,b)=>a.date.localeCompare(b.date));
+    const output={version:1,retentionDays:30,generatedAt:new Date(now).toISOString(),
+      snapshots};
+    const encoded=JSON.stringify(output);
+    if(encoded.length>2000000)return {status:"oversized-history"};
+    if(JSON.stringify(saved)===JSON.stringify(point))
+      return {status:"unchanged"};
+    await bucket.put(GUEST_HISTORY_KEY,encoded,{
+      httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
+    });
+    return {status:"updated",players:players.length};
+  }catch{return {status:"unavailable"};}
 }

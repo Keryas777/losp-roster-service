@@ -10,6 +10,7 @@ import { handleAdmin } from "./admin-routes.js";
 import { prunePrivateRosterPilots } from "./private-roster-pilot.js";
 import { ROSTER_CRON, runRosterAutoTick } from "./automatic-roster-scheduler.js";
 import {runRosterRecoveryTick} from "./roster-auto-recovery.js";
+import {runGuestInitialSyncTick} from "./guest-initial-sync.js";
 import {runMemberInfoAutoTick} from "./member-info-scheduler.js";
 import {runRewardInfoAutoTick} from "./member-info-reward.js";
 import {publicArenaHistory,archiveArenaHistory,archiveArenaHistoryWhenReady} from "./public-arena-history.js";
@@ -292,14 +293,28 @@ export default {
       // An approved R2 recovery queue can run while Safari is closed.
       // Skip slots already using Scopely for the independent Info collectors,
       // and the 20:17 / 22:17 Paris arena snapshots. One alliance per tick.
+      let recoveryRequests=0;
       if(!(info.requests>0)&&!(reward.requests>0)&&
          !(parts.minute===17&&[20,22].includes(parts.hour))){
         const recovery=await runRosterRecoveryTick(env,controller.scheduledTime);
+        recoveryRequests=recovery.requestsThisTick||0;
         if(!["idle","disabled"].includes(recovery.status))
           console.info("roster-recovery-cron",JSON.stringify({
             status:recovery.status,requests:recovery.requestsThisTick||0,
             ...(recovery.githubDispatch?
               {githubDispatch:recovery.githubDispatch}:{})
+          }));
+      }
+      // Guest enrollment is an R2-backed queue, not a detached task.
+      // Reuse the existing every-minute Cron after high-priority collectors.
+      // Never stack provider GETs on an active Info/reward/recovery tick.
+      if(!(info.requests>0)&&!(reward.requests>0)&&!recoveryRequests&&
+         !(parts.minute===17&&[20,22].includes(parts.hour))){
+        const initial=await runGuestInitialSyncTick(env,scheduled);
+        if(!["idle","disabled","cooldown"].includes(initial.status))
+          console.info("guest-initial-sync-cron",JSON.stringify({
+            status:initial.status,phase:initial.phase||null,
+            outcome:initial.lastOutcome||null,requests:initial.requests||0
           }));
       }
     }

@@ -202,7 +202,10 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
       return {status:"no-approved-alliances"};
     const alliances=approval.alliances.map(a=>a.fingerprint).sort();
     const fullMode=isFullMode(env);
-    const tickBudget=providerBudget(env);
+    // Catch-up runs inside the shared minute Cron after other R2 work.
+    // Keep a lower, bounded provider budget than the dedicated roster Cron.
+    const tickBudget=options?.bootstrap===true?
+      Math.min(providerBudget(env),20):providerBudget(env);
     // A full-alliance pass receives the entire invocation budget. Completed
     // campaigns should not waste future minutes when many guests are approved.
     const candidates=[];

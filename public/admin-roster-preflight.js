@@ -263,6 +263,77 @@ async function loadConnectedAlliances(bindingFeedback=null){
         (alliance.approved?"collecte LoSP approuvée":
           alliance.guestApproved?"collecte invitée approuvée":
           "roster personnel uniquement"));
+      // Future guest enrollment: one admin dispatch produces a reviewable
+      // WebApp PR containing both JSON registries. Never approves collection.
+      const unstyled=String(alliance.name||"").replace(/<[^>]*>/g,"").trim();
+      // Two separate approved Scopely alliances can share the SAME name.
+      // A display-name match must never suppress guest onboarding.
+      if(!alliance.approved&&!suggestedKey&&!alliance.guestAllianceKey){
+        const section=document.createElement("div");
+        const heading=document.createElement("p");
+        heading.textContent="Nouvelle alliance détectée : préparer son accès WebApp";
+        const makeField=(label,value,placeholder)=>{
+          const wrapper=document.createElement("label");
+          wrapper.textContent=label+" : ";
+          const input=document.createElement("input");
+          input.type="text";input.autocomplete="off";input.spellcheck=false;
+          input.value=value;input.placeholder=placeholder;
+          wrapper.appendChild(input);section.appendChild(wrapper);
+          return input;
+        };
+        const shortName=unstyled.replace(/^ +| +$/g,"");
+        const slug=shortName.normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+          .toLowerCase().replace(/[^a-z0-9]+/g,"-")
+          .replace(/^-+|-+$/g,"").slice(0,64);
+        section.appendChild(heading);
+        const newName=makeField("Nom officiel",shortName,"Nom de l'alliance");
+        const newKey=makeField("Clé technique",slug,"ex. another-us-team");
+        const newRole=makeField("ID du rôle Discord","","16 à 22 chiffres");
+        newRole.inputMode="numeric";newRole.maxLength=22;
+        const colorLabel=document.createElement("label");
+        colorLabel.textContent="Couleur : ";
+        const newColor=document.createElement("input");
+        newColor.type="color";newColor.value="#ffffff";
+        colorLabel.appendChild(newColor);section.appendChild(colorLabel);
+        const register=document.createElement("button");
+        register.type="button";register.textContent="Préparer la PR WebApp";
+        const registerStatus=document.createElement("p");
+        registerStatus.setAttribute("role","status");
+        registerStatus.setAttribute("aria-live","polite");
+        register.addEventListener("click",async()=>{
+          const selection={key:newKey.value.trim(),name:newName.value.trim(),
+            roleId:newRole.value.trim(),color:newColor.value.toUpperCase()};
+          if(!/^[a-z][a-z0-9-]{1,63}$/.test(selection.key)||
+             !selection.name||!/^#[0-9A-F]{6}$/.test(selection.color)||
+             !/^[0-9]{16,22}$/.test(selection.roleId)){
+            registerStatus.textContent="Vérifie la clé, le nom, la couleur et les 16 à 22 chiffres du rôle Discord.";
+            return;
+          }
+          register.disabled=true;
+          registerStatus.textContent="Demande de PR GitHub en cours…";
+          try{
+            const response=await fetch("/admin/api/guest-webapp-onboarding",{
+              method:"POST",credentials:"same-origin",cache:"no-store",
+              headers:{"Content-Type":"application/json",Accept:"application/json"},
+              body:JSON.stringify(selection)
+            });
+            const result=await response.json();
+            if(response.status!==202||result.status!=="queued")
+              throw Error(result.status||"github-unavailable");
+            registerStatus.textContent="Workflow GitHub lancé. Vérifie puis fusionne la PR ; aucune collecte n'a été autorisée.";
+            const link=document.createElement("a");
+            link.href="https://github.com/Keryas777/msf/actions/workflows/register-guest-alliance.yml";
+            link.target="_blank";link.rel="noopener noreferrer";
+            link.textContent="Voir le workflow GitHub";
+            registerStatus.appendChild(link);
+          }catch(error){
+            registerStatus.textContent="Envoi impossible : "+(error.message||"indisponible");
+            register.disabled=false;
+          }
+        });
+        section.append(register,registerStatus);
+        parent.appendChild(section);
+      }
       if(!alliance.approved){
         const guest=document.createElement("button");
         guest.type="button";
@@ -362,6 +433,60 @@ async function loadConnectedAlliances(bindingFeedback=null){
             }
           });
           parent.append(identity,bind,identityStatus);
+          if(savedKey){
+            const title=document.createElement("p");
+            title.textContent="Rattrapage automatique à l’arrivée — "+savedKey;
+            const progress=document.createElement("p");
+            progress.setAttribute("role","status");
+            progress.setAttribute("aria-live","polite");
+            const check=document.createElement("button");
+            check.type="button";check.textContent="Voir le rattrapage initial";
+            const restart=document.createElement("button");
+            restart.type="button";restart.textContent="Relancer les collectes initiales";
+            const labels={roster:"Rosters partagés",infos:"Infos enrichies",
+              ranks:"Rangs de saison et trophées actuels",
+              arena:"Premier relevé d'Arène",done:"Terminé"};
+            const update=async()=>{
+              check.disabled=true;
+              try{
+                const res=await fetch("/admin/api/guest-initial-sync?fingerprint="+
+                  encodeURIComponent(alliance.fingerprint),{
+                  credentials:"same-origin",cache:"no-store",
+                  headers:{Accept:"application/json"}});
+                const body=await res.json();
+                if(!res.ok)throw Error(body.status||"unavailable");
+                progress.textContent="État : "+body.status+
+                  (body.phase?" — "+(labels[body.phase]||body.phase):"")+
+                  (body.lastOutcome?" ("+body.lastOutcome+")":"")+
+                  (body.updatedAt?" — "+body.updatedAt:"");
+              }catch(error){
+                progress.textContent="Impossible de lire la progression : "+
+                  (error.message||"indisponible");
+              }finally{check.disabled=false;}
+            };
+            check.addEventListener("click",update);
+            restart.addEventListener("click",async()=>{
+              restart.disabled=true;
+              progress.textContent="Relance de la collecte initiale…";
+              try{
+                const res=await fetch("/admin/api/guest-initial-sync?fingerprint="+
+                  encodeURIComponent(alliance.fingerprint),{
+                  method:"POST",credentials:"same-origin",cache:"no-store",
+                  headers:{"Content-Type":"application/json",Accept:"application/json"},
+                  body:JSON.stringify({action:"restart"})
+                });
+                const body=await res.json();
+                if(res.status!==202||body.status!=="queued")
+                  throw Error(body.status||"unavailable");
+                await update();
+              }catch(error){
+                progress.textContent="Relance impossible : "+
+                  (error.message||"indisponible");
+              }finally{restart.disabled=false;}
+            });
+            parent.append(title,progress,check,restart);
+            void update();
+          }
         }
       }
       if(!alliance.approved&&!alliance.guestApproved){
