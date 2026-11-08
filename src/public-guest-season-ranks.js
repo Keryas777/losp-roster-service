@@ -1,3 +1,4 @@
+import {preserveStandingsHistory} from "./durable-alliance-standings.js";
 // Read-only rank projection of already captured APPROVED guest AllianceCards.
 // Never calls Scopely, exposes tokens, fingerprints, member data or R2 keys.
 // Original data and this rolling projection use the existing 7-day R2 lifecycle.
@@ -105,6 +106,12 @@ export async function archiveGuestSeasonRankSample(env,capture,now=Date.now()){
   const raw=JSON.stringify({version:1,kind:"guest-season-ranks-rolling",
     updatedAt:at.toISOString(),snapshots});
   if(raw.length>250000)return {status:"history-too-large"};
+  // Backfill all still-available observations before the rolling projection
+  // removes old dates. Keep the current public response contract unchanged.
+  const preserved=await preserveStandingsHistory(env,"guest-season",
+    [...(old?.snapshots||[]),snapshot]);
+  if(preserved.status!=="preserved")
+    return {status:"history-preservation-failed",detail:preserved.status};
   await bucket.put(KEY,raw,{httpMetadata:{
     contentType:"application/json",cacheControl:"private, no-store"}});
   return {status:"updated",observed:alliances.length};
