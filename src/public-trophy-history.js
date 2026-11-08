@@ -5,7 +5,10 @@
 import {readCollectibleApprovals,readGuestApprovals} from "./guest-alliance-approvals.js";
 import {trophyCardKey,BATCH_PREFIX} from "./private-roster-batches.js";
 
-const KEY=BATCH_PREFIX+"trophy-history/rolling.json";
+// Defined independently to avoid an ES-module initialization cycle when the
+// guest onboarding module imports this projection during approval routing.
+// Keep in sync with private-roster-batches.js: BATCH_PREFIX is "roster-batches/v1/".
+const KEY="roster-batches/v1/trophy-history/rolling.json";
 const FP=/^[a-f0-9]{64}$/;
 const DAY=/^\d{4}-\d{2}-\d{2}$/;
 const UUID=/^[a-f0-9-]{36}$/;
@@ -135,6 +138,93 @@ export async function publicTrophyHistory(request,env,now=Date.now()){
       {headers:HEADERS});
   }catch{return Response.json({status:"unavailable",snapshots:[]},
     {status:503,headers:HEADERS});}
+}
+
+// One-time guest catch-up: put the CURRENT, truly observed trophy total at
+// the most recent REAL grouped Thursday/Saturday collection date. This is a
+// chart alignment, NOT a claim the guest was observed on that earlier day.
+// Keep the actual capture timestamp on the per-alliance point. Never rewrite
+// another alliance or an older observation for this guest.
+export async function archiveInitialGuestTrophies(env,observation,now=Date.now()){
+  const {fingerprint,allianceKey,nameAtCapture,warTrophies,capturedAt}=
+    observation||{};
+  const captured=asDate(capturedAt);
+  if(!FP.test(fingerprint||"")||
+     !/^[a-z][a-z0-9-]{1,63}$/.test(allianceKey||"")||
+     !safeName(nameAtCapture)||!validNumber(warTrophies)||
+     !Number.isFinite(now)||!Number.isFinite(captured)||captured>now||
+     now-captured>48*60*60*1000)
+    return {status:"invalid-observation"};
+  const bucket=env?.CAPTAIN_BUCKET;
+  if(!bucket?.get||!bucket?.put)return {status:"storage-unavailable"};
+  try{
+    const [approved,guests]=await Promise.all([
+      readCollectibleApprovals(env),readGuestApprovals(env)
+    ]);
+    if(approved.status!=="configured"||guests.status!=="configured"||
+       !(approved.guestAlliances||[]).some(a=>a.fingerprint===fingerprint)||
+       !guests.alliances.some(a=>a.fingerprint===fingerprint&&
+         a.allianceKey===allianceKey))
+      return {status:"not-approved-and-bound"};
+    const archive=await read(bucket,KEY);
+    if(archive&&!validHistory(archive))return {status:"invalid-history"};
+    // Only a genuinely archived GROUPED collection establishes the target day.
+    // Do not synthesize a Thursday/Saturday if the group's run was missed.
+    const original=(archive?.snapshots||[]).filter(s=>
+      isTrophyDay(s.collectionDayUtc)&&
+      s.collectionDayUtc>=minDay(now)&&
+      Number.isFinite(asDate(s.capturedAt))&&
+      asDate(s.capturedAt)<=captured)
+      .sort((a,b)=>a.collectionDayUtc.localeCompare(b.collectionDayUtc))
+      .at(-1);
+    if(!original)return {status:"awaiting-grouped-capture"};
+    const groupDay=Date.parse(original.collectionDayUtc+"T00:00:00Z");
+    if(!Number.isFinite(groupDay)||captured-groupDay>7*DAY_MS)
+      return {status:"grouped-capture-too-old"};
+    const existingId=archive.ids[fingerprint];
+    if(existingId&&!UUID.test(existingId))
+      return {status:"invalid-public-id"};
+    if(existingId&&Object.entries(archive.ids).some(([fp,id])=>
+      fp!==fingerprint&&id===existingId))
+      return {status:"colliding-public-id"};
+    const ids={...archive.ids};
+    let id=existingId;
+    if(!id){
+      const allocated=new Set(Object.values(ids));
+      do{id=crypto.randomUUID();}while(allocated.has(id));
+      ids[fingerprint]=id;
+    }
+    if(!Array.isArray(original.alliances)||original.alliances.length>=30)
+      return {status:"grouped-capture-full"};
+    if(original.alliances.some(a=>a.publicId===id))
+      return {status:"already-recorded",collectionDayUtc:original.collectionDayUtc};
+    const row={publicId:id,nameAtCapture:safeName(nameAtCapture),
+      warTrophies,capturedAt,
+      attribution:"initial-sync-later-observation"};
+    const updated={...original,
+      // Keep the grouped timestamp for the chart's X axis; the new row's
+      // capturedAt carries its ACTUAL later Scopely observation timestamp.
+      alliances:[...original.alliances,row]
+        .sort((a,b)=>a.publicId.localeCompare(b.publicId)),
+      expected:Math.max(Number.isSafeInteger(original.expected)?
+        original.expected:0,approved.alliances.length),
+      complete:false};
+    const snapshots=archive.snapshots
+      .filter(s=>s.collectionDayUtc!==original.collectionDayUtc&&
+        isTrophyDay(s.collectionDayUtc)&&s.collectionDayUtc>=minDay(now))
+      .concat(updated)
+      .sort((a,b)=>a.collectionDayUtc.localeCompare(b.collectionDayUtc));
+    const raw=JSON.stringify({version:1,
+      kind:"connected-alliance-trophy-history",updatedAt:new Date(now).toISOString(),
+      ids,snapshots});
+    if(raw.length>500000)return {status:"history-too-large"};
+    // Existing grouped snapshots were written by their own Cron. A new
+    // scheduled capture for this day must never be fabricated here.
+    await bucket.put(KEY,raw,{httpMetadata:{
+      contentType:"application/json",cacheControl:"private, no-store"}});
+    return {status:"updated",collectionDayUtc:original.collectionDayUtc,
+      actualCapturedAt:capturedAt};
+  }catch{return {status:"unavailable"};}
 }
 
 // Run from the existing roster Cron, after its private AllianceCard marker

@@ -112,7 +112,7 @@ test("guest approval + WebApp binding enqueues the immediate catch-up without an
   const queue=f.store.get("roster-batches/v1/guest-initial-sync/"+guest+".json");
   assert.ok(queue);
   const saved=JSON.parse(queue);
-  assert.equal(saved.phase,"infos");
+  assert.equal(saved.phase,"ranks");
   assert.equal(saved.allianceKey,"questionable-propriety");
   assert.doesNotMatch(queue,/SECRET|Leader|Membre|outside-aid/);
   assert.ok(f.calls.every(uri=>!uri.includes("/roster")));

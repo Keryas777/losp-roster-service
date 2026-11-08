@@ -40,6 +40,7 @@ function deps(calls){
     infos:async()=>{calls.push("infos");return {status:calls.filter(x=>x==="infos").length===1?"partial":"complete",requests:6};},
     ranks:async()=>{calls.push("ranks");return {status:"captured",requests:2};},
     arena:async()=>{calls.push("arena");return {status:"updated"};},
+    trophies:async()=>{calls.push("trophies");return {status:"updated",requests:0};},
     roster:async()=>{calls.push("roster");return {status:"complete",requestsThisTick:10};}
   };
 }
@@ -47,20 +48,20 @@ test("new approved and bound alliance is queued once; phases finish after restar
   const f=fixture(),steps=[];
   assert.equal((await enqueueGuestInitialSync(f.env,FP,KEY,START)).status,"queued");
   assert.equal((await enqueueGuestInitialSync(f.env,FP,KEY,START)).status,"queued");
-  assert.equal((await guestInitialSyncStatus(f.env,FP)).phase,"infos");
-  for(let i=0;i<5;i++){
+  assert.equal((await guestInitialSyncStatus(f.env,FP)).phase,"ranks");
+  for(let i=0;i<6;i++){
     const res=await runGuestInitialSyncTick(f.env,START+i*60000,
       async()=>{throw Error("No unmocked Scopely calls");},deps(steps));
     assert.notEqual(res.status,"unavailable");
   }
-  assert.deepEqual(steps,["infos","infos","roster","ranks","arena"]);
+  assert.deepEqual(steps,["ranks","infos","infos","roster","arena","trophies"]);
   const end=await guestInitialSyncStatus(f.env,FP);
   assert.equal(end.status,"complete");
   assert.equal(end.phase,"done");
-  assert.equal(end.attempts,5);
+  assert.equal(end.attempts,6);
   assert.equal((await runGuestInitialSyncTick(f.env,START+6*60000,
     async()=>{throw Error("not called");},deps(steps))).status,"idle");
-  assert.equal(steps.length,5);
+  assert.equal(steps.length,6);
   assert.equal([...f.store.keys()].filter(k=>k.endsWith("/"+FP+".json")).length,1);
 });
 test("revoked guest stops before ANY new provider capture and does not cross tenants",async()=>{
