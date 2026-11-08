@@ -5,6 +5,7 @@ import {scanPrivateAllianceRanks} from "./alliance-coverage.js";
 import {readApproval} from "./roster-sync-preflight.js";
 import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
 import {archiveGuestSeasonRankSample} from "./public-guest-season-ranks.js";
+import {preserveStandingsHistory} from "./durable-alliance-standings.js";
 
 const PREFIX="roster-batches/v1/season-ranks/";
 const LATEST=PREFIX+"latest.json";
@@ -90,6 +91,18 @@ export async function handleAllianceSeasonRanks(request,env,fetchImpl=fetch,now=
     if(!snapshot.connectedAlliances&&!guest.connectedAlliances)
       return respond({error:"no-connected-alliances",scannedSessions:snapshot.scannedSessions,
         unavailableSessions:snapshot.unavailableSessions},409);
+    // Persist derived observations before writing short-lived source snapshots.
+    // Failure is explicit: never report a capture as safely archived otherwise.
+    if(snapshot.connectedAlliances){
+      const preserved=await preserveStandingsHistory(env,"losp-season",[snapshot]);
+      if(preserved.status!=="preserved")
+        return respond({error:"history-preservation-failed",detail:preserved.status},503);
+    }
+    if(guest.connectedAlliances){
+      const preserved=await preserveStandingsHistory(env,"guest-season",[guest]);
+      if(preserved.status!=="preserved")
+        return respond({error:"guest-history-preservation-failed",detail:preserved.status},503);
+    }
     // Immutable source snapshot for this capture, plus an admin latest pointer.
     // Both objects expire after 7 days via the existing R2 lifecycle rule.
     const key=PREFIX+"captures/"+snapshot.capturedAt.replace(/[:.]/g,"-")+
