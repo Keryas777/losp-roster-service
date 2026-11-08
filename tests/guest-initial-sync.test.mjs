@@ -48,13 +48,13 @@ test("new approved and bound alliance is queued once; phases finish after restar
   const f=fixture(),steps=[];
   assert.equal((await enqueueGuestInitialSync(f.env,FP,KEY,START)).status,"queued");
   assert.equal((await enqueueGuestInitialSync(f.env,FP,KEY,START)).status,"queued");
-  assert.equal((await guestInitialSyncStatus(f.env,FP)).phase,"infos");
+  assert.equal((await guestInitialSyncStatus(f.env,FP)).phase,"ranks");
   for(let i=0;i<6;i++){
     const res=await runGuestInitialSyncTick(f.env,START+i*60000,
       async()=>{throw Error("No unmocked Scopely calls");},deps(steps));
     assert.notEqual(res.status,"unavailable");
   }
-  assert.deepEqual(steps,["infos","infos","roster","ranks","arena","trophies"]);
+  assert.deepEqual(steps,["ranks","infos","infos","roster","arena","trophies"]);
   const end=await guestInitialSyncStatus(f.env,FP);
   assert.equal(end.status,"complete");
   assert.equal(end.phase,"done");
