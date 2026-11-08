@@ -1,3 +1,4 @@
+import {preserveStandingsHistory} from "./durable-alliance-standings.js";
 // Public, trophy-only projection of already archived, consented AllianceCards.
 // No Scopely requests, OAuth tokens, member data, fingerprints or R2 paths leave R2.
 // Records live under the EXISTING seven-day R2 lifecycle. Retain at most 22
@@ -220,6 +221,9 @@ export async function archiveInitialGuestTrophies(env,observation,now=Date.now()
     if(raw.length>500000)return {status:"history-too-large"};
     // Existing grouped snapshots were written by their own Cron. A new
     // scheduled capture for this day must never be fabricated here.
+    const preserved=await preserveStandingsHistory(env,"trophies",snapshots);
+    if(preserved.status!=="preserved")
+      return {status:"history-preservation-failed",detail:preserved.status};
     await bucket.put(KEY,raw,{httpMetadata:{
       contentType:"application/json",cacheControl:"private, no-store"}});
     return {status:"updated",collectionDayUtc:original.collectionDayUtc,
@@ -277,7 +281,10 @@ export async function archiveTrophyHistory(env,slot,now=Date.now()){
     updatedAt:new Date(now).toISOString(),ids,snapshots};
   const raw=JSON.stringify(output);
   if(raw.length>500000)return {status:"history-too-large"};
-  await bucket.put(KEY,raw,{httpMetadata:{
+  const preserved=await preserveStandingsHistory(env,"trophies",snapshots);
+    if(preserved.status!=="preserved")
+      return {status:"history-preservation-failed",detail:preserved.status};
+    await bucket.put(KEY,raw,{httpMetadata:{
     contentType:"application/json",cacheControl:"private, no-store"}});
   return {status:"updated",observed:alliances.length,
     expected:fps.length,complete:unavailable===0};
@@ -383,6 +390,9 @@ export async function recoverPreviousSaturdayGuestTrophies(env,now=Date.now()){
       kind:"connected-alliance-trophy-history",
       updatedAt:new Date(now).toISOString(),ids,snapshots});
     if(payload.length>500000)return {status:"history-too-large"};
+    const preserved=await preserveStandingsHistory(env,"trophies",snapshots);
+    if(preserved.status!=="preserved")
+      return {status:"history-preservation-failed",detail:preserved.status};
     await bucket.put(KEY,payload,{httpMetadata:{
       contentType:"application/json",cacheControl:"private, no-store"}});
     return {status:"updated",added,day:yesterday};
