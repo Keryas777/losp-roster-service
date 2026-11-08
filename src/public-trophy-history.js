@@ -5,7 +5,10 @@
 import {readCollectibleApprovals,readGuestApprovals} from "./guest-alliance-approvals.js";
 import {trophyCardKey,BATCH_PREFIX} from "./private-roster-batches.js";
 
-const KEY=BATCH_PREFIX+"trophy-history/rolling.json";
+// Defined independently to avoid an ES-module initialization cycle when the
+// guest onboarding module imports this projection during approval routing.
+// Keep in sync with private-roster-batches.js: BATCH_PREFIX is "roster-batches/v1/".
+const KEY="roster-batches/v1/trophy-history/rolling.json";
 const FP=/^[a-f0-9]{64}$/;
 const DAY=/^\d{4}-\d{2}-\d{2}$/;
 const UUID=/^[a-f0-9-]{36}$/;
