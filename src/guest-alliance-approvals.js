@@ -5,6 +5,7 @@ import {readApproval} from "./roster-sync-preflight.js";
 import {scanPrivateCoverage} from "./alliance-coverage.js";
 import {captainConfigReady} from "./captain-vault.js";
 import {enqueueGuestInitialSync} from "./guest-initial-sync.js";
+import {dispatchGuestEvolutionPublication} from "./guest-evolution-publication-dispatch.js";
 
 export const GUEST_APPROVAL_KEY="roster-sync/v1/approved-guest-alliances.json";
 const FP=/^[a-f0-9]{64}$/;
@@ -143,6 +144,12 @@ export async function handleGuestAllianceApproval(request,env,fetchImpl=fetch){
     // canonical WebApp binding are BOTH present. OAuth alone is never enough.
     // The queue is idempotent and resumes on the existing minute Cron.
     let initialSync=null;
+    let staticPublication=null;
+    if(changed){
+      // A revoke/unbind should propagate to public Pages promptly. The workflow
+      // rereads R2 and applies current consent; this dispatch carries no data.
+      staticPublication=await dispatchGuestEvolutionPublication(env);
+    }
     if(["approve","bind"].includes(action)){
       const row=alliances.find(a=>a.fingerprint===fingerprint);
       if(row?.allianceKey){
@@ -154,6 +161,7 @@ export async function handleGuestAllianceApproval(request,env,fetchImpl=fetch){
       }
     }
     return reply({status,count:alliances.length,
-      ...(initialSync!==null?{initialSync}:{})});
+      ...(initialSync!==null?{initialSync}:{}),
+      ...(staticPublication!==null?{staticPublication}: {})});
   }catch{return reply({error:"approval-unavailable"},503);}
 }
