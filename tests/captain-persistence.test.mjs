@@ -304,6 +304,7 @@ test("captain OAuth callback persists only after validated offline token grant",
   });
   assert.equal(success.status,200);
   assert.equal(captainSessionCount(bucket),1);
+  assert.equal([...bucket.map.keys()].filter(key=>key.startsWith(CONNECTED_ALLIANCE_PREFIX)).length,1);
   const headers=success.headers.getSetCookie();
   assert.ok(headers.some(row=>row.startsWith("__Host-losp_captain_session=")));
   const html=await success.text();
