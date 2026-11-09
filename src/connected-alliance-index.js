@@ -122,7 +122,7 @@ async function accessGrant(env,key){
 // R2-only for previously registered sessions. Older sessions are backfilled
 // once by reading ONLY their current /player/v1/alliance/card with their grant.
 // Thus Hadès appears without forcing a fresh OAuth login.
-export async function listConnectedAlliances(env,fetchImpl=fetch,now=Date.now()){
+export async function listConnectedAlliances(env,fetchImpl=fetch,now=Date.now(),verifyCurrent=false){
   if(!captainConfigReady(env)||!env.CAPTAIN_BUCKET?.list)
     return {status:"storage-unavailable"};
   const bucket=env.CAPTAIN_BUCKET;
@@ -138,12 +138,15 @@ export async function listConnectedAlliances(env,fetchImpl=fetch,now=Date.now())
         const active=await getCaptainRecord(bucket,env.CAPTAIN_ENCRYPTION_KEY_HEX,key,now);
         if(!active)continue; // revoked/expired: no directory entry
         connected++;
-        let item=await readIndexed(bucket,key);
+        let item=verifyCurrent?null:await readIndexed(bucket,key);
         if(!item){
           const token=await accessGrant(env,key).catch(()=>null);
           if(token){
-            await registerConnectedAlliance(env,key,token,fetchImpl);
-            item=await readIndexed(bucket,key);
+            // Recheck current Scopely membership on Admin refresh. An old R2
+            // index must never make a former alliance appear current.
+            const card=await discoverAlliance(token,fetchImpl);
+            if(card.ok&&await saveConnectedAlliance(env,key,card))
+              item=await readIndexed(bucket,key);
           }
         }
         if(!item){unresolved++;continue;}
@@ -182,7 +185,7 @@ export async function handleConnectedAlliances(request,env,fetchImpl=fetch){
   if(request.method!=="GET")return response({error:"method-not-allowed"},405);
   if(new URL(request.url).search)return response({error:"invalid-query"},400);
   try{
-    const data=await listConnectedAlliances(env,fetchImpl);
+    const data=await listConnectedAlliances(env,fetchImpl,Date.now(),true);
     return response(data,data.status==="ok"?200:503);
   }catch{return response({status:"unavailable"},503);}
 }
