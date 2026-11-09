@@ -6,7 +6,7 @@ import {enqueueGuestInitialSync,guestInitialSyncStatus,
 import {GUEST_APPROVAL_KEY} from "../src/guest-alliance-approvals.js";
 
 const FP="a".repeat(64),KEY="questionable-propriety";
-const START=Date.parse("2026-11-08T08:00:00Z");
+const START=Date.parse("2026-11-08T02:00:00Z");
 const URL="https://losp-roster-service.deliriousfan7.workers.dev";
 function fixture(){
   const store=new Map(),call=[];
@@ -111,4 +111,44 @@ test("first complete Infos wakes the public guest directory without leaking iden
   assert.equal(count,1);
   assert.equal(await dispatchInitialGuestDirectory({},async()=>{throw Error("never called");}),"not-configured");
   assert.equal(await dispatchInitialGuestDirectory(env,async()=>new Response(null,{status:403})),"github-unavailable");
+});
+
+test("initial Infos wait for the actual AM window without creating an out-of-window receipt",async()=>{
+  const f=fixture(),calls=[];
+  const before=Date.parse("2026-11-09T00:09:00Z");
+  await enqueueGuestInitialSync(f.env,FP,KEY,before);
+  const mocked=deps(calls);
+  const ranks=await runGuestInitialSyncTick(f.env,before,
+    async()=>{throw Error("No Scopely calls");},mocked);
+  assert.equal(ranks.phase,"infos");
+  const early=await runGuestInitialSyncTick(f.env,before+60000,
+    async()=>{throw Error("No Scopely calls");},mocked);
+  assert.equal(early.lastOutcome,"campaign-not-open");
+  assert.deepEqual(calls,["ranks"]);
+  assert.equal((await guestInitialSyncStatus(f.env,FP)).phase,"infos");
+  const opened=await runGuestInitialSyncTick(f.env,
+    Date.parse("2026-11-09T02:00:00Z"),
+    async()=>{throw Error("No Scopely calls");},mocked);
+  assert.equal(opened.lastOutcome,"partial");
+  assert.deepEqual(calls,["ranks","infos"]);
+});
+
+test("initial Infos never use the expired AM window or premature PM window",async()=>{
+  const f=fixture(),calls=[];
+  const start=Date.parse("2026-11-09T03:59:00Z");
+  await enqueueGuestInitialSync(f.env,FP,KEY,start);
+  const mocked=deps(calls);
+  await runGuestInitialSyncTick(f.env,start,
+    async()=>{throw Error("No Scopely calls");},mocked);
+  for(const time of ["2026-11-09T04:00:00Z","2026-11-09T13:59:00Z"]){
+    const res=await runGuestInitialSyncTick(f.env,Date.parse(time),
+      async()=>{throw Error("No Scopely calls");},mocked);
+    assert.equal(res.lastOutcome,"campaign-not-open");
+  }
+  assert.deepEqual(calls,["ranks"]);
+  const resumed=await runGuestInitialSyncTick(f.env,
+    Date.parse("2026-11-09T14:00:00Z"),
+    async()=>{throw Error("No Scopely calls");},mocked);
+  assert.equal(resumed.lastOutcome,"partial");
+  assert.deepEqual(calls,["ranks","infos"]);
 });
