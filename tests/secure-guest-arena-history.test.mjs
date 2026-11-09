@@ -425,8 +425,8 @@ test("verified AM Infos supplies missing guest portrait without fabricating rank
       allianceFingerprint:guest,campaign:date+"-am",
       allianceName:"MARINES",capturedAt:date+"T08:00:00Z",
       expiresAt:"2026-11-12T08:00:00Z",
-      rows:[{name:"QP Member",icon:portrait,frame},
-        {name:"No Rank",icon:portrait,frame}]}));
+      rows:[{name:"QP Member",alliance:"MARINES",icon:portrait,frame},
+        {name:"No Rank",alliance:"MARINES",icon:portrait,frame}]}));
   const data=await(await secureGuestArenaHistory(request(),f.env,now,auth())).json();
   assert.equal(data.snapshots.length,1);
   assert.equal(data.snapshots[0].players.length,1);
@@ -442,7 +442,7 @@ test("invalid or expired Infos cannot inject guest profile media",async()=>{
       allianceFingerprint:other,campaign:date+"-pm",
       allianceName:"WRONG TENANT",capturedAt:date+"T16:30:00Z",
       expiresAt:"2026-11-12T16:30:00Z",
-      rows:[{name:"Same Name",icon:portrait,frame}]}));
+      rows:[{name:"Same Name",alliance:"WRONG TENANT",icon:portrait,frame}]}));
   const data=await(await secureGuestArenaHistory(request(),f.env,now,auth())).json();
   assert.deepEqual(data.profiles,[]);
   assert.deepEqual(data.snapshots,[]);
@@ -456,7 +456,7 @@ test("reward media takes priority over AM Infos for the same guest member",async
       allianceFingerprint:guest,campaign:date+"-am",
       allianceName:"MARINES",capturedAt:date+"T08:00:00Z",
       expiresAt:"2026-11-12T08:00:00Z",
-      rows:[{name:"Ranked",
+      rows:[{name:"Ranked",alliance:"MARINES",
         icon:"https://assets.marvelstrikeforce.com/imgs/Older.png",
         frame:"https://assets.marvelstrikeforce.com/imgs/OlderFrame.png"}]}));
   const data=await(await secureGuestArenaHistory(request(),f.env,now,auth())).json();
