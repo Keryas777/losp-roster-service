@@ -144,11 +144,10 @@ export async function handleGuestAllianceApproval(request,env,fetchImpl=fetch){
     // canonical WebApp binding are BOTH present. OAuth alone is never enough.
     // The queue is idempotent and resumes on the existing minute Cron.
     let initialSync=null;
-    let staticPublication=null;
     if(changed){
       // A revoke/unbind should propagate to public Pages promptly. The workflow
       // rereads R2 and applies current consent; this dispatch carries no data.
-      staticPublication=await dispatchGuestEvolutionPublication(env);
+      await dispatchGuestEvolutionPublication(env);
     }
     if(["approve","bind"].includes(action)){
       const row=alliances.find(a=>a.fingerprint===fingerprint);
