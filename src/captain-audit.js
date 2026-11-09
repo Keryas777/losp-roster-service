@@ -5,7 +5,7 @@ const EVENTS=new Set(["created","renewed","revoked","failed","deleted"]);
 const REASONS=new Set(["stored","refresh","invalid-grant","invalid-response","missing-scope","logout","replaced","provider-error","storage-error","revoke-error"]);
 export async function auditCaptainEvent(env,sessionKey,event,reason=""){
   if(!env?.CAPTAIN_BUCKET?.put ||
-    !/^oauth-captains\\/v1\\/[a-f0-9]{64}$/.test(sessionKey) ||
+    !/^oauth-captains\/v1\/[a-f0-9]{64}$/.test(sessionKey) ||
     !EVENTS.has(event) || (reason && !REASONS.has(reason)))return false;
   const now=Date.now();
   const nonce=Array.from(crypto.getRandomValues(new Uint8Array(12)),b=>b.toString(16).padStart(2,"0")).join("");
