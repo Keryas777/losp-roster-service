@@ -242,11 +242,13 @@ export default {
       // Weekly LoSP Evolution: dispatch the existing GitHub snapshot workflow.
       // Paris Sunday 23:00, with a bounded 15-minute retry window.
       // Persist the successful dispatch in private R2; never call Scopely.
-      if(slot.getDay()>=0 && parts.hour===23 && parts.minute<15 &&
+      if(parts.hour===23 && parts.minute<15 &&
          new Intl.DateTimeFormat("en-US",{timeZone:"Europe/Paris",weekday:"short"}).format(slot)==="Sun"){
-        const checkpoint=new Intl.DateTimeFormat("en-CA",{
+        const dateParts=Object.fromEntries(new Intl.DateTimeFormat("en-GB",{
           timeZone:"Europe/Paris",year:"numeric",month:"2-digit",day:"2-digit"
-        }).format(slot);
+        }).formatToParts(slot).filter(p=>["year","month","day"].includes(p.type))
+          .map(p=>[p.type,p.value]));
+        const checkpoint=dateParts.year+"-"+dateParts.month+"-"+dateParts.day;
         const key="automation/evolution-weekly-dispatch/"+checkpoint+".json";
         try{
           if(!env?.CAPTAIN_BUCKET?.get||!env?.CAPTAIN_BUCKET?.put)
