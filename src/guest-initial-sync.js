@@ -265,11 +265,19 @@ export async function runGuestInitialSyncTick(env,now=Date.now(),fetchImpl=fetch
             result={status:value.status,requests:value.requestsThisTick||0};
           }
         }else if(latest.phase==="infos"){
-          const info=deps.infos||runMemberInfoTick;
           const slot=currentCampaign(now);
-          const value=await info(env,fp,{campaign:slot.campaign,stamp:stamp(now)},
-            fetchImpl,{maxCardsPerTick:8});
-          result={status:value.status,requests:value.requests||0};
+          const hour=new Date(now).getUTCHours();
+          // Initial catch-up must not create a receipt outside the verified
+          // AM/PM capture windows. Keep the campaign and real timestamp intact.
+          if((slot.campaign.endsWith("-am")&&(hour<2||hour>=4))||
+             (slot.campaign.endsWith("-pm")&&(hour<14||hour>=16)))
+            result={status:"campaign-not-open",requests:0};
+          else{
+            const info=deps.infos||runMemberInfoTick;
+            const value=await info(env,fp,{campaign:slot.campaign,stamp:stamp(now)},
+              fetchImpl,{maxCardsPerTick:8});
+            result={status:value.status,requests:value.requests||0};
+          }
         }else if(latest.phase==="ranks"){
           const ranks=deps.ranks||captureInitialGuestCard;
           result=await ranks(env,fp,key,now,fetchImpl);
