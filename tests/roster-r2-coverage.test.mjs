@@ -384,6 +384,19 @@ test("guest display name comes from cached Scopely directory without any provide
   assert.equal(selected.alliances[0].name,"<color=red>ΜΛЯΠΣƧ</color>");
 });
 
+test("guest without cached OAuth name uses its persisted WebApp key without altering R2",async()=>{
+  const f=fixture(),guest=fp("f");
+  f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
+    {fingerprint:guest,allianceKey:"endgame-revolution-red"}
+  ]}));
+  f.env.CAPTAIN_BUCKET.list=async()=>({objects:[],truncated:false});
+  const data=await(await handleRosterR2Coverage(request(),f.env,now)).json();
+  assert.equal(data.status,"ok");
+  assert.equal(data.alliances.at(-1).name,"endgame-revolution-red");
+  assert.equal(data.alliances.at(-1).fingerprint,guest);
+  assert.deepEqual(f.writes,[]);
+});
+
 test("missing, stale, malformed or unavailable cached guest names keep the generic label",async()=>{
   const f=fixture(),guest=fp("f"),sid=fp("a");
   f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
