@@ -1,6 +1,6 @@
 // Private, weekly guest Evolution checkpoints. Existing R2-only cron; no Scopely calls.
 // The 7-day lifecycle is refreshed daily, but individual observations are removed
-// before 30 days and immediately excluded from reads when consent is absent.
+// before 30 days. A consent withdrawal prevents NEW snapshots only.
 import {readGuestApprovals} from "./guest-alliance-approvals.js";
 import {readApproval} from "./roster-sync-preflight.js";
 import {verifiedDiscord,selectApproved,headers} from "./secure-guest-arena-history.js";
@@ -93,12 +93,10 @@ export async function activeSharers(bucket,fp,now){
   }
   return null;
 }
-function sanitized(archive,fp,key,now,allowed){
+function sanitized(archive,fp,key,now){
   if(archive&&!validArchive(archive,fp,key))throw Error("invalid-archive");
   const checkpoints=(archive?.checkpoints||[])
     .filter(x=>recent(x,now))
-    .map(x=>({...x,players:x.players.filter(p=>allowed.has(norm(p.player)))}))
-    .filter(x=>x.players.length)
     .sort((a,b)=>a.date.localeCompare(b.date));
   return {version:1,fingerprint:fp,allianceKey:key,
     updatedAt:new Date(now).toISOString(),checkpoints};
@@ -167,7 +165,7 @@ export async function archiveGuestEvolutionTick(env,now=Date.now()){
     // A re-bound fingerprint cannot inherit another WebApp tenant's history.
     const existing=original?.allianceKey===selected.allianceKey?original:null;
     const archive=sanitized(existing,selected.fingerprint,selected.allianceKey,
-      now,allowed);
+      now);
     if(capture){
       const checkpoint=localDay(now);
       if(!archive.checkpoints.some(x=>x.date===checkpoint)){
@@ -184,8 +182,8 @@ export async function archiveGuestEvolutionTick(env,now=Date.now()){
         }
       }
     }
-    // Rewrite a scrubbed empty archive, too: revoked sharing must not leave
-    // the old player payload behind in the rolling object.
+    // Preserve consent-valid snapshots until normal staging expiry;
+    // only future snapshots depend on the current sharing receipt.
     if(!archive.checkpoints.length&&!existing)return {status:"no-checkpoints"};
     const body=JSON.stringify(archive);
     if(body.length>MAX_BYTES)return {status:"archive-too-large"};
@@ -231,14 +229,11 @@ export async function secureGuestEvolution(request,env,now=Date.now(),
     const selected=selectApproved(guest,losp,[key]);
     if(!selected)return reply(request,{status:"alliance-not-bound-or-not-approved"},409);
     const fingerprint=selected[0].fingerprint,bucket=env.CAPTAIN_BUCKET;
-    const allowed=await activeSharers(bucket,fingerprint,now);
-    if(!allowed)return reply(request,{status:"unavailable",
-      reason:"current-sharing-not-verifiable"},503);
     const raw=await read(bucket,archiveKey(fingerprint));
     if(raw&&raw.allianceKey!==key)
       return reply(request,{status:"unavailable",
         reason:"archive-tenant-mismatch"},409);
-    const archive=sanitized(raw,fingerprint,key,now,allowed);
+    const archive=sanitized(raw,fingerprint,key,now);
     const answer=view==="index"?{index:toIndex(archive,key)}:
       view==="group"?{group:toGroup(archive,key,query.get("date"))}:
       {snapshot:toPlayer(archive,key,query.get("date"),
