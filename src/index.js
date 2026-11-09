@@ -239,6 +239,45 @@ export default {
           console.warn("msf-characters-dispatch",JSON.stringify({status:"unavailable"}));
         }
       }
+      // Weekly LoSP Evolution: dispatch the existing GitHub snapshot workflow.
+      // Paris Sunday 23:00, with a bounded 15-minute retry window.
+      // Persist the successful dispatch in private R2; never call Scopely.
+      if(slot.getDay()>=0 && parts.hour===23 && parts.minute<15 &&
+         new Intl.DateTimeFormat("en-US",{timeZone:"Europe/Paris",weekday:"short"}).format(slot)==="Sun"){
+        const checkpoint=new Intl.DateTimeFormat("en-CA",{
+          timeZone:"Europe/Paris",year:"numeric",month:"2-digit",day:"2-digit"
+        }).format(slot);
+        const key="automation/evolution-weekly-dispatch/"+checkpoint+".json";
+        try{
+          if(!env?.CAPTAIN_BUCKET?.get||!env?.CAPTAIN_BUCKET?.put)
+            throw Error("private-storage-unavailable");
+          if(!await env.CAPTAIN_BUCKET.get(key)){
+            const token=env?.ROSTER_GITHUB_DISPATCH_TOKEN;
+            if(typeof token!=="string"||!token)throw Error("github-token-unavailable");
+            const response=await fetch(
+              "https://api.github.com/repos/Keryas777/msf/actions/workflows/snapshot-rosters.yml/dispatches",{
+                method:"POST",
+                headers:{"Accept":"application/vnd.github+json",
+                  "X-GitHub-Api-Version":"2022-11-28",
+                  "User-Agent":"LoSP-Roster-Service",
+                  "Authorization":"Bearer "+token,
+                  "Content-Type":"application/json"},
+                body:JSON.stringify({ref:"main",inputs:{checkpoint}})
+              });
+            if(response.status!==204)throw Error("github-http-"+response.status);
+            await env.CAPTAIN_BUCKET.put(key,JSON.stringify({
+              checkpoint,dispatchedAt:new Date().toISOString(),status:"dispatched"
+            }));
+            console.info("evolution-weekly-dispatch",JSON.stringify({
+              status:"dispatched",checkpoint,scheduledAt:slot.toISOString()
+            }));
+          }
+        }catch(error){
+          console.warn("evolution-weekly-dispatch",JSON.stringify({
+            status:"retry-pending",checkpoint,reason:String(error?.message||"unavailable")
+          }));
+        }
+      }
       // Guest Evolution uses only existing PRIVATE R2 receipts.
       // One approved tenant per minute; Sunday snapshots and daily TTL rotation.
       // Never delays LoSP roster publication or sends another Scopely GET.
