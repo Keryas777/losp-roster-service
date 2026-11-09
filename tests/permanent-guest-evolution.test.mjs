@@ -75,17 +75,17 @@ test("WebApp permanent index retains Nov checkpoint at Dec checkpoint",async()=>
     f.env,second);
   assert.equal((await newer.json()).group.players[0].totalPower,2500);
 });
-test("latest revoked rosterShare hides all older checkpoints",async()=>{
+test("latest revoked rosterShare retains consent-valid older checkpoints",async()=>{
   const f=make();f.infos(date1);f.staged([checkpoint(date1,1000)]);
   await archivePermanentGuestEvolutionTick(f.env,first);
   f.infos(date2,false);
   const response=await securePermanentGuestEvolution(f.request("index"),f.env,second);
   const body=await response.json();
-  assert.equal(Object.keys(body.index.players).length,0);
-  assert.equal(body.index.checkpoints.length,0);
+  assert.deepEqual(body.index.players.g_marines__shared.checkpoints,[date1]);
+  assert.deepEqual(body.index.checkpoints.map(c=>c.date),[date1]);
   const detail=await securePermanentGuestEvolution(f.request("player",{
     date:date1,playerKey:"g_marines__shared"}),f.env,second);
-  assert.equal((await detail.json()).snapshot,null);
+  assert.equal((await detail.json()).snapshot.chars.blob.power,1000);
 });
 test("unsigned sessions are denied and names are tenant-scoped",async()=>{
   const f=make();f.infos(date1);f.staged([checkpoint(date1,1000)]);
@@ -162,7 +162,7 @@ test("missing indexed historical object triggers integrity warning, never silent
   assert.equal(result.status,"archive-integrity-error");
   assert.equal(f.objects.get(indexKey),savedIndex);
 });
-test("player leaving alliance disappears from all WebApp views, archives remain intact",async()=>{
+test("player leaving alliance remains in historical WebApp views, archives remain intact",async()=>{
   const f=make();f.infos(date1);f.staged([checkpoint(date1,1000)]);
   await archivePermanentGuestEvolutionTick(f.env,first);
   const older="webapp-evolution/v1/"+fp+"/checkpoints/"+date1+".json";
@@ -175,14 +175,14 @@ test("player leaving alliance disappears from all WebApp views, archives remain 
   const body=await(await securePermanentGuestEvolution(f.request("index"),
     f.env,second)).json();
   assert.equal(body.status,"ok");
-  assert.equal(Object.keys(body.index.players).length,0);
-  assert.equal(body.index.checkpoints.length,0);
+  assert.deepEqual(body.index.players.g_marines__shared.checkpoints,[date1]);
+  assert.equal(body.index.checkpoints.length,1);
   const group=await(await securePermanentGuestEvolution(f.request("group",
     {date:date1}),f.env,second)).json();
-  assert.deepEqual(group.group.players,[]);
+  assert.equal(group.group.players[0].totalPower,1000);
   const player=await(await securePermanentGuestEvolution(f.request("player",{
     date:date1,playerKey:"g_marines__shared"}),f.env,second)).json();
-  assert.equal(player.snapshot,null);
+  assert.equal(player.snapshot.chars.blob.power,1000);
   assert.equal(f.objects.get(older),bytes);
 });
 test("two real weeks are recorded cumulatively and never pruned by later ticks",async()=>{
@@ -205,4 +205,14 @@ test("versioned production Worker config activates the persistent history route"
   const worker=readFileSync(new URL("../src/index.js",import.meta.url),"utf8");
   assert.match(worker,/archivePermanentGuestEvolutionTick\(env,scheduled\)/);
   assert.match(worker,/securePermanentGuestEvolution\(request,env\)/);
+});
+
+test("withdrawal after capture does not strip a staged checkpoint on permanent import",async()=>{
+  const f=make();f.infos(date1);f.staged([checkpoint(date1,1000)]);
+  f.infos(date1,false);
+  const result=await archivePermanentGuestEvolutionTick(f.env,first);
+  assert.equal(result.status,"archived");
+  const snapshot=JSON.parse(f.objects.get("webapp-evolution/v1/"+fp+
+    "/checkpoints/"+date1+".json"));
+  assert.equal(snapshot.players[0].player,"Shared");
 });

@@ -1,8 +1,8 @@
 // Separate, cumulative archive for the static WebApp's guest Evolution page.
 // Unlike the seven-day R2 staging prefix, historical WebApp checkpoints never
 // age out automatically. One immutable object per Sunday and a dated index.
-// Visibility follows the latest alliance census; members who leave disappear
-// from API reads without deleting their historical checkpoint.
+// Historical observations remain visible to authorized alliance members.
+// Current rosterShare controls only new collection, not past checkpoints.
 // No additional Scopely/provider requests.
 import {readGuestApprovals} from "./guest-alliance-approvals.js";
 import {readApproval} from "./roster-sync-preflight.js";
@@ -89,13 +89,12 @@ function matchesRecord(snapshot,record){
 function blank(fp,alliance){
   return {version:1,fingerprint:fp,allianceKey:alliance,checkpoints:[]};
 }
-function indexResponse(index,alliance,allowed){
+function indexResponse(index,alliance){
   const players={};
   const dates=[];
   for(const c of index.checkpoints){
     let count=0;
     for(const name of c.players){
-      if(!allowed.has(norm(name)))continue;
       const id=identity(alliance,name);
       if(!PLAYER.test(id))continue;
       if(!players[id])players[id]={
@@ -108,17 +107,16 @@ function indexResponse(index,alliance,allowed){
   }
   return {version:1,players,checkpoints:dates};
 }
-function rowsResponse(snapshot,alliance,date,allowed){
+function rowsResponse(snapshot,alliance,date){
   return {version:1,checkpoint:date,players:(snapshot?.players||[])
-    .filter(p=>allowed.has(norm(p.player))).map(p=>({
+    .map(p=>({
       player:p.player,playerKey:identity(alliance,p.player),
       alliance,totalPower:Object.values(p.chars).reduce((sum,c)=>
         sum+(Number.isSafeInteger(c?.power)&&c.power>=0?c.power:0),0)
     }))};
 }
-function playerResponse(snapshot,alliance,date,id,allowed){
-  const row=snapshot?.players.find(p=>identity(alliance,p.player)===id&&
-    allowed.has(norm(p.player)));
+function playerResponse(snapshot,alliance,date,id){
+  const row=snapshot?.players.find(p=>identity(alliance,p.player)===id);
   return row?{player:row.player,playerKey:id,alliance,checkpoint:date,
     source:{capturedAt:snapshot.sourceCapturedAt},
     chars:row.chars,iso:row.iso}:null;
@@ -192,8 +190,8 @@ export async function archivePermanentGuestEvolutionTick(env,now=Date.now()){
       if(snapshot){
         // Orphan from a crash after checkpoint PUT but before index PUT.
         // Adopt the original immutable observation, even if the latest
-        // rosterShare/census excludes some past members. Reads enforce
-        // current membership and sharing on every request.
+        // rosterShare/census excludes some past members. Historical reads
+        // retain the consent-valid observation captured at that date.
         if(!validateSnapshot(snapshot,selected.fingerprint,selected.allianceKey)||
            snapshot.date!==c.date||
            snapshot.sourceCapturedAt!==c.sourceCapturedAt)
@@ -203,7 +201,7 @@ export async function archivePermanentGuestEvolutionTick(env,now=Date.now()){
         snapshot={version:1,fingerprint:selected.fingerprint,
           allianceKey:selected.allianceKey,date:c.date,
           sourceCapturedAt:c.sourceCapturedAt,
-          players:c.players.filter(p=>allowed.has(norm(p.player)))};
+          players:c.players};
         if(!validateSnapshot(snapshot,selected.fingerprint,selected.allianceKey))
           return {status:"invalid-checkpoint"};
         if(!snapshot.players.length)continue;
@@ -260,14 +258,11 @@ export async function securePermanentGuestEvolution(request,env,
     if(!approved)return reply(request,{
       status:"alliance-not-bound-or-not-approved"},409);
     const fp=approved[0].fingerprint,bucket=env.CAPTAIN_BUCKET;
-    const allowed=await activeSharers(bucket,fp,now);
-    if(!allowed)return reply(request,{status:"unavailable",
-      reason:"current-sharing-not-verifiable"},503);
     const index=await read(bucket,indexKey(fp),MAX_INDEX_BYTES)||blank(fp,alliance);
     if(!validateIndex(index,fp,alliance))return reply(request,{
       status:"archive-not-verified"},503);
     let answer;
-    if(view==="index")answer={index:indexResponse(index,alliance,allowed)};
+    if(view==="index")answer={index:indexResponse(index,alliance)};
     else{
       const date=query.get("date");
       if(!index.checkpoints.some(c=>c.date===date))
@@ -277,9 +272,9 @@ export async function securePermanentGuestEvolution(request,env,
          snapshot.date!==date)
         return reply(request,{status:"archive-not-verified"},503);
       answer=view==="group"?
-        {group:rowsResponse(snapshot,alliance,date,allowed)}:
+        {group:rowsResponse(snapshot,alliance,date)}:
         {snapshot:playerResponse(snapshot,alliance,date,
-          query.get("playerKey"),allowed)};
+          query.get("playerKey"))};
     }
     return reply(request,{status:"ok",version:1,
       kind:"authorized-guest-evolution",alliance,view,

@@ -67,7 +67,7 @@ test("weekly checkpoint uses actual captured Sunday roster and signed tenant",as
   assert.equal(detail.snapshot.iso.blob.isoClass,"raider");
   assert.doesNotMatch(JSON.stringify(detail),/volatileMemberId/);
 });
-test("consent withdrawal hides past snapshots, no retrofit",async()=>{
+test("consent withdrawal retains past snapshots but stops future collection",async()=>{
   const f=fixture();
   await archiveGuestEvolutionTick(f.env,sunday);
   f.objects.set(f.root+"campaigns/2026-11-09-am-infos.json",
@@ -78,12 +78,12 @@ test("consent withdrawal hides past snapshots, no retrofit",async()=>{
       rows:[{name:"Marine",rosterShare:false}]}));
   const date=Date.parse("2026-11-09T10:00:00Z");
   const body=await(await secureGuestEvolution(req(),f.env,date)).json();
-  assert.equal(Object.keys(body.index.players).length,0);
+  assert.equal(body.index.players.g_marines__marine.name,"Marine");
   const rotated=await archiveGuestEvolutionTick(f.env,date);
   assert.equal(rotated.status,"refreshed");
   const saved=JSON.parse(f.objects.get(
     "roster-batches/v1/guest-evolution/"+fp+"/rolling.json"));
-  assert.equal(saved.checkpoints.length,0);
+  assert.equal(saved.checkpoints.length,1);
 });
 test("invalid session and forbidden origin do not read guest history",async()=>{
   const f=fixture();
