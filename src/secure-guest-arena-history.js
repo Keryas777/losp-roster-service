@@ -15,7 +15,7 @@ const ARCHIVE=ROOT+"guest-arena-history/rolling.json";
 const KEY=/^[a-z][a-z0-9-]{1,63}$/;
 const FP=/^[0-9a-f]{64}$/;
 const DAY=/^\d{4}-\d{2}-\d{2}$/;
-const DAYS=30,DAY_MS=86400000;
+const DAYS=30,DAY_MS=86400000,INFO_DAYS=7;
 const MAX_HISTORY=2100000,MAX_RECEIPT=240000;
 const rank=n=>Number.isSafeInteger(n)&&n>0;
 const safe=s=>typeof s==="string"&&s.trim().length>0&&s.length<=140;
@@ -166,6 +166,33 @@ async function verifiedReceipt(bucket,fp,day,now){
     const x=await read(bucket,ROOT+fp+"/campaigns/"+day+"-reward-infos.json",
       MAX_RECEIPT);
     return receiptRows(x,fp,day,now);
+  }catch{return null;}
+}
+// A verified AM/PM Infos campaign can supply current media even when no
+// post-reward receipt exists. It never supplies or changes Arena ranks.
+async function verifiedInfoMedia(bucket,fp,day,period,now){
+  try{
+    const campaign=day+"-"+period;
+    const x=await read(bucket,ROOT+fp+"/campaigns/"+campaign+"-infos.json",
+      MAX_RECEIPT);
+    if(!x||x.version!==1||x.kind!=="alliance-infos-campaign"||
+       x.allianceFingerprint!==fp||x.campaign!==campaign||
+       !safe(x.allianceName)||!time(x.capturedAt)||!time(x.expiresAt)||
+       Date.parse(x.capturedAt)>now||Date.parse(x.capturedAt)<now-INFO_DAYS*DAY_MS||
+       Date.parse(x.expiresAt)<=now||
+       Date.parse(x.expiresAt)>Date.parse(x.capturedAt)+INFO_DAYS*DAY_MS||
+       x.capturedAt.slice(0,10)!==day||
+       !Array.isArray(x.rows)||x.rows.length<1||x.rows.length>100)
+      return null;
+    const seen=new Set(),rows=[];
+    for(const p of x.rows){
+      if(!safe(p?.name)||p.alliance!==x.allianceName||
+         seen.has(p.name)||typeof p.icon!=="string"||
+         typeof p.frame!=="string")return null;
+      seen.add(p.name);
+      rows.push({name:p.name,...visualFields(p)});
+    }
+    return {rows};
   }catch{return null;}
 }
 export async function secureGuestArenaHistory(request,env,now=Date.now(),
@@ -331,6 +358,34 @@ export async function secureGuestArenaHistory(request,env,now=Date.now(),
           const id=a.allianceKey+"\u0000"+row.name;
           if(!profiles.has(id))addProfiles(profiles,{rows:[row]},a.allianceKey);
         }
+      }
+    }
+    // Supplement missing portraits/frames from the most recent verified
+    // AM/PM Infos, scoped to each approved tenant. Do not invent rank points.
+    for(const a of approved){
+      const days=Array.from({length:INFO_DAYS+1},(_,offset)=>
+        new Date(Date.parse(today+"T00:00:00Z")-offset*DAY_MS)
+          .toISOString().slice(0,10));
+      let infoCampaignFoundForTenant=false;
+      for(const day of days){
+        for(const period of ["pm","am"]){
+          const info=await verifiedInfoMedia(bucket,a.fingerprint,day,period,now);
+          if(!info)continue;
+          for(const row of info.rows){
+            const id=a.allianceKey+"\u0000"+row.name;
+            const previous=profiles.get(id)||{name:row.name,
+              alliance:a.allianceKey};
+            const media=visualFields(row);
+            if(!Object.keys(media).length)continue;
+            // A real reward profile has priority over an Infos fallback.
+            profiles.set(id,{...media,...previous});
+          }
+          infoCampaignFoundForTenant=true;
+          // The newest complete Infos campaign is authoritative for this
+          // tenant; older campaigns must not resurrect former members.
+          break;
+        }
+        if(infoCampaignFoundForTenant)break;
       }
     }
     const snapshots=[...byDay.values()]
