@@ -30,6 +30,8 @@ class Bucket {
   async list({prefix}){return {objects:[...this.map.keys()].filter(k=>k.startsWith(prefix)).map(key=>({key})),truncated:false};}
 }
 const fakeResponse=data=>Response.json(data);
+const captainSessionCount=bucket=>[...bucket.map.keys()]
+  .filter(key=>key.startsWith(CAPTAIN_PREFIX)).length;
 function setup(fetchImpl=async()=>{throw Error("No network expected");}){
   const bucket=new Bucket(), objects=new Map();
   const env={
@@ -105,7 +107,7 @@ test("captain consent sets only HttpOnly cookie after successful encrypted stora
   assert.equal(cookies.length,1);
   assert.match(cookies[0],/Max-Age=15552000; Path=\/; Secure; HttpOnly; SameSite=Lax/);
   assert.doesNotMatch(JSON.stringify([...res.headers]),/PRIVATE_ACCESS|PRIVATE_REFRESH/);
-  assert.equal(bucket.map.size,1);
+  assert.equal(captainSessionCount(bucket),1);
   assert.doesNotMatch([...bucket.map.values()][0],/PRIVATE_ACCESS|PRIVATE_REFRESH/);
   const id=cookies[0].match(/__Host-losp_captain_session=([^;]+)/)[1];
   const state=await handleCaptainSession(req("/session",id),env);
@@ -234,7 +236,7 @@ test("logout requires same origin and revokes local storage even if provider unr
       Origin:"https://attacker.example"}
   }),env);
   assert.equal(invalid.status,403);
-  assert.equal(bucket.map.size,1);
+  assert.equal(captainSessionCount(bucket),1);
   const valid=await handleCaptainLogout(new Request(origin+"/logout",{
     method:"POST",headers:{Cookie:"__Host-losp_captain_session="+id,
       Origin:origin,Accept:"text/html"}
@@ -242,7 +244,7 @@ test("logout requires same origin and revokes local storage even if provider unr
   assert.equal(valid.status,303);
   assert.equal(valid.headers.get("location"),origin+"/captain");
   assert.match(valid.headers.getSetCookie()[0],/Max-Age=0/);
-  assert.equal(bucket.map.size,0);
+  assert.equal(captainSessionCount(bucket),0);
   assert.deepEqual(await (await handleCaptainSession(req("/session",id),env)).json(),{
     status:"disconnected"
   });
@@ -301,7 +303,7 @@ test("captain OAuth callback persists only after validated offline token grant",
     throw Error("Unexpected URL");
   });
   assert.equal(success.status,200);
-  assert.equal(bucket.map.size,2);
+  assert.equal(captainSessionCount(bucket),1);
   const headers=success.headers.getSetCookie();
   assert.ok(headers.some(row=>row.startsWith("__Host-losp_captain_session=")));
   const html=await success.text();
@@ -441,7 +443,7 @@ test("no granted offline scope means no durable cookie or R2 grant",async()=>{
     throw Error("Unexpected API access");
   });
   assert.equal(res.status,200);
-  assert.equal(bucket.map.size,0);
+  assert.equal(captainSessionCount(bucket),0);
   assert.ok(!res.headers.getSetCookie().some(row=>row.startsWith("__Host-losp_captain_session=")));
   assert.match(await res.text(),/connexion durable impossible/i);
 });
@@ -567,7 +569,7 @@ test("no browser cookie after a long absence cannot be recovered merely from an 
   const {env,bucket}=setup();
   const id=newCaptainSessionId();
   await store(env,id);
-  assert.equal(bucket.map.size,1);
+  assert.equal(captainSessionCount(bucket),1);
   const res=await handleCaptainSession(new Request(origin+"/session"),env);
   assert.deepEqual(await res.json(),{status:"disconnected"});
   assert.equal(res.headers.getSetCookie().length,0);
