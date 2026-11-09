@@ -1,3 +1,4 @@
+import {auditCaptainEvent} from "./captain-audit.js";
 import {
   CAPTAIN_MAX_AGE, validCaptainKey, getCaptainRecord, putCaptainRecord,
   deleteCaptainRecord
@@ -66,16 +67,23 @@ export class CaptainRefreshCoordinator {
         refreshToken:value.refreshToken,scope:value.scope,
         observedRotations:0,lastRotatedAt:null};
       await putCaptainRecord(bucket,key,payload.key,record);
+      await auditCaptainEvent(this.env,payload.key,"created","stored");
       return safeResponse({status:"stored"});
     }
     const record=await getCaptainRecord(bucket,key,payload.key,now);
     if(payload.action==="logout"){
-      if(record)await deleteCaptainRecord(bucket,payload.key);
+      if(record){
+        await deleteCaptainRecord(bucket,payload.key);
+        await auditCaptainEvent(this.env,payload.key,"deleted","logout");
+      }
       // Revoke after local deletion. A failed provider request cannot restore access.
       if(record){
-        try{await tokenPost(this.env,REVOKE_URL,{
-          token:record.refreshToken,token_type_hint:"refresh_token"
-        },fetchImpl);}catch{}
+        try{
+          const revoked=await tokenPost(this.env,REVOKE_URL,{
+            token:record.refreshToken,token_type_hint:"refresh_token"
+          },fetchImpl);
+          await auditCaptainEvent(this.env,payload.key,revoked.res?.ok?"revoked":"failed",revoked.res?.ok?"logout":"revoke-error");
+        }catch{await auditCaptainEvent(this.env,payload.key,"failed","revoke-error");}
       }
       return safeResponse({status:"disconnected"});
     }
@@ -95,25 +103,35 @@ export class CaptainRefreshCoordinator {
       const {res,data,error}=await tokenPost(this.env,TOKEN_URL,{
         grant_type:"refresh_token",refresh_token:record.refreshToken
       },fetchImpl);
-      if(error || !res)return safeResponse({status:"retry-later"},503);
+      if(error || !res){
+        await auditCaptainEvent(this.env,payload.key,"failed","provider-error");
+        return safeResponse({status:"retry-later"},503);
+      }
       if(!res.ok){
         if(data?.error==="invalid_grant"){
+          await auditCaptainEvent(this.env,payload.key,"revoked","invalid-grant");
           await deleteCaptainRecord(bucket,payload.key);
+          await auditCaptainEvent(this.env,payload.key,"deleted","invalid-grant");
           return safeResponse({status:"revoked"});
         }
+        await auditCaptainEvent(this.env,payload.key,"failed","provider-error");
         return safeResponse({status:"retry-later"},503);
       }
       if(!isToken(data?.access_token) || !isToken(data?.refresh_token) ||
         !validExpiry(data?.expires_in) || String(data?.token_type).toLowerCase()!=="bearer"){
         // Provider might have rotated away the prior single-use token.
         // Do not silently keep reporting an unusable authorization.
+        await auditCaptainEvent(this.env,payload.key,"failed","invalid-response");
         await deleteCaptainRecord(bucket,payload.key);
+        await auditCaptainEvent(this.env,payload.key,"deleted","invalid-response");
         return safeResponse({status:"reconnect-required"});
       }
       const issuedScope=typeof data.scope==="string" ? data.scope : record.scope;
       const scopes=new Set(issuedScope.trim().split(/\s+/));
       if(!scopes.has("offline") || !scopes.has("m3p.f.ar.ros")){
+        await auditCaptainEvent(this.env,payload.key,"failed","missing-scope");
         await deleteCaptainRecord(bucket,payload.key);
+        await auditCaptainEvent(this.env,payload.key,"deleted","missing-scope");
         return safeResponse({status:"reconnect-required"});
       }
       await putCaptainRecord(bucket,key,payload.key,{
@@ -123,11 +141,13 @@ export class CaptainRefreshCoordinator {
         observedRotations:Math.min(1000000000,(Number.isSafeInteger(record.observedRotations)
           ?record.observedRotations:0)+1),lastRotatedAt:now
       });
+      await auditCaptainEvent(this.env,payload.key,"renewed","refresh");
       return safeResponse({status:"active",accessExpiresAt:now+data.expires_in*1000,
         observedRotations:Math.min(1000000000,(Number.isSafeInteger(record.observedRotations)
           ?record.observedRotations:0)+1),lastRotatedAt:now,rotated:true,
         ...(payload.action==="access"?{accessToken:data.access_token}:{})});
     }catch{
+      await auditCaptainEvent(this.env,payload.key,"failed","storage-error");
       return safeResponse({status:"retry-later"},503);
     }
   }

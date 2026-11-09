@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import {AUDIT_PREFIX,auditCaptainEvent} from "../src/captain-audit.js";
 import assert from "node:assert/strict";
 import worker from "../src/index.js";
 import { handleCallback } from "../src/oauth-callback.js";
@@ -646,4 +647,36 @@ test("hourly cron writes only one private aggregate summary without tokens or id
   assert.ok(!Number.isNaN(Date.parse(report.checkedAt)));
   assert.doesNotMatch(raw,/PRIVATE_ACCESS|PRIVATE_REFRESH|oauth-captains|session|member|player/i);
   assert.ok([...bucket.map.keys()].some(k=>k.startsWith(CAPTAIN_PREFIX)));
+});
+
+
+test("private audit records only timestamp, opaque session key, event and reason",async()=>{
+  const {env,bucket}=setup();
+  const key=await captainSessionKey(newCaptainSessionId());
+  assert.equal(await auditCaptainEvent(env,key,"created","stored"),true);
+  assert.equal(await auditCaptainEvent(env,key,"created","PRIVATE_ACCESS"),false);
+  assert.equal(await auditCaptainEvent(env,"raw-player-name","created","stored"),false);
+  const entries=[...bucket.map.entries()].filter(([k])=>k.startsWith(AUDIT_PREFIX));
+  assert.equal(entries.length,1);
+  const [objectKey,json]=entries[0];
+  assert.match(objectKey,/^oauth-audit\\/v1\\/\\d{4}-\\d{2}-\\d{2}\\/\\d+-[a-f0-9]{24}\\.json$/);
+  assert.deepEqual(Object.keys(JSON.parse(json)).sort(),["at","event","reason","sessionKey","version"]);
+  assert.equal(JSON.parse(json).sessionKey,key);
+  assert.ok(!json.includes("PRIVATE_ACCESS"));
+});
+
+test("captain coordinator records creation and explicit deletion without exposing credentials",async()=>{
+  const {env,bucket}=setup();
+  const id=newCaptainSessionId();
+  const {key,res}=await store(env,id);
+  assert.equal((await res.json()).status,"stored");
+  const logout=await env.CAPTAIN_REFRESH_COORDINATOR.get(key).fetch(new Request("https://internal/",{
+    method:"POST",body:JSON.stringify({action:"logout",key})
+  }));
+  assert.equal((await logout.json()).status,"disconnected");
+  const events=[...bucket.map.entries()].filter(([k])=>k.startsWith(AUDIT_PREFIX)).map(([,v])=>JSON.parse(v));
+  assert.ok(events.some(e=>e.event==="created"&&e.reason==="stored"));
+  assert.ok(events.some(e=>e.event==="deleted"&&e.reason==="logout"));
+  assert.ok(events.some(e=>e.event==="failed"&&e.reason==="revoke-error"));
+  assert.ok(events.every(e=>!JSON.stringify(e).includes("PRIVATE_REFRESH")));
 });
