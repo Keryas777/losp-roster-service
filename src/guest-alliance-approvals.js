@@ -162,6 +162,6 @@ export async function handleGuestAllianceApproval(request,env,fetchImpl=fetch){
     }
     return reply({status,count:alliances.length,
       ...(initialSync!==null?{initialSync}:{}),
-      ...(staticPublication!==null?{staticPublication}: {})});
+      });
   }catch{return reply({error:"approval-unavailable"},503);}
 }
