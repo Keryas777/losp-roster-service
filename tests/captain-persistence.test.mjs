@@ -361,6 +361,50 @@ test("older connected Hadès account appears without new OAuth via one-time inde
   assert.equal(second.alliances.length,1);
   assert.equal(cardReads,1);
 });
+test("Admin refresh follows a captain moving alliances without altering approvals",async()=>{
+  const {env,bucket}=setup();
+  const id=newCaptainSessionId();
+  await store(env,id,token("MOVE_ACCESS","MOVE_REFRESH"));
+  const oldAid="endgame-red",newAid="questionable-propriety";
+  const fingerprint=aid=>createHash("sha256").update(aid).digest("hex");
+  const guestKey="roster-sync/v1/approved-guest-alliances.json";
+  const approval={version:1,alliances:[{fingerprint:fingerprint(oldAid),
+    allianceKey:"endgame-red"}]};
+  await bucket.put(guestKey,JSON.stringify(approval));
+  let current=oldAid;
+  const api=async url=>{
+    assert.ok(url.endsWith("/player/v1/alliance/card"));
+    return Response.json({data:{id:current+":v7",name:current}});
+  };
+  const request=()=>new Request(origin+"/admin/api/connected-alliances");
+  const first=await (await handleConnectedAlliances(request(),env,api)).json();
+  assert.deepEqual(first.alliances.map(a=>a.name),[oldAid]);
+  assert.equal(first.alliances[0].guestApproved,true);
+  current=newAid;
+  const second=await (await handleConnectedAlliances(request(),env,api)).json();
+  assert.deepEqual(second.alliances.map(a=>a.name),[newAid]);
+  assert.equal(second.alliances[0].guestApproved,false);
+  assert.equal(second.alliances[0].fingerprint,fingerprint(newAid));
+  assert.deepEqual(JSON.parse(bucket.map.get(guestKey)),approval);
+  const entries=[...bucket.map.keys()].filter(k=>k.startsWith(CONNECTED_ALLIANCE_PREFIX));
+  assert.equal(entries.length,1);
+  assert.equal(JSON.parse(bucket.map.get(entries[0])).fingerprint,fingerprint(newAid));
+});
+
+test("Admin refresh never shows a stale alliance when current Scopely verification fails",async()=>{
+  const {env}=setup();
+  await store(env,newCaptainSessionId());
+  const good=async()=>Response.json({data:{id:"old-alliance:v1",name:"Old"}});
+  const request=()=>new Request(origin+"/admin/api/connected-alliances");
+  const first=await (await handleConnectedAlliances(request(),env,good)).json();
+  assert.equal(first.alliances.length,1);
+  const failed=await (await handleConnectedAlliances(request(),env,
+    async()=>Response.json({error:"unavailable"},{status:503}))).json();
+  assert.equal(failed.alliances.length,0);
+  assert.equal(failed.unresolvedSessions,1);
+  assert.equal(failed.complete,false);
+});
+
 test("logout removes visible alliance session without modifying other approved alliances",async()=>{
   const {env}=setup();
   const login=await saveCaptainConsent(new Response("ok"),token("A","R"),env,
