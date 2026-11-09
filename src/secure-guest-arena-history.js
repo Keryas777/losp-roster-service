@@ -15,7 +15,7 @@ const ARCHIVE=ROOT+"guest-arena-history/rolling.json";
 const KEY=/^[a-z][a-z0-9-]{1,63}$/;
 const FP=/^[0-9a-f]{64}$/;
 const DAY=/^\d{4}-\d{2}-\d{2}$/;
-const DAYS=30,DAY_MS=86400000;
+const DAYS=30,DAY_MS=86400000,INFO_DAYS=7;
 const MAX_HISTORY=2100000,MAX_RECEIPT=240000;
 const rank=n=>Number.isSafeInteger(n)&&n>0;
 const safe=s=>typeof s==="string"&&s.trim().length>0&&s.length<=140;
@@ -178,13 +178,17 @@ async function verifiedInfoMedia(bucket,fp,day,period,now){
     if(!x||x.version!==1||x.kind!=="alliance-infos-campaign"||
        x.allianceFingerprint!==fp||x.campaign!==campaign||
        !safe(x.allianceName)||!time(x.capturedAt)||!time(x.expiresAt)||
-       Date.parse(x.capturedAt)>now||Date.parse(x.expiresAt)<=now||
+       Date.parse(x.capturedAt)>now||Date.parse(x.capturedAt)<now-INFO_DAYS*DAY_MS||
+       Date.parse(x.expiresAt)<=now||
+       Date.parse(x.expiresAt)>Date.parse(x.capturedAt)+INFO_DAYS*DAY_MS||
        x.capturedAt.slice(0,10)!==day||
        !Array.isArray(x.rows)||x.rows.length<1||x.rows.length>100)
       return null;
     const seen=new Set(),rows=[];
     for(const p of x.rows){
-      if(!safe(p?.name)||seen.has(p.name))return null;
+      if(!safe(p?.name)||p.alliance!==x.allianceName||
+         seen.has(p.name)||typeof p.icon!=="string"||
+         typeof p.frame!=="string")return null;
       seen.add(p.name);
       rows.push({name:p.name,...visualFields(p)});
     }
@@ -359,8 +363,9 @@ export async function secureGuestArenaHistory(request,env,now=Date.now(),
     // Supplement missing portraits/frames from the most recent verified
     // AM/PM Infos, scoped to each approved tenant. Do not invent rank points.
     for(const a of approved){
-      const days=[today,new Date(Date.parse(today+"T00:00:00Z")-DAY_MS)
-        .toISOString().slice(0,10)];
+      const days=Array.from({length:INFO_DAYS+1},(_,offset)=>
+        new Date(Date.parse(today+"T00:00:00Z")-offset*DAY_MS)
+          .toISOString().slice(0,10));
       let infoCampaignFoundForTenant=false;
       for(const day of days){
         for(const period of ["pm","am"]){
