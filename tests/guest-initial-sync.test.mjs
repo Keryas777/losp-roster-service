@@ -146,8 +146,14 @@ test("initial Infos never use the expired AM window or premature PM window",asyn
     assert.equal(res.lastOutcome,"campaign-not-open");
   }
   assert.deepEqual(calls,["ranks"]);
-  const resumed=await runGuestInitialSyncTick(f.env,
+  // The 13:59 attempt schedules a five-minute retry (nextAt=14:04).
+  // A 14:00 tick must respect the existing cooldown rather than collect.
+  const cooling=await runGuestInitialSyncTick(f.env,
     Date.parse("2026-11-09T14:00:00Z"),
+    async()=>{throw Error("No Scopely calls");},mocked);
+  assert.equal(cooling.status,"cooldown");
+  const resumed=await runGuestInitialSyncTick(f.env,
+    Date.parse("2026-11-09T14:04:00Z"),
     async()=>{throw Error("No Scopely calls");},mocked);
   assert.equal(resumed.lastOutcome,"partial");
   assert.deepEqual(calls,["ranks","infos"]);
