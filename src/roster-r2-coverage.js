@@ -1,6 +1,6 @@
 // Admin-only, read-only view of APPROVED roster snapshots already in R2.
 // No Scopely GET, OAuth refresh, Durable Object lock or storage mutation.
-import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
+import {readCollectibleApprovals,readGuestApprovals} from "./guest-alliance-approvals.js";
 import {cachedConnectedAllianceNames} from "./connected-alliance-index.js";
 import {BATCH_PREFIX,BATCH_MAX_AGE_MS,completeKey} from "./private-roster-batches.js";
 import {rosterAttemptKey,rosterCooldownKey,verifiedRosterAttempt}
@@ -159,10 +159,18 @@ export async function handleRosterR2Coverage(request,env,now=Date.now()){
     const guestFingerprints=new Set(registry.guestAlliances
       .map(a=>a.fingerprint).filter(fp=>entries.some(e=>e.fingerprint===fp)));
     const guestNames=await cachedConnectedAllianceNames(bucket,guestFingerprints,now);
+    // A guest can retain approved snapshots after its last OAuth session
+    // disappears. Keep the R2 WebApp association as a stable fallback label.
+    const guestRegistry=guestFingerprints.size?await readGuestApprovals(env):null;
+    const guestKeys=new Map((guestRegistry?.status==="configured"?guestRegistry.alliances:[])
+      .filter(a=>guestFingerprints.has(a.fingerprint)&&a.allianceKey)
+      .map(a=>[a.fingerprint,a.allianceKey]));
     const alliances=[];
     for(const item of entries){
       const display=guestNames.has(item.fingerprint)?
-        {...item,name:guestNames.get(item.fingerprint)}:item;
+        {...item,name:guestNames.get(item.fingerprint)}:
+        guestKeys.has(item.fingerprint)?
+          {...item,name:guestKeys.get(item.fingerprint)}:item;
       alliances.push(await allianceState(bucket,display,now,full));
     }
     return respond({status:"ok",source:"private-r2-only",scope:full?"full":"summary",
