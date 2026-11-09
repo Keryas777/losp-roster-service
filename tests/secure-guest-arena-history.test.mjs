@@ -412,3 +412,54 @@ test("before the next daily reward collection, latest real R2 reward receipt sup
   assert.ok(f.reads.includes(key(guest)));
   assert.ok(!f.reads.some(k=>k.includes("/player/v1")));
 });
+
+test("verified AM Infos supplies missing guest portrait without fabricating ranks",async()=>{
+  const f=create();
+  f.records.set("roster-batches/v1/guest-arena-history/rolling.json",JSON.stringify({
+    version:1,snapshots:[{date,sourceDay:date,sourceKind:"reward",
+      players:[{name:"QP Member",arenaRank:15,allianceKey:"marines",
+        alliance:"MARINES"}]}]
+  }));
+  f.records.set("roster-batches/v1/"+guest+"/campaigns/"+date+"-am-infos.json",
+    JSON.stringify({version:1,kind:"alliance-infos-campaign",
+      allianceFingerprint:guest,campaign:date+"-am",
+      allianceName:"MARINES",capturedAt:date+"T08:00:00Z",
+      expiresAt:"2026-11-12T08:00:00Z",
+      rows:[{name:"QP Member",icon:portrait,frame},
+        {name:"No Rank",icon:portrait,frame}]}));
+  const data=await(await secureGuestArenaHistory(request(),f.env,now,auth())).json();
+  assert.equal(data.snapshots.length,1);
+  assert.equal(data.snapshots[0].players.length,1);
+  assert.equal(data.snapshots[0].players[0].icon,undefined);
+  assert.equal(data.profiles.find(p=>p.name==="QP Member").icon,portrait);
+  assert.equal(data.profiles.find(p=>p.name==="QP Member").frame,frame);
+  assert.ok(f.reads.every(k=>!k.includes("/player/v1")));
+});
+test("invalid or expired Infos cannot inject guest profile media",async()=>{
+  const f=create();
+  f.records.set("roster-batches/v1/"+guest+"/campaigns/"+date+"-pm-infos.json",
+    JSON.stringify({version:1,kind:"alliance-infos-campaign",
+      allianceFingerprint:other,campaign:date+"-pm",
+      allianceName:"WRONG TENANT",capturedAt:date+"T16:30:00Z",
+      expiresAt:"2026-11-12T16:30:00Z",
+      rows:[{name:"Same Name",icon:portrait,frame}]}));
+  const data=await(await secureGuestArenaHistory(request(),f.env,now,auth())).json();
+  assert.deepEqual(data.profiles,[]);
+  assert.deepEqual(data.snapshots,[]);
+});
+test("reward media takes priority over AM Infos for the same guest member",async()=>{
+  const f=create();
+  f.records.set(key(guest),receipt(guest,"MARINES",[
+    {name:"Ranked",rank:8,icon:portrait,frame}]));
+  f.records.set("roster-batches/v1/"+guest+"/campaigns/"+date+"-am-infos.json",
+    JSON.stringify({version:1,kind:"alliance-infos-campaign",
+      allianceFingerprint:guest,campaign:date+"-am",
+      allianceName:"MARINES",capturedAt:date+"T08:00:00Z",
+      expiresAt:"2026-11-12T08:00:00Z",
+      rows:[{name:"Ranked",
+        icon:"https://assets.marvelstrikeforce.com/imgs/Older.png",
+        frame:"https://assets.marvelstrikeforce.com/imgs/OlderFrame.png"}]}));
+  const data=await(await secureGuestArenaHistory(request(),f.env,now,auth())).json();
+  assert.equal(data.profiles.find(p=>p.name==="Ranked").icon,portrait);
+  assert.equal(data.profiles.find(p=>p.name==="Ranked").frame,frame);
+});
