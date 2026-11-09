@@ -659,7 +659,7 @@ test("private audit records only timestamp, opaque session key, event and reason
   const entries=[...bucket.map.entries()].filter(([k])=>k.startsWith(AUDIT_PREFIX));
   assert.equal(entries.length,1);
   const [objectKey,json]=entries[0];
-  assert.match(objectKey,/^oauth-audit\\/v1\\/\\d{4}-\\d{2}-\\d{2}\\/\\d+-[a-f0-9]{24}\\.json$/);
+  assert.match(objectKey,/^oauth-audit\/v1\/\d{4}-\d{2}-\d{2}\/\d+-[a-f0-9]{24}\.json$/);
   assert.deepEqual(Object.keys(JSON.parse(json)).sort(),["at","event","reason","sessionKey","version"]);
   assert.equal(JSON.parse(json).sessionKey,key);
   assert.ok(!json.includes("PRIVATE_ACCESS"));
