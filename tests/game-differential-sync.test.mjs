@@ -7,6 +7,7 @@ import {runGameDifferentialTick,gameDifferentialStatus,gameScheduledSlot,nextGam
 import {GAME_ARCHIVE_ROOT} from "../src/game-catalog-archive.js";
 import {viewGamePerf} from "../src/game-differential-performance.js";
 import {publicAwakenedMaterials} from "../src/awakened-material-catalog.js";
+import {discoverGamePhase2} from "../src/game-phase2-discovery.js";
 import {handleAdmin} from "../src/admin-routes.js";
 
 const NOW=Date.UTC(2026,9,23,0,0,0);
@@ -1000,4 +1001,70 @@ test("legacy weekly state migrates without resetting source archive",async()=>{
   assert.notEqual(updated.runId,old.runId);
   assert.equal(updated.scheduledSlot,"2026-10-26T01:00");
   assert.equal(updated.sourceRun,old.sourceRun);
+});
+
+
+test("Dark Dimension discovery uses only distinct, strictly valid rays",()=>{
+  const result=discoverGamePhase2(
+    "/game/v1/dds/dd_id_insanity_event_card_info_09",
+    {data:{rays:["room-1","room-1","", "room:2","../escape","room?query",
+      123,{id:"room_3"},{roomId:"not-an-id"}]}}
+  );
+  assert.deepEqual(result.map(x=>x.path),[
+    "/game/v1/dds/dd_id_insanity_event_card_info_09/room-1"+
+      "?nodeReqs=full&nodeCombat=full&nodeRewards=full",
+    "/game/v1/dds/dd_id_insanity_event_card_info_09/room%3A2"+
+      "?nodeReqs=full&nodeCombat=full&nodeRewards=full",
+    "/game/v1/dds/dd_id_insanity_event_card_info_09/room_3"+
+      "?nodeReqs=full&nodeCombat=full&nodeRewards=full"
+  ]);
+  assert.deepEqual(discoverGamePhase2(
+    "/game/v1/dds/../untrusted",
+    {data:{rays:["room-1"]}}
+  ),[]);
+});
+
+test("differential discovers and archives full DD9 room responses from rays",async()=>{
+  const ddId="dd_id_insanity_event_card_info_09";
+  const api=url=>{
+    const parsed=new URL(url),path=parsed.pathname;
+    if(path==="/game/v1/dds")
+      return Response.json({data:[{id:ddId}],meta:{perTotal:1}});
+    if(path==="/game/v1/dds/"+ddId)
+      return Response.json({data:{id:ddId,rays:["alpha","alpha","beta"]},
+        meta:{asOf:"2026-10-23T00:00:00Z"}});
+    if(path.startsWith("/game/v1/dds/"+ddId+"/")){
+      const roomId=path.split("/").at(-1);
+      return Response.json({data:{roomId,
+        nodeReqs:[{type:"trait",value:"city"}],
+        nodeCombat:{combatId:"official-combat-"+roomId},
+        nodeRewards:[{item:{id:"official-item-"+roomId}}],
+        officialExtension:{preserved:true}},
+        meta:{asOf:"2026-10-23T00:00:00Z"}});
+    }
+    return Response.json({data:[],meta:{perTotal:0}});
+  };
+  const f=fixture({api});await f.seed();
+  const completed=await finish(f);
+  assert.equal(completed.status.status,"completed");
+  const roomPaths=["alpha","beta"].map(roomId=>
+    "/game/v1/dds/"+ddId+"/"+roomId+
+    "?nodeReqs=full&nodeCombat=full&nodeRewards=full");
+  for(const path of roomPaths){
+    assert.equal(f.calls.filter(call=>call.url===
+      "https://api.marvelstrikeforce.com"+path).length,1,
+      "duplicate rays must not spend a second GET");
+    const pointer=latestFor(f,path);
+    assert.ok(pointer,"successful room response gets the standard latest pointer");
+    const raw=f.store.get(pointer.objectKey);
+    assert.ok(raw,"full official response is archived in R2");
+    const saved=JSON.parse(raw);
+    assert.deepEqual(saved.data.nodeReqs,[{type:"trait",value:"city"}]);
+    assert.deepEqual(saved.data.officialExtension,{preserved:true});
+    assert.equal(sha(raw),pointer.sha256);
+    assert.ok(f.store.has(pointer.receiptKey),
+      "room response uses the existing differential receipt journal");
+  }
+  assert.equal(f.calls.filter(call=>
+    call.url.includes("/game/v1/dds/"+ddId+"/")).length,2);
 });
