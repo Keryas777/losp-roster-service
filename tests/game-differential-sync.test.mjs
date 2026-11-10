@@ -1068,3 +1068,55 @@ test("differential discovers and archives full DD9 room responses from rays",asy
   assert.equal(f.calls.filter(call=>
     call.url.includes("/game/v1/dds/"+ddId+"/")).length,2);
 });
+
+
+test("committed DD detail receipt replays room discovery without another Scopely GET",async()=>{
+  const ddId="dd_id_insanity_event_card_info_09";
+  const ddPath="/game/v1/dds/"+ddId;
+  const roomPaths=["/game/v1/dds/"+ddId+"/alpha"+
+    "?nodeReqs=full&nodeCombat=full&nodeRewards=full"];
+  const api=url=>{
+    const path=new URL(url).pathname;
+    if(path==="/game/v1/dds")
+      return Response.json({data:[{id:ddId}],meta:{perTotal:1}});
+    if(path===ddPath)
+      return Response.json({data:{id:ddId,rays:["alpha"]},
+        meta:{asOf:"2026-10-23T00:00:00Z"}});
+    if(roomPaths.some(room=>room.split("?")[0]===path))
+      return Response.json({data:{nodeReqs:[{trait:"city"}]},
+        meta:{asOf:"2026-10-23T00:00:00Z"}});
+    return Response.json({data:[],meta:{perTotal:0}});
+  };
+  const f=fixture({api});await f.seed();
+  const target=DIFF+"latest/"+sha(ddPath)+".json";
+  const bucket=f.env.CAPTAIN_BUCKET,originalPut=bucket.put.bind(bucket);
+  let injected=false;
+  bucket.put=async(key,value)=>{
+    if(key===target&&!injected){
+      injected=true;throw Error("simulated-dd-pointer-write-failure");
+    }
+    return originalPut(key,value);
+  };
+  const interruptedTick=await tickUntilSimulatedFailure(f);
+  const journal=checks(f).map(([,raw])=>JSON.parse(raw))
+    .find(receipt=>receipt.path===ddPath);
+  assert.ok(journal,"the official DD response was durably received");
+  assert.equal(latestFor(f,ddPath),null,
+    "the target pointer is incomplete until replay");
+  const count=()=>f.calls.filter(call=>call.url===
+    "https://api.marvelstrikeforce.com"+ddPath).length;
+  const before=count();
+  const resumed=await runGameDifferentialTick(f.env,f.provider,
+    NOW+(interruptedTick+1)*60000);
+  assert.notEqual(resumed.status,"unavailable");
+  assert.equal(count(),before,
+    "receipt replay rediscovered rooms without another DD detail GET");
+  const completed=await finish(f,NOW+(interruptedTick+2)*60000);
+  assert.equal(completed.status.status,"completed");
+  assert.ok(latestFor(f,ddPath));
+  for(const room of roomPaths){
+    assert.ok(latestFor(f,room),"replayed discovery queued each room");
+    assert.equal(f.calls.filter(call=>
+      call.url==="https://api.marvelstrikeforce.com"+room).length,1);
+  }
+});
