@@ -47,6 +47,19 @@ export function discoverGamePhase2(sourcePath,body){
   if(/^\/game\/v1\/raids\/[^/]+$/.test(path)&&
      !sourcePath.includes("?"))
     add(detail(path+"?raidMap=full&raidRewards=full&raidDiffs=full"));
+  // A Dark Dimension detail's official rays are the only room IDs we follow.
+  // Request the documented NodeInfo expansions without guessing room positions.
+  const darkDimension=path.match(/^\/game\/v1\/dds\/([A-Za-z0-9:_-]{1,200})$/);
+  if(darkDimension&&Array.isArray(data?.rays)){
+    const rooms=new Set();
+    for(const ray of data.rays){
+      const raw=typeof ray==="string"?ray:ray?.id;
+      if(typeof raw!=="string"||!ID.test(raw)||rooms.has(raw))continue;
+      rooms.add(raw);
+      add(detail(BASE+"dds/"+darkDimension[1]+"/"+encodeURIComponent(raw)+
+        "?nodeReqs=full&nodeCombat=full&nodeRewards=full"));
+    }
+  }
   const stack=[data],seen=new WeakSet();
   while(stack.length){
     const node=stack.pop();
