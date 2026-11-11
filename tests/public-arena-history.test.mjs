@@ -61,7 +61,7 @@ test("history is immutable per date and pruned to 30 dates",()=>{
   assert.deepEqual(result.snapshots.map(s=>s.date),["2026-10-31","2026-11-29"]);
   assert.equal(result.snapshots[0].players[0].arenaRank,5);
 });
-test("archives on existing cron at 20:17 Paris; endpoint is read-only",async()=>{
+test("archives on the 19:17 UTC fallback; endpoint is read-only",async()=>{
   const f=fixture();
   for(const fp of [fp1,fp2]){
     add(f.store,fp,"am",5,"2026-11-01T03:30:00Z");
@@ -118,7 +118,7 @@ function addRewardDay(store,fp,day,rank,time){
 const day5="2026-11-05";
 const t5=s=>Date.parse(day5+"T"+s+"Z");
 
-test("quiet 17:08 tick archives both scopes with real same-day receipts, no Scopely",async()=>{
+test("quiet 16:08 UTC tick archives both scopes with real same-day receipts, no Scopely",async()=>{
   const f=fixture(),guest="3".repeat(64);
   f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,
     alliances:[{fingerprint:guest,allianceKey:"marines"}]}));
