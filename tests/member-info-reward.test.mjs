@@ -24,7 +24,7 @@ const fixture=()=>{
   };
   return {env,store};
 };
-test("reward cutoff: 17:00 must never be sampled; 17:01 is first winter slot",()=>{
+test("reward cutoff: 16:00 UTC must never be sampled; 16:01 UTC is the first slot",()=>{
   assert.equal(rewardWindow(t("2026-11-02T16:00:00Z")),null);
   assert.deepEqual(rewardWindow(t("2026-11-02T16:01:00Z")),{
     day:"2026-11-02",tick:0,stamp:"2026-11-02T16:01Z"
