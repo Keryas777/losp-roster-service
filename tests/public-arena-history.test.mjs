@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {buildArenaHistory,mergeArenaHistory,archiveArenaHistory,
-  archiveArenaHistoryWhenReady,publicArenaHistory} from "../src/public-arena-history.js";
+  archiveArenaHistoryWhenReady,publicArenaHistory,publicArenaSnapshot} from "../src/public-arena-history.js";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 import {GUEST_APPROVAL_KEY} from "../src/guest-alliance-approvals.js";
 
@@ -190,4 +190,39 @@ test("time gates never archive before 17:01 or after backup starts; 20:17 rescue
   assert.equal(f.puts.length,1);
   assert.equal((await archiveArenaHistory(f.env,t5("19:18:00"))).status,
     "outside-window");
+});
+
+test("public GitHub projection includes every approved alliance using only rank fields",async()=>{
+  const f=fixture(),guest="3".repeat(64);
+  f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,
+    alliances:[{fingerprint:guest,allianceKey:"marines"}]}));
+  for(const fp of [fp1,fp2,guest]){
+    add(f.store,fp,"reward",fp===guest?12:8,"2026-11-01T16:01:00Z");
+    const key="roster-batches/v1/"+fp+"/campaigns/2026-11-01-reward-infos.json";
+    const receipt=JSON.parse(f.store.get(key));
+    receipt.rows[0].aid="private-provider-id";
+    f.store.set(key,JSON.stringify(receipt));
+  }
+  const response=await publicArenaSnapshot(
+    new Request("https://service.test/api/public/arena-snapshot?date=2026-11-01"),
+    f.env,now);
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.status,"complete");
+  assert.equal(body.snapshot.alliancesExpected,3);
+  assert.equal(body.snapshot.alliancesComplete,3);
+  assert.equal(body.snapshot.players.length,3);
+  assert.equal(body.snapshot.players.find(p=>p.allianceKey==="marines").arenaRank,12);
+  assert.ok(body.snapshot.players.every(p=>/^p_[a-f0-9]{64}$/.test(p.playerId)));
+  assert.doesNotMatch(JSON.stringify(body),/private-provider-id|fingerprint|expiresAt|rosterShare/);
+});
+test("public GitHub projection stays explicitly incomplete when any approved alliance is missing",async()=>{
+  const f=fixture();
+  add(f.store,fp1,"reward",8,"2026-11-01T16:01:00Z");
+  const response=await publicArenaSnapshot(
+    new Request("https://service.test/api/public/arena-snapshot?date=2026-11-01"),
+    f.env,now);
+  assert.equal(response.status,409);
+  assert.deepEqual(await response.json(),{status:"incomplete",date:"2026-11-01",
+    alliancesExpected:2,alliancesComplete:1});
 });
