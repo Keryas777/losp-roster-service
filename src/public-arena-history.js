@@ -293,7 +293,7 @@ export async function publicArenaHistory(request,env,now=Date.now()){
       {status:503,headers:HEADERS});
   }
 }
-// The 17:01 reward collection has already persisted source receipts in R2.
+// The 16:01 UTC reward collection has already persisted source receipts in R2.
 // On the first quiet minute after completion, promote *each scope* as soon
 // as all of its own approved alliances have valid receipts for TODAY. Guests
 // never block LoSP and are NEVER added to its public history.
@@ -353,7 +353,7 @@ export async function archiveArenaHistory(env,now=Date.now()){
 
 
 // Capture a genuine "current at onboarding" Arena observation as soon as
-// AM/PM Infos receipts are collected. Never label it as the 17:01 reward.
+// AM/PM Infos receipts are collected. Never label them as a 16:01 UTC reward.
 // The later real reward snapshot replaces this initial point for that date.
 export async function archiveGuestInitialArena(env,fp,allianceKey,now=Date.now()){
   if(!FP.test(fp||"")||!/^[a-z][a-z0-9-]{1,63}$/.test(allianceKey||"")||
