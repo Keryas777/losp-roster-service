@@ -146,7 +146,7 @@ export async function buildArenaHistory(env,now=Date.now(),scope="losp"){
   }
   return mergeArenaHistory(previous,incoming,today);
 }
-async function permanentHistoryProjection(env,day,current){
+async function permanentHistoryProjection(env,day,current=null){
   const bucket=env?.CAPTAIN_BUCKET;
   const sources=await Promise.all([
     json(bucket,HISTORY_KEY,2400000),
@@ -198,7 +198,7 @@ async function permanentHistoryProjection(env,day,current){
       }
     }
   }
-  byDay.set(day,current);
+  if(current)byDay.set(day,current);
   return [...byDay.values()].filter(x=>x.players.length)
     .sort((a,b)=>a.date.localeCompare(b.date));
 }
@@ -286,8 +286,10 @@ export async function publicArenaHistory(request,env,now=Date.now()){
   if(request.method!=="GET")return Response.json({status:"method-not-allowed"},
     {status:405,headers:HEADERS});
   try{
-    const data=await buildArenaHistory(env,now);
-    return Response.json(data,{headers:HEADERS});
+    const day=utcParts(now).day;
+    const snapshots=await permanentHistoryProjection(env,day);
+    return Response.json({version:1,kind:"common-arena-history",
+      status:"ok",snapshots},{headers:HEADERS});
   }catch{
     return Response.json({status:"unavailable",snapshots:[]},
       {status:503,headers:HEADERS});
