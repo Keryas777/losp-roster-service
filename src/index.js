@@ -204,14 +204,13 @@ export default {
       // Never stack archive reads on a tick that just used Scopely GETs.
       const quietReward=reward.status==="complete"&&!(reward.requests>0);
       const utcHour=slot.getUTCHours(),utcMinute=slot.getUTCMinutes();
-      const afterWindow=reward.status==="outside-window"&&
-        (utcHour===16&&utcMinute>=31||utcHour===17||utcHour===18||
-         utcHour===19&&utcMinute<17)&&utcMinute%5===0;
+      const afterWindow=reward.status==="outside-window"&&utcHour>=16&&
+        (utcHour>16||utcMinute>=31)&&utcMinute%5===0;
       if(quietReward||afterWindow){
         try{
           const ready=await archiveArenaHistoryWhenReady(env,scheduled);
-          if(["updated","unavailable"].includes(ready.status)||
-             ["updated","unavailable"].includes(ready.guestStatus))
+          if(["updated","unavailable","awaiting-receipts"].includes(ready.status)||
+             ["updated","unavailable","awaiting-receipts"].includes(ready.guestStatus))
             console.info("arena-history-ready",JSON.stringify(ready));
           const scopesReady=["updated","unchanged"].includes(ready.status)&&
             (!ready.guestStatus||["updated","unchanged"].includes(ready.guestStatus));
