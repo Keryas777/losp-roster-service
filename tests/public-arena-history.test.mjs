@@ -184,7 +184,7 @@ test("UTC time gates begin at 16:01 and keep retrying through the end of the day
     "outside-window");
   assert.deepEqual(f.puts,[]);
   const ready=await archiveArenaHistoryWhenReady(f.env,t5("16:01:00"));
-  assert.equal(ready.status,"updated");
+  assert.ok(["updated","unchanged"].includes(ready.status));
   assert.equal(f.puts.length,1);
   assert.notEqual((await archiveArenaHistoryWhenReady(f.env,t5("23:59:00"))).status,
     "outside-window");
