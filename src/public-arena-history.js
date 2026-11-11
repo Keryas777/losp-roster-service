@@ -272,8 +272,11 @@ export async function publicArenaSnapshot(request,env,now=Date.now()){
       sourceKind:"reward",alliancesExpected:fps.length,
       alliancesComplete:complete.length,provenance,players
     };
-    const history=await permanentHistoryProjection(env,requested,snapshot);
-    return Response.json({status:"complete",snapshot,history},{headers:HEADERS});
+    const includeHistory=new URL(request.url).searchParams.get("include_history")==="1";
+    const history=includeHistory?
+      await permanentHistoryProjection(env,requested,snapshot):null;
+    return Response.json({status:"complete",snapshot,
+      ...(history?{history}:{})},{headers:HEADERS});
   }catch{
     return Response.json({status:"unavailable"},
       {status:503,headers:HEADERS});
