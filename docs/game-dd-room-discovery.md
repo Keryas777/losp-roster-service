@@ -1,6 +1,6 @@
 # Découverte automatique des salles de Dimensions noires
 
-La découverte des salles est intégrée à la découverte de phase 2 existante, partagée par l'archive initiale et le différentiel. Quand une réponse validée à `/game/v1/dds/{ddId}` contient `data.rays`, seuls les IDs de rayons non vides qui respectent le format strict des IDs Scopely sont suivis. Les doublons sont retirés avant l'ajout à la file existante. Aucune position de carte ni aucun type de salle n'est déduit.
+La découverte des salles est intégrée à la découverte de phase 2 existante, partagée par l'archive initiale et le différentiel. Quand une réponse validée à `/game/v1/dds/{ddId}` contient `data.rays`, la grille imbriquée est aplatie pour extraire les seuls IDs non vides qui respectent le format strict des IDs Scopely. Les doublons sont retirés avant l'ajout à la file existante. Aucune position de carte ni aucun type de salle n'est déduit.
 
 Chaque salle est demandée à l'endpoint officiel `/game/v1/dds/{ddId}/{roomId}` avec les expansions documentées `nodeReqs=full`, `nodeCombat=full` et `nodeRewards=full`. Toutes les réponses valides sont archivées intégralement, quel que soit le contenu renvoyé. Elles passent par la file, les plafonds, le verrou, les reçus, les checkpoints et le stockage R2 du collecteur différentiel courant.
 
