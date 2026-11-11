@@ -203,9 +203,9 @@ export default {
       // five minutes (including after a late deploy) until the fallback.
       // Never stack archive reads on a tick that just used Scopely GETs.
       const quietReward=reward.status==="complete"&&!(reward.requests>0);
-      const utcHour=slot.getUTCHours(),utcMinute=slot.getUTCMinutes();
-      const afterWindow=reward.status==="outside-window"&&utcHour>=16&&
-        (utcHour>16||utcMinute>=31)&&utcMinute%5===0;
+      const arenaUtcHour=slot.getUTCHours(),arenaUtcMinute=slot.getUTCMinutes();
+      const afterWindow=reward.status==="outside-window"&&arenaUtcHour>=16&&
+        (arenaUtcHour>16||arenaUtcMinute>=31)&&arenaUtcMinute%5===0;
       if(quietReward||afterWindow){
         try{
           const ready=await archiveArenaHistoryWhenReady(env,scheduled);
