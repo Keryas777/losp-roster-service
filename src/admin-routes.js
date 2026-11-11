@@ -316,6 +316,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
         "/admin/api/game-provenance-reconcile",
         "/admin/api/game-differential-failure-audit",
         "/admin/api/game-differential-comparison-audit",
+        "/admin/api/game-differential-dd9",
         "/admin/api/alliance-season-ranks","/admin/api/guest-season-rank-backfill","/admin/api/player-extras",
          "/admin/api/player-campaign", "/admin/api/reward-infos-manual",
          "/admin/api/player-links"].includes(endpoint)))
