@@ -1,8 +1,8 @@
 // Public, rank-only Arena projection from PRIVATE R2 Infos receipts.
 // No Scopely requests, no OAuth/member IDs, no private R2 key exposure.
 // Source receipts already exist under the 7-day roster-batches lifecycle.
-// Rolling history uses the SAME lifecycle prefix, is trimmed to 30 dates,
-// and is archived from completed receipts, with 20:17 / 22:17 fallback.
+// Temporary R2 views retain their existing lifecycle; the permanent public
+// archive is published to GitHub Pages from a separate rank-only projection.
 import {readApproval} from "./roster-sync-preflight.js";
 import {readCollectibleApprovals,readGuestApprovals} from "./guest-alliance-approvals.js";
 
@@ -22,16 +22,11 @@ const dateOffset=(day,n)=>{
   const dt=new Date(day+"T00:00:00Z");dt.setUTCDate(dt.getUTCDate()+n);
   return dt.toISOString().slice(0,10);
 };
-function parisParts(ms){
+function utcParts(ms){
   if(!Number.isFinite(ms))throw Error("invalid-clock");
-  const parts=Object.fromEntries(new Intl.DateTimeFormat("en-GB",{
-    timeZone:"Europe/Paris",year:"numeric",month:"2-digit",day:"2-digit",
-    hour:"2-digit",minute:"2-digit",hourCycle:"h23"
-  }).formatToParts(new Date(ms)).filter(p=>
-    ["year","month","day","hour","minute"].includes(p.type)
-  ).map(p=>[p.type,p.value]));
-  return {day:parts.year+"-"+parts.month+"-"+parts.day,
-    hour:Number(parts.hour),minute:Number(parts.minute)};
+  const date=new Date(ms);
+  return {day:date.toISOString().slice(0,10),
+    hour:date.getUTCHours(),minute:date.getUTCMinutes()};
 }
 function earliest(day){return dateOffset(day,-29);}
 function safeText(value,max=140){
@@ -126,7 +121,7 @@ export function mergeArenaHistory(history,incoming,today){
 export async function buildArenaHistory(env,now=Date.now(),scope="losp"){
   const bucket=env?.CAPTAIN_BUCKET;
   if(!bucket?.get)throw Error("storage-unavailable");
-  const today=parisParts(now).day;
+  const today=utcParts(now).day;
   const fps=await fingerprints(env,scope);
   if(!fps||!fps.length)throw Error("no-approved-alliances");
   const guestKeys=scope==="guest"?
@@ -171,7 +166,7 @@ async function archiveScope(env,now,scope,whenReady=false){
     const bucket=env.CAPTAIN_BUCKET;
     const key=scope==="guest"?GUEST_HISTORY_KEY:HISTORY_KEY;
     if(whenReady){
-      const day=parisParts(now).day;
+      const day=utcParts(now).day;
       const saved=await json(bucket,key,2400000);
       if(saved&&(saved.version!==1||!Array.isArray(saved.snapshots)))
         throw Error("invalid-existing-history");
@@ -204,20 +199,18 @@ async function archiveBothScopes(env,now,whenReady){
     return {...losp,guestStatus:guest.status,guestSnapshots:guest.snapshots};
   }catch{return {...losp,guestStatus:"unavailable"};}
 }
-// Called only following a completed *zero-Scopely-request* collector tick.
-// Avoid stacking R2 operations onto the collector's existing request budget.
-// Support same-day, explicitly authorized manual recovery as late as 20:16.
+// Called after a quiet collector tick. All windows and campaign dates are UTC.
 export async function archiveArenaHistoryWhenReady(env,now=Date.now()){
-  const local=parisParts(now);
+  const local=utcParts(now);
   const minute=local.hour*60+local.minute;
-  if(minute<17*60+1||minute>=20*60+17)
+  if(minute<16*60+1||minute>=19*60+17)
     return {status:"outside-window"};
   return archiveBothScopes(env,now,true);
 }
-// The 20:17 and 22:17 scheduled consolidations stay in place as fallbacks.
+// Keep two UTC-only R2 recovery consolidations as a fallback.
 export async function archiveArenaHistory(env,now=Date.now()){
-  const local=parisParts(now);
-  if(!([20,22].includes(local.hour)&&local.minute===17))
+  const local=utcParts(now);
+  if(!([19,21].includes(local.hour)&&local.minute===17))
     return {status:"outside-window"};
   return archiveBothScopes(env,now,false);
 }
@@ -261,7 +254,7 @@ export async function archiveGuestInitialArena(env,fp,allianceKey,now=Date.now()
         ...(typeof profile?.frame==="string"?{frame:profile.frame}:{})};
     });
     if(!players.length)return {status:"awaiting-arena-ranks"};
-    const today=parisParts(now).day;
+    const today=utcParts(now).day;
     const previous=await json(bucket,GUEST_HISTORY_KEY,2400000);
     if(previous&&(previous.version!==1||!Array.isArray(previous.snapshots)))
       return {status:"invalid-history"};
