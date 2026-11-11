@@ -8,7 +8,7 @@ function fixture(){
     put:async(key,value)=>{puts.push(key);values.set(key,value);}
   }}};
 }
-test("Arena GitHub dispatch retries temporary failures and writes its marker only on success",async()=>{
+test("Arena GitHub dispatch retries temporary failures until the permanent file appears",async()=>{
   const f=fixture(),requests=[];
   const fail=await dispatchArenaPublication(f.env,"2026-11-11",async(url,options)=>{
     requests.push({url,options});return new Response(null,{status:503});
@@ -24,10 +24,22 @@ test("Arena GitHub dispatch retries temporary failures and writes its marker onl
   assert.deepEqual(JSON.parse(requests[1].options.body),
     {ref:"main",inputs:{source_date:"2026-11-11"}});
   const duplicate=await dispatchArenaPublication(f.env,"2026-11-11",async()=>{
-    throw Error("idempotency marker should prevent another workflow");
+    throw Error("same-minute retry must be suppressed");
   },Date.parse("2026-11-11T16:17:00Z"));
   assert.equal(duplicate.status,"already-dispatched");
   assert.equal(requests.length,2);
+  const retry=await dispatchArenaPublication(f.env,"2026-11-11",async(url,options)=>{
+    requests.push({url,options});
+    return new Response(null,{status:url.includes("/contents/")?404:204});
+  },Date.parse("2026-11-11T16:26:00Z"));
+  assert.equal(retry.status,"dispatched");
+  assert.match(requests[2].url,/contents\/docs\/data\/arena-history\/snapshots/);
+  assert.match(requests[3].url,/snapshot-arena\.yml\/dispatches$/);
+  const acknowledged=await dispatchArenaPublication(f.env,"2026-11-11",async(url,options)=>{
+    requests.push({url,options});return new Response(null,{status:200});
+  },Date.parse("2026-11-11T16:36:00Z"));
+  assert.equal(acknowledged.status,"published");
+  assert.equal(requests.length,5);
 });
 test("Arena GitHub dispatch rejects invalid dates and missing credentials without requests",async()=>{
   const f=fixture();let calls=0;
