@@ -48,3 +48,38 @@ if(gameArchiveStatus&&gameArchiveStart&&gameArchiveTick&&gameArchiveMessage){
     gameArchiveStatus.textContent="Impossible de lire le statut de l’archive privée.";
   }));
 }
+
+// Explicit, authenticated DD9-only enqueue. Scopely requests are performed by the existing Cron.
+const dd9TargetedStart=document.getElementById("game-dd9-targeted-start");
+const dd9TargetedStatus=document.getElementById("game-dd9-targeted-status");
+if(dd9TargetedStart&&dd9TargetedStatus){
+  dd9TargetedStart.addEventListener("click",async()=>{
+    if(dd9TargetedStart.disabled||!window.confirm("Ajouter les salles DD9 manquantes à la file de collecte existante ?"))return;
+    dd9TargetedStart.disabled=true;
+    dd9TargetedStatus.textContent="Préparation des salles DD9…";
+    try{
+      const response=await fetch("/admin/api/game-differential-dd9",{
+        method:"POST",credentials:"same-origin",cache:"no-store"
+      });
+      const result=await response.json();
+      if(!response.ok)throw Error(result.error||"HTTP "+response.status);
+      const summary="Positions : "+(result.discovered??"?")+
+        ", déjà archivées : "+(result.archived??"?")+
+        ", déjà en attente : "+(result.pending??"?")+
+        ", ajoutées à la file : "+(result.queued??0)+".";
+      if(result.status==="queued"||result.status==="already-queued"){
+        dd9TargetedStatus.textContent="Collecte DD9 en file ("+result.status+"). "+summary+
+          " Les appels Scopely seront effectués par le Cron existant.";
+      }else if(result.status==="nothing-to-queue"||result.status==="already-seen"){
+        dd9TargetedStatus.textContent="Aucune nouvelle salle à ajouter ("+result.status+"). "+summary;
+      }else{
+        dd9TargetedStatus.textContent="Collecte non lancée : "+result.status+
+          (result.campaignStatus?" ("+result.campaignStatus+")":"")+
+          ". Aucun appel Scopely déclenché par ce bouton.";
+      }
+    }catch(error){
+      dd9TargetedStatus.textContent="Impossible de préparer la collecte DD9 : "+
+        (error instanceof Error?error.message:"erreur inconnue");
+    }finally{dd9TargetedStart.disabled=false;}
+  });
+}
