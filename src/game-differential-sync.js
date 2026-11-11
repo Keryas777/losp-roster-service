@@ -6,7 +6,7 @@
 import {API_KEY} from "./player-card.js";
 import {GAME_ROOTS,GAME_ARCHIVE_ROOT,GAME_ARCHIVE_DAILY_LIMIT,
   appToken,readGameBody} from "./game-catalog-archive.js";
-import {discoverGamePhase2,phase2RootTasks} from "./game-phase2-discovery.js";
+import {discoverGamePhase2,phase2RootTasks,officialDarkDimensionRoomIds} from "./game-phase2-discovery.js";
 import {characterRecoveryTasks,splitFailedAbilities} from "./game-archive-recovery.js";
 import {ensureGamePerf,scanPerf,providerFetchPerf,providerBodyPerf,
   start429Perf,resume429Perf,noteBudgetPerf,blockedBudgetPerf,
@@ -721,12 +721,7 @@ export async function enqueueDd9Rooms(env,now=Date.now()){
     if(payload?.data?.name!=="DARK DIMENSION IX"||
        !Array.isArray(payload.data.rays))
       return {status:"official-dd9-source-invalid"};
-    const positions=new Set();
-    for(const ray of payload.data.rays){
-      const raw=typeof ray==="string"?ray:ray?.id;
-      if(typeof raw==="string"&&/^[A-Za-z0-9:_-]{1,200}$/.test(raw))
-        positions.add(raw);
-    }
+    const positions=new Set(officialDarkDimensionRoomIds(payload.data.rays));
     if(positions.size!==23)return {status:"invalid-official-position-count",
       discovered:positions.size,expected:23};
     const discovered=discoverGamePhase2(DD9_ROOT_PATH,payload)
