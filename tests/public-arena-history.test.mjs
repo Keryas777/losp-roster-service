@@ -139,8 +139,9 @@ test("quiet 16:08 UTC tick archives both scopes with real same-day receipts, no 
   const publicRes=await publicArenaHistory(
     new Request("https://service.test/api/public/arena-history"),f.env,t5("16:08:00"));
   assert.equal(publicRes.status,200);
-  assert.match(await publicRes.text(),/MARINES/);
-  assert.doesNotMatch(await publicRes.text(),/3{64}|fingerprint|expiresAt|rosterShare/);
+  const publicText=await publicRes.text();
+  assert.match(publicText,/MARINES/);
+  assert.doesNotMatch(publicText,/3{64}|fingerprint|expiresAt|rosterShare/);
   const second=await archiveArenaHistoryWhenReady(f.env,t5("16:09:00"));
   assert.equal(second.status,"unchanged");
   assert.equal(second.guestStatus,"unchanged");
