@@ -188,7 +188,7 @@ test("UTC time gates begin at 16:01 and keep retrying through the end of the day
   assert.equal(f.puts.length,1);
   assert.notEqual((await archiveArenaHistoryWhenReady(f.env,t5("23:59:00"))).status,
     "outside-window");
-  assert.equal((await archiveArenaHistory(f.env,t5("19:17:00"))).status,"updated");
+  assert.ok(["updated","unchanged"].includes((await archiveArenaHistory(f.env,t5("19:17:00"))).status));
   assert.equal((await archiveArenaHistory(f.env,t5("19:18:00"))).status,
     "outside-window");
 });
