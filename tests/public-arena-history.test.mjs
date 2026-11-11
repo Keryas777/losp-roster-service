@@ -227,3 +227,46 @@ test("public GitHub projection stays explicitly incomplete when any approved all
   assert.deepEqual(await response.json(),{status:"incomplete",date:"2026-11-01",
     alliancesExpected:2,alliancesComplete:1});
 });
+
+test("permanent export merges legacy LoSP and guest R2 history while preserving its provenance",async()=>{
+  const f=fixture(),guest="3".repeat(64);
+  f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,
+    alliances:[{fingerprint:guest,allianceKey:"marines"}]}));
+  for(const fp of [fp1,fp2,guest])
+    add(f.store,fp,"reward",6,"2026-11-01T16:05:00Z");
+  const point=(name,alliance,rank,extra={})=>({name,alliance,arenaRank:rank,...extra});
+  f.store.set("roster-batches/v1/arena-history/rolling.json",JSON.stringify({
+    version:1,snapshots:[{date:"2026-10-31",sourceDay:"2026-11-01",
+      attribution:"backdated-from-first-next-day-collection",
+      sourceKind:"onboarding",capturedAt:"2026-11-01T03:20:00Z",
+      players:[point("Old LoSP","LoSP Zeus",9,{icon:"private"})]}]
+  }));
+  f.store.set("roster-batches/v1/guest-arena-history/rolling.json",JSON.stringify({
+    version:1,snapshots:[{date:"2026-10-31",sourceDay:"2026-11-01",
+      attribution:"onboarding-current-observation",sourceKind:"onboarding",
+      capturedAt:"2026-11-01T03:25:00Z",
+      players:[point("Old Guest","MARINES",11,{allianceKey:"marines",frame:"private"})]}]
+  }));
+  const response=await publicArenaSnapshot(
+    new Request("https://service.test/api/public/arena-snapshot?date=2026-11-01&include_history=1"),
+    f.env,now);
+  const body=await response.json();
+  assert.equal(response.status,200);
+  assert.equal(body.history.length,2);
+  const old=body.history[0];
+  assert.equal(old.attribution,"backdated-from-first-next-day-collection");
+  assert.equal(old.sourceDay,"2026-11-01");
+  assert.equal(old.players.length,2);
+  assert.equal(old.players.find(p=>p.allianceKey==="marines").arenaRank,11);
+  assert.doesNotMatch(JSON.stringify(body),/private|fingerprint|rosterShare/);
+});
+test("live Arena freshness endpoint omits the older R2 history payload",async()=>{
+  const f=fixture();
+  for(const fp of [fp1,fp2])add(f.store,fp,"reward",6,"2026-11-01T16:05:00Z");
+  const response=await publicArenaSnapshot(
+    new Request("https://service.test/api/public/arena-snapshot?date=2026-11-01"),
+    f.env,now);
+  const body=await response.json();
+  assert.equal(response.status,200);
+  assert.equal(Object.hasOwn(body,"history"),false);
+});
