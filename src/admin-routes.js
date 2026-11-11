@@ -172,6 +172,8 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<button id="game-archive-refresh" type="button">Actualiser l’état de la collecte (R2)</button>'+
 '<button id="game-archive-start" type="button">Démarrer une collecte générale</button>'+
 '<button id="game-archive-tick" type="button">Exécuter le premier micro-lot maintenant</button>'+
+'<div><button id="game-dd9-targeted-start" type="button">Collecter les salles DD9</button></div>'+ 
+'<p id="game-dd9-targeted-status" role="status" aria-live="polite">La collecte ciblée ajoute les salles manquantes à la file existante ; le Cron effectue ensuite les appels officiels.</p>'+
 '<p id="game-archive-action-status" role="status"></p>'+ 
 '<h3>Audit des lacunes R2</h3><p>Lecture seule des écarts déjà consignés, sans nouveaux appels Scopely. Les lacunes peuvent évoluer pendant la collecte.</p>'+
 '<button id="game-gap-refresh" type="button">Analyser les lacunes enregistrées</button>'+
