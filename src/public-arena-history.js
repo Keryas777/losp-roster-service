@@ -146,6 +146,81 @@ export async function buildArenaHistory(env,now=Date.now(),scope="losp"){
   }
   return mergeArenaHistory(previous,incoming,today);
 }
+export async function publicArenaSnapshot(request,env,now=Date.now()){
+  if(request.method!=="GET")return Response.json({status:"method-not-allowed"},
+    {status:405,headers:HEADERS});
+  try{
+    const requested=new URL(request.url).searchParams.get("date");
+    const today=new Date(now).toISOString().slice(0,10);
+    if(!validDay(requested)||requested>today||
+       Date.parse(today+"T00:00:00Z")-Date.parse(requested+"T00:00:00Z")>7*86400000)
+      return Response.json({status:"invalid-date"},
+        {status:400,headers:HEADERS});
+    const approved=await readCollectibleApprovals(env);
+    if(approved.status!=="configured"||!approved.alliances.length||
+       approved.guestRegistryStatus==="invalid-registry"||
+       approved.guestRegistryStatus==="unavailable")
+      throw Error("approval-registry-unavailable");
+    const fps=approved.alliances.map(x=>x.fingerprint);
+    if(!fps.length||fps.length>30||fps.some(x=>!FP.test(x))||
+       new Set(fps).size!==fps.length)throw Error("invalid-alliance-scope");
+    const guests=await readGuestApprovals(env);
+    const guestKeys=new Map((guests.alliances||[])
+      .filter(x=>x.allianceKey).map(x=>[x.fingerprint,x.allianceKey]));
+    const cutoff=Date.parse(requested+"T16:01:00Z");
+    const receipts=await Promise.all(fps.map(async fp=>{
+      try{
+        const raw=await json(env.CAPTAIN_BUCKET,
+          ROOT+fp+"/campaigns/"+requested+"-reward-infos.json");
+        const clean=sanitizeReceipt(raw,fp,requested,"reward",now);
+        if(!clean||!Number.isFinite(Date.parse(clean.capturedAt))||
+           Date.parse(clean.capturedAt)<cutoff)return null;
+        return {fp,clean,raw};
+      }catch{return null;}
+    }));
+    const complete=receipts.filter(Boolean);
+    if(complete.length!==fps.length)
+      return Response.json({status:"incomplete",date:requested,
+        alliancesExpected:fps.length,alliancesComplete:complete.length},
+        {status:409,headers:HEADERS});
+    const players=[];
+    for(const {fp,clean,raw} of complete){
+      for(const row of clean.rows){
+        const original=raw.rows.find(x=>x?.name===row.name);
+        const sourceIdentity=typeof original?.aid==="string"||
+          Number.isSafeInteger(original?.aid)?
+          "aid:"+String(original.aid):
+          "alliance:"+String(guestKeys.get(fp)||row.alliance)+":"+
+            normalized(row.name);
+        const digest=await crypto.subtle.digest("SHA-256",
+          new TextEncoder().encode(sourceIdentity));
+        const playerId="p_"+[...new Uint8Array(digest)]
+          .map(x=>x.toString(16).padStart(2,"0")).join("");
+        players.push({playerId,name:row.name,alliance:row.alliance,
+          ...(guestKeys.has(fp)?{allianceKey:guestKeys.get(fp)}:{}),
+          arenaRank:row.arenaRank,
+          ...(row.observedAt?{observedAt:row.observedAt}:{})});
+      }
+    }
+    if(!players.length||players.length>500)
+      throw Error("invalid-player-count");
+    const provenance=complete.map(({clean,raw})=>({
+      alliance:clean.rows[0]?.alliance||safeText(raw.allianceName),
+      capturedAt:clean.capturedAt
+    }));
+    return Response.json({status:"complete",snapshot:{
+      version:1,date:requested,sourceDay:requested,
+      sourceCampaign:requested+"-reward",
+      campaignId:requested+"-reward",
+      attribution:"cloudflare-arena-reward-collection",
+      sourceKind:"reward",alliancesExpected:fps.length,
+      alliancesComplete:complete.length,provenance,players
+    }},{headers:HEADERS});
+  }catch{
+    return Response.json({status:"unavailable"},
+      {status:503,headers:HEADERS});
+  }
+}
 export async function publicArenaHistory(request,env,now=Date.now()){
   if(request.method!=="GET")return Response.json({status:"method-not-allowed"},
     {status:405,headers:HEADERS});
