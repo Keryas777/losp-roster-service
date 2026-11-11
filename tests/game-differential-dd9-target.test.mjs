@@ -44,12 +44,11 @@ function fixture({failSeenOnce=false,archivedOne=false}={}){
  putJson(ROOT+"active.json",{version:1,runId:sourceRun});
  putJson(ROOT+"runs/"+sourceRun+"/progress.json",base);
  putJson(DIFF+"state.json",state);
- const sourceObject=DIFF+"runs/old/objects/source.json";
+ const sourceObject=DIFF+"runs/old/objects/"+"a".repeat(64)+".json";
  const sourceDoc={data:{name:"DARK DIMENSION IX",
    rays:Array.from({length:23},(_,i)=>"ROOM_"+String(i+1).padStart(2,"0"))},
    meta:{asOf:"2026-11-09"}};
  putJson(sourceObject,sourceDoc);
- putJson(DIFF+"latest/"+SOURCE_HASH_PLACEHOLDER+".json",{});
  return {env,bucket,store,state,sourceObject,sourceDoc,putJson};
 }
 async function setup(options){
@@ -59,13 +58,12 @@ async function setup(options){
    sha256:"a".repeat(64),objectKey:f.sourceObject});
  let firstPath=SOURCE+"/ROOM_01?nodeReqs=full&nodeCombat=full&nodeRewards=full";
  if(options?.archivedOne){
-   const h=await hash(firstPath),objectKey=DIFF+"runs/old/objects/room1.json";
+   const h=await hash(firstPath),objectKey=DIFF+"runs/old/objects/"+"b".repeat(64)+".json";
    f.putJson(objectKey,{data:{nodeReqs:[],nodeCombat:{},nodeRewards:[]}});
    f.putJson(DIFF+"latest/"+h+".json",{path:firstPath,sha256:"b".repeat(64),objectKey});
  }
  return f;
 }
-const SOURCE_HASH_PLACEHOLDER="placeholder";
 
 test("queues the 23 official DD9 rays once and preserves the differential checkpoint",async()=>{
  const f=await setup();
