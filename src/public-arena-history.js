@@ -12,6 +12,8 @@ const HISTORY_KEY=ROOT+"arena-history/rolling.json";
 const GUEST_HISTORY_KEY=ROOT+"guest-arena-history/rolling.json";
 const INITIAL_DAY="2026-10-31",FIRST_SOURCE_DAY="2026-11-01";
 const DAY_RE=/^\d{4}-\d{2}-\d{2}$/;
+const normalized=v=>String(v||"").trim().toLowerCase().normalize("NFD")
+  .replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,"");
 const FP=/^[a-f0-9]{64}$/;
 const HEADERS={"Content-Type":"application/json; charset=utf-8",
   "Access-Control-Allow-Origin":"*","Cache-Control":"no-store",
