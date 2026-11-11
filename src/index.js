@@ -14,6 +14,7 @@ import {runGuestInitialSyncTick} from "./guest-initial-sync.js";
 import {runMemberInfoAutoTick} from "./member-info-scheduler.js";
 import {runRewardInfoAutoTick} from "./member-info-reward.js";
 import {publicArenaHistory,publicArenaSnapshot,archiveArenaHistory,archiveArenaHistoryWhenReady} from "./public-arena-history.js";
+import {dispatchArenaPublication} from "./arena-github-dispatch.js";
 import {secureGuestArenaHistory} from "./secure-guest-arena-history.js";
 import {secureGuestInfos} from "./secure-guest-infos.js";
 import {secureGuestRosters} from "./secure-guest-rosters.js";
@@ -216,33 +217,12 @@ export default {
             (!ready.guestStatus||["updated","unchanged"].includes(ready.guestStatus));
           if(scopesReady){
             const day=slot.toISOString().slice(0,10);
-            const key="automation/arena-github-dispatch/"+day+".json";
-            try{
-              const bucket=env?.CAPTAIN_BUCKET,token=env?.ROSTER_GITHUB_DISPATCH_TOKEN;
-              if(!bucket?.get||!bucket?.put||typeof token!=="string"||!token)
-                throw Error("dispatch-not-configured");
-              if(!await bucket.get(key)){
-                const response=await fetch(
-                  "https://api.github.com/repos/Keryas777/msf/actions/workflows/snapshot-arena.yml/dispatches",{
-                    method:"POST",
-                    headers:{"Accept":"application/vnd.github+json",
-                      "X-GitHub-Api-Version":"2022-11-28",
-                      "User-Agent":"LoSP-Roster-Service",
-                      "Authorization":"Bearer "+token,
-                      "Content-Type":"application/json"},
-                    body:JSON.stringify({ref:"main",inputs:{source_date:day}})
-                  });
-                if(response.status!==204)throw Error("github-http-"+response.status);
-                await bucket.put(key,JSON.stringify({version:1,date:day,
-                  campaign:day+"-reward",dispatchedAt:new Date().toISOString(),
-                  status:"dispatched"}),{httpMetadata:{contentType:"application/json",
-                    cacheControl:"private, no-store"}});
-                console.info("arena-github-dispatch",JSON.stringify({status:"dispatched",date:day}));
-              }
-            }catch(error){
-              console.warn("arena-github-dispatch",JSON.stringify({status:"retry-pending",
-                date:day,reason:String(error?.message||"unavailable")}));
-            }
+            const result=await dispatchArenaPublication(env,day);
+            if(["dispatched","retry-pending","unavailable"].includes(result.status))
+              console.info("arena-github-dispatch",JSON.stringify({
+                status:result.status,date:day,
+                ...(result.httpStatus?{httpStatus:result.httpStatus}:{})
+              }));
           }
         }catch{
           console.warn("arena-history-ready",JSON.stringify({
