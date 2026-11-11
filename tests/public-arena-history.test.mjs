@@ -81,7 +81,7 @@ test("archives on the 19:17 UTC fallback; endpoint is read-only",async()=>{
   assert.equal(f.puts.length,1);
 });
 
-test("guest Arena points are archived privately, never merged into the public LoSP endpoint",async()=>{
+test("approved guest Arena points join the sanitized common public history",async()=>{
  const f=fixture(),guest="3".repeat(64);
  f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,
    alliances:[{fingerprint:guest}]}));
@@ -98,8 +98,9 @@ test("guest Arena points are archived privately, never merged into the public Lo
    new Request("https://service.test/api/public/arena-history"),f.env,now);
  const publicData=await response.json();
  assert.equal(response.status,200);
- assert.ok(publicData.snapshots.every(s=>s.players.length===2),
-   "Only the two LoSP alliances must appear publicly");
+ assert.ok(publicData.snapshots.every(s=>s.players.length===3),
+   "The public history includes both LoSP alliances and the approved guest");
+ assert.doesNotMatch(JSON.stringify(publicData),/fingerprint|expiresAt|rosterShare/);
  const privateData=JSON.parse(f.store.get(
    "roster-batches/v1/guest-arena-history/rolling.json"));
  assert.ok(privateData.snapshots.every(s=>s.players.length===1));
