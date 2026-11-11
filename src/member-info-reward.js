@@ -220,7 +220,7 @@ const manualKey=day=>PREFIX+"reward-manual/"+day+".json";
 const privateHeaders={"Cache-Control":"private, no-store",
   "X-Content-Type-Options":"nosniff"};
 
-export function parisRewardDay(timestamp){
+export function utcRewardDay(timestamp){
   if(!Number.isFinite(timestamp))return null;
     const date=new Date(timestamp);
   const minutes=date.getUTCHours()*60+date.getUTCMinutes();
@@ -240,7 +240,7 @@ async function approvedRewardFingerprints(env,includeGuests=false){
 }
 
 async function manualTickSlot(env,scheduledTime){
-  const local=parisRewardDay(scheduledTime);
+  const local=utcRewardDay(scheduledTime);
   if(!local?.afterReward)return null;
   const intent=await read(env.CAPTAIN_BUCKET,manualKey(local.day),3000);
   const started=Date.parse(intent?.startedAt);
@@ -265,7 +265,7 @@ export async function rewardManualStatus(env,now=Date.now()){
   if(env?.ROSTER_RETENTION_CONFIRMED!=="true")
     return {status:"retention-not-confirmed"};
   if(!captainConfigReady(env))return {status:"storage-unavailable"};
-  const today=parisRewardDay(now);
+  const today=utcRewardDay(now);
   if(!today)return {status:"invalid-time"};
   const fps=await approvedRewardFingerprints(env,true);
   if(!fps)return {status:"no-approved-alliances",day:today.day};
@@ -303,7 +303,7 @@ export async function collectManualRewardIndex(env,index,now=Date.now(),
   if(env?.ROSTER_RETENTION_CONFIRMED!=="true")
     return {status:"retention-not-confirmed"};
   if(!captainConfigReady(env))return {status:"storage-unavailable"};
-  const local=parisRewardDay(now);
+  const local=utcRewardDay(now);
   if(!local?.afterReward)return {status:"before-reward-cutoff"};
   const intent=await read(env.CAPTAIN_BUCKET,manualKey(local.day),3000);
   const started=Date.parse(intent?.startedAt),until=Date.parse(intent?.expiresAt);
