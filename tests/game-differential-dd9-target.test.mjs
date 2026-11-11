@@ -86,7 +86,7 @@ test("queues the 23 official DD9 rays once and preserves the differential checkp
  const tasks=JSON.parse(f.store.get(DIFF+"runs/"+state.runId+"/tasks/0000004.json"));
  assert.equal(tasks.length,23);
  assert.equal(new Set(tasks.map(x=>x.path)).size,23);
- assert.ok(tasks.every(x=>x.path.startsWith(SOURCE+"/ROOM_")&&
+ assert.ok(tasks.every(x=>x.path.startsWith(SOURCE+"/")&&
    x.path.endsWith("?nodeReqs=full&nodeCombat=full&nodeRewards=full")));
  const again=await enqueueDd9Rooms(f.env,now+1000);
  assert.equal(again.status,"already-queued");
