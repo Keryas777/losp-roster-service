@@ -20,7 +20,7 @@ function fixture(){
 function add(store,fp,kind,rank,stamp){
   const campaign="2026-11-01-"+kind;
   const body={version:1,kind:kind==="am"?"alliance-infos-campaign":"alliance-infos-reward",
-    campaign,allianceFingerprint:fp,allianceName:fp===fp1?"LoSP Zeus":"LoSP Kronos",
+    campaign,allianceFingerprint:fp,allianceName:fp===fp1?"LoSP Zeus":fp===fp2?"LoSP Kronos":"MARINES",
     capturedAt:stamp,expiresAt:"2026-11-08T19:00:00Z",
     rows:[{name:fp===fp1?"Keryas I":"Bob",latestArena:rank},
           {name:"Sans rang"}],
@@ -139,7 +139,8 @@ test("quiet 16:08 UTC tick archives both scopes with real same-day receipts, no 
   const publicRes=await publicArenaHistory(
     new Request("https://service.test/api/public/arena-history"),f.env,t5("16:08:00"));
   assert.equal(publicRes.status,200);
-  assert.doesNotMatch(await publicRes.text(),/MARINES|3{64}/);
+  assert.match(await publicRes.text(),/MARINES/);
+  assert.doesNotMatch(await publicRes.text(),/3{64}|fingerprint|expiresAt|rosterShare/);
   const second=await archiveArenaHistoryWhenReady(f.env,t5("16:09:00"));
   assert.equal(second.status,"unchanged");
   assert.equal(second.guestStatus,"unchanged");
