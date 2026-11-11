@@ -801,7 +801,7 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
       return {status:"awaiting-initial-archive"};
     const s=await read(b,STATE);
     if(s&&["completed","partial"].includes(s.status)&&
-       s.sourceRun===active.runId&&
+       s.readIndex>=s.writeIndex&&s.sourceRun===active.runId&&
        !scheduledTrigger(s,active.runId,now))
       return {status:"up-to-date",...visible(s,true,now),
         nextAt:nextGameScheduledAt(now)};
@@ -821,6 +821,15 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
     if(base.phase2&&base.phase2.status!=="done")
       return {status:"awaiting-phase2"};
     let s=await read(b,STATE);
+    if(s&&["completed","partial"].includes(s.status)&&
+       Number.isSafeInteger(s.readIndex)&&Number.isSafeInteger(s.writeIndex)&&
+       s.readIndex<s.writeIndex){
+      // Recover an admin-enqueued batch if the Worker stopped after its
+      // durable queue write but before it changed the status to checking.
+      s.status="checking";s.completedAt=null;
+      s.lastOutcome="resuming-durable-queue";
+      await write(b,STATE,s);
+    }
     if(!s||["completed","partial"].includes(s.status)){
       const trigger=scheduledTrigger(s,active.runId,now);
       if(!trigger)return {status:"up-to-date",...visible(s,true,now),
