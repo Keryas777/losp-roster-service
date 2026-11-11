@@ -278,7 +278,7 @@ async function archiveBothScopes(env,now,whenReady){
 export async function archiveArenaHistoryWhenReady(env,now=Date.now()){
   const local=utcParts(now);
   const minute=local.hour*60+local.minute;
-  if(minute<16*60+1||minute>=19*60+17)
+  if(minute<16*60+1)
     return {status:"outside-window"};
   return archiveBothScopes(env,now,true);
 }
