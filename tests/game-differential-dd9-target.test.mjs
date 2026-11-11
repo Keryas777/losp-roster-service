@@ -110,3 +110,14 @@ test("recovers an interrupted enqueue without writing a second task batch",async
  assert.equal(resumed.queued,23);
  assert.equal(JSON.parse(f.store.get(DIFF+"state.json")).writeIndex,5);
 });
+
+test("does not alter a currently active differential campaign",async()=>{
+ const f=await setup();
+ const state=JSON.parse(f.store.get(DIFF+"state.json"));
+ state.status="checking";state.readIndex=3;state.writeIndex=4;
+ f.putJson(DIFF+"state.json",state);
+ const result=await enqueueDd9Rooms(f.env,now);
+ assert.equal(result.status,"campaign-active");
+ assert.equal(JSON.parse(f.store.get(DIFF+"state.json")).writeIndex,4);
+ assert.equal(f.store.has(DIFF+"runs/"+state.runId+"/tasks/0000004.json"),false);
+});
