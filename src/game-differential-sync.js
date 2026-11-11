@@ -693,6 +693,19 @@ export async function enqueueDd9Rooms(env,now=Date.now()){
     if(prior?.runId===s.runId&&prior.status==="queued")
       return {status:"already-queued",queued:prior.queued||0,
         archived:prior.archived||0,runId:s.runId};
+    if(prior?.runId===s.runId&&prior.status==="prepared"&&
+       Number.isSafeInteger(prior.writeIndex)&&s.writeIndex>prior.writeIndex){
+      s.status="checking";s.completedAt=null;
+      s.lastOutcome="admin-dd9-targeted-queue";
+      await write(b,STATE,s);
+      prior.status="queued";prior.queued=Math.max(0,
+        s.queued-(prior.queuedBefore||0));
+      prior.completedAt=new Date(now).toISOString();
+      await write(b,DD9_ENQUEUE,prior);
+      return {status:"queued",discovered:prior.discovered||23,
+        archived:prior.archived||0,pending:prior.pending||0,
+        queued:prior.queued,runId:s.runId};
+    }
     const rootPointer=await read(b,latestKey(await hash(DD9_ROOT_PATH)));
     if(rootPointer?.path!==DD9_ROOT_PATH||
        typeof rootPointer.objectKey!=="string"||
@@ -749,7 +762,7 @@ export async function enqueueDd9Rooms(env,now=Date.now()){
     // after the checkpoint write, the next explicit call recognizes the
     // advanced writeIndex and does not append the same batch twice.
     const intent={version:1,runId:s.runId,status:"prepared",
-      writeIndex:s.writeIndex,paths:candidates.map(x=>x.path),
+      writeIndex:s.writeIndex,queuedBefore:s.queued,paths:candidates.map(x=>x.path),
       discovered:positions.size,archived,pending,preparedAt:new Date(now).toISOString()};
     await write(b,DD9_ENQUEUE,intent);
     if(!candidates.length){
@@ -757,8 +770,9 @@ export async function enqueueDd9Rooms(env,now=Date.now()){
       await write(b,DD9_ENQUEUE,intent);
       return {status:"nothing-to-queue",discovered:23,archived,pending,queued:0,runId:s.runId};
     }
+    const queuedBefore=s.queued;
     await queue(b,s,candidates,now);
-    const queued=s.queued-(Number((await read(b,STATE))?.queued)||0);
+    const queued=s.queued-queuedBefore;
     if(queued>0){
       s.status="checking";s.completedAt=null;s.lastOutcome="admin-dd9-targeted-queue";
       await write(b,STATE,s);
