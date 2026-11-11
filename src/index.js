@@ -198,8 +198,8 @@ export default {
         timeZone:"Europe/Paris",hour:"2-digit",minute:"2-digit",hourCycle:"h23"
       }).formatToParts(slot).filter(p=>p.type==="hour"||p.type==="minute")
         .map(p=>[p.type,Number(p.value)]));
-      // When the existing 17:01 collector is quiet, persist genuine R2
-      // receipts immediately. After its 17:30 window, retry R2-only every
+      // When the 16:01 UTC collector is quiet, persist genuine R2
+      // receipts immediately. After its 16:30 window, retry R2-only every
       // five minutes (including after a late deploy) until the fallback.
       // Never stack archive reads on a tick that just used Scopely GETs.
       const quietReward=reward.status==="complete"&&!(reward.requests>0);
@@ -325,7 +325,7 @@ export default {
         if(!["outside-window","unchanged","idle","disabled"].includes(archive.status))
           console.info("guest-evolution-history",JSON.stringify(archive));
       }
-      // R2-only scheduled backup at 20:17/22:17 Paris.
+      // Arena R2 fallback consolidations at 19:17/21:17 UTC.
       // Ready-to-publish snapshots are already handled after quiet ticks.
       const arenaHistory=await archiveArenaHistory(env,controller.scheduledTime);
       if(!["outside-window","unchanged"].includes(arenaHistory.status)||
@@ -364,10 +364,10 @@ export default {
       }
       // An approved R2 recovery queue can run while Safari is closed.
       // Skip slots already using Scopely for the independent Info collectors,
-      // and the 20:17 / 22:17 Paris arena snapshots. One alliance per tick.
+      // and the 19:17 / 21:17 UTC Arena snapshots. One alliance per tick.
       let recoveryRequests=0;
       if(!(info.requests>0)&&!(reward.requests>0)&&
-         !(parts.minute===17&&[20,22].includes(parts.hour))){
+         !(slot.getUTCMinutes()===17&&[19,21].includes(slot.getUTCHours()))){
         const recovery=await runRosterRecoveryTick(env,controller.scheduledTime);
         recoveryRequests=recovery.requestsThisTick||0;
         if(!["idle","disabled"].includes(recovery.status))
