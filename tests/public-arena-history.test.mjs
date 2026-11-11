@@ -176,18 +176,19 @@ test("incomplete LoSP source remains pending until valid and never invents a poi
     "updated");
   assert.equal(f.puts.length,1);
 });
-test("time gates never archive before 17:01 or after backup starts; 20:17 rescue remains",async()=>{
+test("UTC time gates begin at 16:01 and keep retrying through the end of the day",async()=>{
   const f=fixture();
   for(const fp of [fp1,fp2])
     addRewardDay(f.store,fp,day5,21,day5+"T16:01:00Z");
   assert.equal((await archiveArenaHistoryWhenReady(f.env,t5("16:00:00"))).status,
     "outside-window");
-  assert.equal((await archiveArenaHistoryWhenReady(f.env,t5("19:17:00"))).status,
-    "outside-window");
   assert.deepEqual(f.puts,[]);
-  const backup=await archiveArenaHistory(f.env,t5("19:17:00"));
-  assert.equal(backup.status,"updated");
+  const ready=await archiveArenaHistoryWhenReady(f.env,t5("16:01:00"));
+  assert.equal(ready.status,"updated");
   assert.equal(f.puts.length,1);
+  assert.notEqual((await archiveArenaHistoryWhenReady(f.env,t5("23:59:00"))).status,
+    "outside-window");
+  assert.equal((await archiveArenaHistory(f.env,t5("19:17:00"))).status,"updated");
   assert.equal((await archiveArenaHistory(f.env,t5("19:18:00"))).status,
     "outside-window");
 });
