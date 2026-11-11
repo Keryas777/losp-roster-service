@@ -31,12 +31,12 @@ test("reward cutoff: 17:00 must never be sampled; 17:01 is first winter slot",()
   });
   assert.equal(rewardWindow(t("2026-11-02T16:31:00Z")),null);
 });
-test("17:01 Paris translates to 15:01 UTC in summer and survives DST",()=>{
-  assert.equal(rewardWindow(t("2026-07-02T15:00:00Z")),null);
-  assert.deepEqual(rewardWindow(t("2026-07-02T15:01:00Z")),{
-    day:"2026-07-02",tick:0,stamp:"2026-07-02T15:01Z"
+test("16:01 UTC stays fixed in summer and winter regardless of DST",()=>{
+  assert.equal(rewardWindow(t("2026-07-02T16:00:00Z")),null);
+  assert.deepEqual(rewardWindow(t("2026-07-02T16:01:00Z")),{
+    day:"2026-07-02",tick:0,stamp:"2026-07-02T16:01Z"
   });
-  assert.deepEqual(rewardWindow(t("2026-07-02T15:06:00Z")).tick,5);
+  assert.deepEqual(rewardWindow(t("2026-07-02T16:06:00Z")).tick,5);
 });
 test("independent round-robin samples approved alliances with no extra cron",async()=>{
   const f=fixture(),calls=[];
