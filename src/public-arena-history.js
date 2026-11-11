@@ -146,6 +146,59 @@ export async function buildArenaHistory(env,now=Date.now(),scope="losp"){
   }
   return mergeArenaHistory(previous,incoming,today);
 }
+async function permanentHistoryProjection(env,day,current){
+  const bucket=env?.CAPTAIN_BUCKET;
+  const sources=await Promise.all([
+    json(bucket,HISTORY_KEY,2400000),
+    json(bucket,GUEST_HISTORY_KEY,2400000)
+  ]);
+  const byDay=new Map();
+  for(const history of sources){
+    if(!history)continue;
+    if(history.version!==1||!Array.isArray(history.snapshots))
+      throw Error("invalid-existing-history");
+    for(const source of history.snapshots){
+      if(!validDay(source?.date)||source.date>day||
+         !Array.isArray(source.players)||source.players.length>500)continue;
+      let target=byDay.get(source.date);
+      if(!target){
+        target={version:1,date:source.date,sourceDay:
+          validDay(source.sourceDay)?source.sourceDay:source.date,
+          ...(typeof source.sourceCampaign==="string"?
+            {sourceCampaign:source.sourceCampaign}:{}),
+          attribution:safeText(source.attribution,100)||"legacy-r2-arena-history",
+          sourceKind:typeof source.sourceKind==="string"?source.sourceKind:"legacy-r2",
+          ...(source.capturedAt?{capturedAt:source.capturedAt}:{}),
+          provenance:Array.isArray(source.provenance)?source.provenance:[],
+          players:[]};
+        byDay.set(source.date,target);
+      }
+      const seen=new Set(target.players.map(p=>p.playerId+"\u0000"+p.alliance));
+      for(const row of source.players){
+        const name=safeText(row?.name),alliance=safeText(row?.alliance),
+          rank=row?.arenaRank;
+        if(!name||!alliance||!Number.isSafeInteger(rank)||rank<1)continue;
+        const allianceKey=/^[a-z][a-z0-9-]{1,63}$/.test(row.allianceKey||"")?
+          row.allianceKey:null;
+        const identity="legacy:"+String(allianceKey||alliance)+":"+normalized(name);
+        const digest=await crypto.subtle.digest("SHA-256",
+          new TextEncoder().encode(identity));
+        const playerId="p_"+[...new Uint8Array(digest)]
+          .map(x=>x.toString(16).padStart(2,"0")).join("");
+        const unique=playerId+"\u0000"+alliance;
+        if(seen.has(unique))continue;
+        seen.add(unique);
+        target.players.push({playerId,name,alliance,
+          ...(allianceKey?{allianceKey}:{}),arenaRank:rank,
+          ...(Number.isFinite(Date.parse(row.observedAt))?
+            {observedAt:row.observedAt}:{})});
+      }
+    }
+  }
+  byDay.set(day,current);
+  return [...byDay.values()].filter(x=>x.players.length)
+    .sort((a,b)=>a.date.localeCompare(b.date));
+}
 export async function publicArenaSnapshot(request,env,now=Date.now()){
   if(request.method!=="GET")return Response.json({status:"method-not-allowed"},
     {status:405,headers:HEADERS});
@@ -208,14 +261,16 @@ export async function publicArenaSnapshot(request,env,now=Date.now()){
       alliance:clean.rows[0]?.alliance||safeText(raw.allianceName),
       capturedAt:clean.capturedAt
     }));
-    return Response.json({status:"complete",snapshot:{
+    const snapshot={
       version:1,date:requested,sourceDay:requested,
       sourceCampaign:requested+"-reward",
       campaignId:requested+"-reward",
       attribution:"cloudflare-arena-reward-collection",
       sourceKind:"reward",alliancesExpected:fps.length,
       alliancesComplete:complete.length,provenance,players
-    }},{headers:HEADERS});
+    };
+    const history=await permanentHistoryProjection(env,requested,snapshot);
+    return Response.json({status:"complete",snapshot,history},{headers:HEADERS});
   }catch{
     return Response.json({status:"unavailable"},
       {status:503,headers:HEADERS});
