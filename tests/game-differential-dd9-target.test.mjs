@@ -46,7 +46,13 @@ function fixture({failSeenOnce=false,archivedOne=false}={}){
  putJson(DIFF+"state.json",state);
  const sourceObject=DIFF+"runs/old/objects/"+"a".repeat(64)+".json";
  const sourceDoc={data:{name:"DARK DIMENSION IX",
-   rays:Array.from({length:23},(_,i)=>"ROOM_"+String(i+1).padStart(2,"0"))},
+   rays:[
+     ["A1","A2","A3","A4","A5","A6","A7","A8","A9"],
+     ["","","","","","","","","B9"],
+     ["","","","C4","C5","C6","C7","","C9"],
+     ["","","","D4","","","","","D9"],
+     ["","","","E4","E5","E6","E7","E8","E9"]
+   ]},
    meta:{asOf:"2026-11-09"}};
  putJson(sourceObject,sourceDoc);
  return {env,bucket,store,state,sourceObject,sourceDoc,putJson};
@@ -56,7 +62,7 @@ async function setup(options){
  const sourceHash=await hash(SOURCE);
  f.putJson(DIFF+"latest/"+sourceHash+".json",{path:SOURCE,
    sha256:"a".repeat(64),objectKey:f.sourceObject});
- let firstPath=SOURCE+"/ROOM_01?nodeReqs=full&nodeCombat=full&nodeRewards=full";
+ let firstPath=SOURCE+"/A1?nodeReqs=full&nodeCombat=full&nodeRewards=full";
  if(options?.archivedOne){
    const h=await hash(firstPath),objectKey=DIFF+"runs/old/objects/"+"b".repeat(64)+".json";
    f.putJson(objectKey,{data:{nodeReqs:[],nodeCombat:{},nodeRewards:[]}});
@@ -97,7 +103,7 @@ test("skips a complete R2 response and queues only the remaining official rays",
  const state=JSON.parse(f.store.get(DIFF+"state.json"));
  const tasks=JSON.parse(f.store.get(DIFF+"runs/"+state.runId+"/tasks/0000004.json"));
  assert.equal(tasks.length,22);
- assert.ok(tasks.every(x=>!x.path.includes("/ROOM_01?")));
+ assert.ok(tasks.every(x=>!x.path.includes("/A1?")));
 });
 
 test("recovers an interrupted enqueue without writing a second task batch",async()=>{
