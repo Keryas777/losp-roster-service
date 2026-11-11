@@ -686,9 +686,6 @@ export async function enqueueDd9Rooms(env,now=Date.now()){
        base.phase2?.status!=="done")return {status:"source-archive-incomplete"};
     const s=await read(b,STATE);
     if(!s||s.sourceRun!==active.runId)return {status:"differential-missing"};
-    if(!["completed","partial"].includes(s.status)||
-       s.readIndex!==s.writeIndex)
-      return {status:"campaign-active",campaignStatus:s.status};
     const prior=await read(b,DD9_ENQUEUE);
     if(prior?.runId===s.runId&&prior.status==="queued")
       return {status:"already-queued",queued:prior.queued||0,
@@ -706,6 +703,9 @@ export async function enqueueDd9Rooms(env,now=Date.now()){
         archived:prior.archived||0,pending:prior.pending||0,
         queued:prior.queued,runId:s.runId};
     }
+    if(!["completed","partial"].includes(s.status)||
+       s.readIndex!==s.writeIndex)
+      return {status:"campaign-active",campaignStatus:s.status};
     const rootPointer=await read(b,latestKey(await hash(DD9_ROOT_PATH)));
     if(rootPointer?.path!==DD9_ROOT_PATH||
        typeof rootPointer.objectKey!=="string"||
