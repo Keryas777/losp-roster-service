@@ -663,6 +663,116 @@ export async function gameDifferentialStatus(env){
     env.GAME_DIFF_ENABLED==="true");}
   catch{return {status:"unavailable"};}
 }
+
+const DD9_ID="dd_id_insanity_event_card_info_09";
+const DD9_ROOT_PATH="/game/v1/dds/"+DD9_ID;
+const DD9_ENQUEUE=ROOT+"admin-targets/dd9.json";
+// Explicit, one-shot enqueue through the existing differential checkpoint.
+// This performs R2 reads/writes only; the minute Cron makes provider requests.
+export async function enqueueDd9Rooms(env,now=Date.now()){
+  if(env?.GAME_DIFF_ENABLED!=="true")return {status:"disabled"};
+  const b=env?.CAPTAIN_BUCKET;
+  if(!b?.get||!b?.put||!b?.head||!env?.ROSTER_BATCH_LOCK?.get)
+    return {status:"storage-unavailable"};
+  const holder=crypto.randomUUID();
+  let acquired=false;
+  try{
+    acquired=await lock(env,holder,"acquire");
+    if(!acquired)return {status:"busy"};
+    const active=await read(b,ACTIVE);
+    if(!UID.test(active?.runId||""))return {status:"source-archive-missing"};
+    const base=await read(b,GAME_ARCHIVE_ROOT+"runs/"+active.runId+"/progress.json");
+    if(!["completed","completed-with-gaps"].includes(base?.status)||
+       base.phase2?.status!=="done")return {status:"source-archive-incomplete"};
+    const s=await read(b,STATE);
+    if(!s||s.sourceRun!==active.runId)return {status:"differential-missing"};
+    if(!["completed","partial"].includes(s.status)||
+       s.readIndex!==s.writeIndex)
+      return {status:"campaign-active",campaignStatus:s.status};
+    const prior=await read(b,DD9_ENQUEUE);
+    if(prior?.runId===s.runId&&prior.status==="queued")
+      return {status:"already-queued",queued:prior.queued||0,
+        archived:prior.archived||0,runId:s.runId};
+    const rootPointer=await read(b,latestKey(await hash(DD9_ROOT_PATH)));
+    if(rootPointer?.path!==DD9_ROOT_PATH||
+       typeof rootPointer.objectKey!=="string"||
+       !rootPointer.objectKey.startsWith(ROOT+"runs/")||
+       !SHA.test(rootPointer.sha256||"")||
+       !rootPointer.objectKey.endsWith("/objects/"+rootPointer.sha256+".json"))
+      return {status:"official-dd9-source-not-indexed"};
+    const rootObject=await b.get(rootPointer.objectKey);
+    if(!rootObject)return {status:"official-dd9-source-object-missing"};
+    let payload;
+    try{payload=JSON.parse(await rootObject.text());}
+    catch{return {status:"official-dd9-source-invalid"};}
+    if(payload?.data?.name!=="DARK DIMENSION IX"||
+       !Array.isArray(payload.data.rays))
+      return {status:"official-dd9-source-invalid"};
+    const positions=new Set();
+    for(const ray of payload.data.rays){
+      const raw=typeof ray==="string"?ray:ray?.id;
+      if(typeof raw==="string"&&/^[A-Za-z0-9:_-]{1,200}$/.test(raw))
+        positions.add(raw);
+    }
+    if(positions.size!==23)return {status:"invalid-official-position-count",
+      discovered:positions.size,expected:23};
+    const discovered=discoverGamePhase2(DD9_ROOT_PATH,payload)
+      .filter(task=>task.path.startsWith(DD9_ROOT_PATH+"/")&&
+        task.path.includes("?nodeReqs=full&nodeCombat=full&nodeRewards=full"));
+    const byPath=new Map(discovered.map(task=>[task.path,task]));
+    if(byPath.size!==23)return {status:"invalid-discovery-count",
+      discovered:byPath.size,expected:23};
+    const candidates=[];
+    let archived=0,pending=0;
+    for(const task of byPath.values()){
+      const h=await hash(task.path);
+      const latest=await read(b,latestKey(h));
+      if(latest?.path===task.path&&SHA.test(latest.sha256||"")&&
+         typeof latest.objectKey==="string"&&
+         latest.objectKey.startsWith(ROOT+"runs/")&&
+         latest.objectKey.endsWith("/objects/"+latest.sha256+".json")&&
+         await b.head(latest.objectKey)){
+        const object=await b.get(latest.objectKey);
+        if(object){
+          try{
+            const document=JSON.parse(await object.text());
+            if(document&&typeof document==="object"&&
+               Object.hasOwn(document,"data")){archived++;continue;}
+          }catch{}
+        }
+      }
+      const pendingRecord=await read(b,pendingKey(h));
+      if(pendingRecord?.status==="pending"){pending++;continue;}
+      candidates.push(task);
+    }
+    // Persist an intent before queue writes. If the Worker is interrupted
+    // after the checkpoint write, the next explicit call recognizes the
+    // advanced writeIndex and does not append the same batch twice.
+    const intent={version:1,runId:s.runId,status:"prepared",
+      writeIndex:s.writeIndex,paths:candidates.map(x=>x.path),
+      discovered:positions.size,archived,pending,preparedAt:new Date(now).toISOString()};
+    await write(b,DD9_ENQUEUE,intent);
+    if(!candidates.length){
+      intent.status="queued";intent.queued=0;intent.completedAt=new Date(now).toISOString();
+      await write(b,DD9_ENQUEUE,intent);
+      return {status:"nothing-to-queue",discovered:23,archived,pending,queued:0,runId:s.runId};
+    }
+    await queue(b,s,candidates,now);
+    const queued=s.queued-(Number((await read(b,STATE))?.queued)||0);
+    if(queued>0){
+      s.status="checking";s.completedAt=null;s.lastOutcome="admin-dd9-targeted-queue";
+      await write(b,STATE,s);
+    }
+    intent.status="queued";intent.queued=Math.max(0,queued);
+    intent.completedAt=new Date(now).toISOString();
+    await write(b,DD9_ENQUEUE,intent);
+    return {status:queued?"queued":"already-seen",discovered:23,
+      archived,pending,queued:Math.max(0,queued),runId:s.runId};
+  }catch{
+    return {status:"unavailable"};
+  }finally{if(acquired)try{await lock(env,holder,"release");}catch{}}
+}
+
 export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()){
   if(env?.GAME_DIFF_ENABLED!=="true")return {status:"disabled"};
   if(!env?.CAPTAIN_BUCKET?.get||!env.CAPTAIN_BUCKET?.put||
