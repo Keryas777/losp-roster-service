@@ -13,7 +13,7 @@ import {runRosterRecoveryTick} from "./roster-auto-recovery.js";
 import {runGuestInitialSyncTick} from "./guest-initial-sync.js";
 import {runMemberInfoAutoTick} from "./member-info-scheduler.js";
 import {runRewardInfoAutoTick} from "./member-info-reward.js";
-import {publicArenaHistory,archiveArenaHistory,archiveArenaHistoryWhenReady} from "./public-arena-history.js";
+import {publicArenaHistory,publicArenaSnapshot,archiveArenaHistory,archiveArenaHistoryWhenReady} from "./public-arena-history.js";
 import {secureGuestArenaHistory} from "./secure-guest-arena-history.js";
 import {secureGuestInfos} from "./secure-guest-infos.js";
 import {secureGuestRosters} from "./secure-guest-rosters.js";
@@ -203,16 +203,48 @@ export default {
       // five minutes (including after a late deploy) until the fallback.
       // Never stack archive reads on a tick that just used Scopely GETs.
       const quietReward=reward.status==="complete"&&!(reward.requests>0);
+      const utcHour=slot.getUTCHours(),utcMinute=slot.getUTCMinutes();
       const afterWindow=reward.status==="outside-window"&&
-        (parts.hour===17&&parts.minute>=31||
-         parts.hour===18||parts.hour===19||
-         parts.hour===20&&parts.minute<17)&&parts.minute%5===0;
+        (utcHour===16&&utcMinute>=31||utcHour===17||utcHour===18||
+         utcHour===19&&utcMinute<17)&&utcMinute%5===0;
       if(quietReward||afterWindow){
         try{
           const ready=await archiveArenaHistoryWhenReady(env,scheduled);
           if(["updated","unavailable"].includes(ready.status)||
              ["updated","unavailable"].includes(ready.guestStatus))
             console.info("arena-history-ready",JSON.stringify(ready));
+          const scopesReady=["updated","unchanged"].includes(ready.status)&&
+            (!ready.guestStatus||["updated","unchanged"].includes(ready.guestStatus));
+          if(scopesReady){
+            const day=slot.toISOString().slice(0,10);
+            const key="automation/arena-github-dispatch/"+day+".json";
+            try{
+              const bucket=env?.CAPTAIN_BUCKET,token=env?.ROSTER_GITHUB_DISPATCH_TOKEN;
+              if(!bucket?.get||!bucket?.put||typeof token!=="string"||!token)
+                throw Error("dispatch-not-configured");
+              if(!await bucket.get(key)){
+                const response=await fetch(
+                  "https://api.github.com/repos/Keryas777/msf/actions/workflows/snapshot-arena.yml/dispatches",{
+                    method:"POST",
+                    headers:{"Accept":"application/vnd.github+json",
+                      "X-GitHub-Api-Version":"2022-11-28",
+                      "User-Agent":"LoSP-Roster-Service",
+                      "Authorization":"Bearer "+token,
+                      "Content-Type":"application/json"},
+                    body:JSON.stringify({ref:"main",inputs:{source_date:day}})
+                  });
+                if(response.status!==204)throw Error("github-http-"+response.status);
+                await bucket.put(key,JSON.stringify({version:1,date:day,
+                  campaign:day+"-reward",dispatchedAt:new Date().toISOString(),
+                  status:"dispatched"}),{httpMetadata:{contentType:"application/json",
+                    cacheControl:"private, no-store"}});
+                console.info("arena-github-dispatch",JSON.stringify({status:"dispatched",date:day}));
+              }
+            }catch(error){
+              console.warn("arena-github-dispatch",JSON.stringify({status:"retry-pending",
+                date:day,reason:String(error?.message||"unavailable")}));
+            }
+          }
         }catch{
           console.warn("arena-history-ready",JSON.stringify({
             status:"unavailable"}));
@@ -508,6 +540,8 @@ export default {
       return publicAwakenedMaterials(request,env);
     if(url.pathname==="/api/public/arena-history")
       return publicArenaHistory(request,env);
+    if(url.pathname==="/api/public/arena-snapshot")
+      return publicArenaSnapshot(request,env);
     if(url.pathname==="/api/secure/guest-arena-history")
       return secureGuestArenaHistory(request,env);
     if(url.pathname==="/api/secure/guest-infos")
