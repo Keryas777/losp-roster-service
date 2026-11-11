@@ -164,12 +164,15 @@ async function permanentHistoryProjection(env,day,current){
       if(!target){
         target={version:1,date:source.date,sourceDay:
           validDay(source.sourceDay)?source.sourceDay:source.date,
-          ...(typeof source.sourceCampaign==="string"?
-            {sourceCampaign:source.sourceCampaign}:{}),
+          ...(safeText(source.sourceCampaign,80)?
+            {sourceCampaign:safeText(source.sourceCampaign,80)}:{}),
           attribution:safeText(source.attribution,100)||"legacy-r2-arena-history",
-          sourceKind:typeof source.sourceKind==="string"?source.sourceKind:"legacy-r2",
-          ...(source.capturedAt?{capturedAt:source.capturedAt}:{}),
-          provenance:Array.isArray(source.provenance)?source.provenance:[],
+          sourceKind:safeText(source.sourceKind,40)||"legacy-r2",
+          ...(Number.isFinite(Date.parse(source.capturedAt))?
+            {capturedAt:source.capturedAt}:{}),
+          provenance:Array.isArray(source.provenance)?source.provenance
+            .filter(x=>safeText(x?.alliance,140)&&Number.isFinite(Date.parse(x?.capturedAt)))
+            .map(x=>({alliance:safeText(x.alliance,140),capturedAt:x.capturedAt})):[],
           players:[]};
         byDay.set(source.date,target);
       }
