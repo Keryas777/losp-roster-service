@@ -57,3 +57,21 @@ test("expansion requests target documented paths, never arbitrary query strings"
   assert.equal(list("/game/v1/characters/CaptainA?abilityKits=full",
     {id:"CaptainA"}).length,0);
 });
+
+test("Dark Dimension room discovery flattens official nested ray positions",()=>{
+  const rays=[
+    ["A1","A2","A3","A4","A5","A6","A7","A8","A9"],
+    ["","","","","","","","","B9"],
+    ["","","","C4","C5","C6","C7","","C9"],
+    ["","","","D4","","","","","D9"],
+    ["","","","E4","E5","E6","E7","E8","E9"]
+  ];
+  const rooms=list("/game/v1/dds/dd_id_insanity_event_card_info_09",
+    {rays}).filter(x=>x.startsWith("/game/v1/dds/dd_id_insanity_event_card_info_09/"));
+  assert.equal(rooms.length,23);
+  assert.equal(new Set(rooms).size,23);
+  assert.ok(rooms.includes("/game/v1/dds/dd_id_insanity_event_card_info_09/A1"+
+    "?nodeReqs=full&nodeCombat=full&nodeRewards=full"));
+  assert.ok(rooms.includes("/game/v1/dds/dd_id_insanity_event_card_info_09/E9"+
+    "?nodeReqs=full&nodeCombat=full&nodeRewards=full"));
+});

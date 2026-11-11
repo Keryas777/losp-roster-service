@@ -11,6 +11,16 @@ const detail=(path,root="phase2")=>({path,root,mode:"detail"});
 const listing=path=>({path,root:"phase2",mode:"list",page:1,perPage:100});
 export const phase2RootTasks=()=>EPISODIC_TYPES.map(type=>
   listing(BASE+"episodics/"+type));
+export function officialDarkDimensionRoomIds(rays){
+  const rooms=new Set(),stack=Array.isArray(rays)?[...rays].reverse():[];
+  while(stack.length){
+    const value=stack.pop();
+    if(Array.isArray(value)){for(let i=value.length-1;i>=0;i--)stack.push(value[i]);continue;}
+    const raw=typeof value==="string"?value:value?.id;
+    if(typeof raw==="string"&&ID.test(raw))rooms.add(raw);
+  }
+  return [...rooms];
+}
 // Only documented URL shapes. All dynamic segments must come from actual
 // provider data, not from guessing numerical ranges of unrelated resources.
 export function discoverGamePhase2(sourcePath,body){
@@ -51,14 +61,9 @@ export function discoverGamePhase2(sourcePath,body){
   // Request the documented NodeInfo expansions without guessing room positions.
   const darkDimension=path.match(/^\/game\/v1\/dds\/([A-Za-z0-9:_-]{1,200})$/);
   if(darkDimension&&Array.isArray(data?.rays)){
-    const rooms=new Set();
-    for(const ray of data.rays){
-      const raw=typeof ray==="string"?ray:ray?.id;
-      if(typeof raw!=="string"||!ID.test(raw)||rooms.has(raw))continue;
-      rooms.add(raw);
+    for(const raw of officialDarkDimensionRoomIds(data.rays))
       add(detail(BASE+"dds/"+darkDimension[1]+"/"+encodeURIComponent(raw)+
         "?nodeReqs=full&nodeCombat=full&nodeRewards=full"));
-    }
   }
   const stack=[data],seen=new WeakSet();
   while(stack.length){

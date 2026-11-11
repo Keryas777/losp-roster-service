@@ -1,13 +1,13 @@
 # Découverte automatique des salles de Dimensions noires
 
-La découverte des salles est intégrée à la découverte de phase 2 existante, partagée par l'archive initiale et le différentiel. Quand une réponse validée à `/game/v1/dds/{ddId}` contient `data.rays`, seuls les IDs de rayons non vides qui respectent le format strict des IDs Scopely sont suivis. Les doublons sont retirés avant l'ajout à la file existante. Aucune position de carte ni aucun type de salle n'est déduit.
+La découverte des salles est intégrée à la découverte de phase 2 existante, partagée par l'archive initiale et le différentiel. Quand une réponse validée à `/game/v1/dds/{ddId}` contient `data.rays`, la grille imbriquée est aplatie pour extraire les seuls IDs non vides qui respectent le format strict des IDs Scopely. Les doublons sont retirés avant l'ajout à la file existante. Aucune position de carte ni aucun type de salle n'est déduit.
 
 Chaque salle est demandée à l'endpoint officiel `/game/v1/dds/{ddId}/{roomId}` avec les expansions documentées `nodeReqs=full`, `nodeCombat=full` et `nodeRewards=full`. Toutes les réponses valides sont archivées intégralement, quel que soit le contenu renvoyé. Elles passent par la file, les plafonds, le verrou, les reçus, les checkpoints et le stockage R2 du collecteur différentiel courant.
 
-## DD9 sans relancer l'archive
+## Déclenchement ciblé DD9
 
-Après déploiement de cette modification, la prochaine vérification différentielle existante réexamine les routes déjà archivées, y compris la fiche DD9. Sa réponse `rays` met les salles en file automatiquement; les plafonds habituels répartissent les requêtes sur les passages Cron minute.
+La route privée `POST /admin/api/game-differential-dd9` lit les 23 rayons de la fiche officielle DD9 déjà archivée, ignore les réponses complètes déjà pointées dans R2 et ajoute le reste à la file/checkpoint différentiel courant. Elle refuse d'écrire pendant qu'une campagne différentielle est active. Elle réutilise le verrou, les reçus, le budget /game partagé (9 000 GET/jour) et le Cron minute déjà déployé; aucun nouveau Cron, bucket ou collecteur n'est ajouté.
 
-Il n'est pas nécessaire de relancer la campagne d'archive initiale. Le Cron actuel démarre les nouvelles campagnes différentielles le lundi à 01:00 et le jeudi à 13:00, heure de Paris. Comme la date de cette livraison est le mardi 10 novembre 2026, le prochain créneau est le jeudi 12 novembre 2026 à 13:00 Europe/Paris, si aucune campagne ne tourne déjà. Un créneau qui chevauche une campagne en cours est consommé par celle-ci.
+Après fusion et déploiement du Worker, appeler cette route depuis la session d'administration Cloudflare Access autorisée. L'appel ne fait pas de GET Scopely lui-même: le Cron minute reprend automatiquement le checkpoint et collecte au plus 12 tâches par tick. Suivre `GET /admin/api/game-differential` et vérifier ensuite les objets, reçus et pointeurs DD9 dans R2. La mise en file seule ne constitue pas une collecte achevée.
 
-L'achèvement peut dépasser la fenêtre du créneau : la collecte continue ensuite via le Cron minute jusqu'à épuisement du checkpoint ou des plafonds. L'API administrative en lecture seule ne déclenche pas de collecte. Pour suivre la progression, consulter le statut existant `GET /admin/api/game-differential` sous Cloudflare Access (`status`, `queued`, `checked`, `failed`, `nextRunAt`).
+Une réponse officielle DD9 reste dans le R2 privé du service roster. La WebApp `Keryas777/msf` n'est pas modifiée par cette collecte; son raccordement au classement théorique doit consommer ces réponses via un exporteur/publication explicite vers la source de données existante du dépôt `msf`. Aucun second stockage public n'est créé ici.
