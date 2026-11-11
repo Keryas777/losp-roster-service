@@ -1,5 +1,5 @@
 // Independent reward-time Info collection, WITHOUT changing existing AM/PM campaigns.
-// Starts at 17:01 Europe/Paris on the existing once-per-minute cron.
+// Starts at 16:01 UTC on the existing once-per-minute cron.
 // Stores a short-lived private R2 receipt for each approved alliance.
 import {readApproval} from "./roster-sync-preflight.js";
 import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
@@ -27,16 +27,10 @@ export function rewardWindow(timestamp){
   if(!Number.isFinite(timestamp))return null;
   const date=new Date(timestamp);
   if(Number.isNaN(date.getTime()))return null;
-  const parts=Object.fromEntries(new Intl.DateTimeFormat("en-GB",{
-    timeZone:"Europe/Paris",year:"numeric",month:"2-digit",day:"2-digit",
-    hour:"2-digit",minute:"2-digit",hourCycle:"h23"
-  }).formatToParts(date).filter(part=>
-    ["year","month","day","hour","minute"].includes(part.type)
-  ).map(part=>[part.type,part.value]));
-  const minute=Number(parts.hour)*60+Number(parts.minute);
-  const tick=minute-(17*60+1);
+  const minute=date.getUTCHours()*60+date.getUTCMinutes();
+  const tick=minute-(16*60+1);
   if(tick<0||tick>=REWARD_WINDOW_MINUTES)return null;
-  return {day:parts.year+"-"+parts.month+"-"+parts.day,
+  return {day:date.toISOString().slice(0,10),
     tick,stamp:date.toISOString().slice(0,16)+"Z"};
 }
 
@@ -220,23 +214,18 @@ export async function collectRewardAlliance(env,fp,slot,fetchImpl=fetch){
 }
 // A manual request is a private, single-day intent, NOT a second cron. It is
 // resumed by the existing every-minute tick, with the same alliance lease and
-// per-invocation request bounds as the 17:01 automatic reward campaign.
+// per-invocation request bounds as the 16:01 UTC automatic reward campaign.
 const MANUAL_TTL_MS=45*60000;
 const manualKey=day=>PREFIX+"reward-manual/"+day+".json";
 const privateHeaders={"Cache-Control":"private, no-store",
   "X-Content-Type-Options":"nosniff"};
 
-export function parisRewardDay(timestamp){
+export function utcRewardDay(timestamp){
   if(!Number.isFinite(timestamp))return null;
-  const parts=Object.fromEntries(new Intl.DateTimeFormat("en-GB",{
-    timeZone:"Europe/Paris",year:"numeric",month:"2-digit",day:"2-digit",
-    hour:"2-digit",minute:"2-digit",hourCycle:"h23"
-  }).formatToParts(new Date(timestamp)).filter(p=>
-    ["year","month","day","hour","minute"].includes(p.type)
-  ).map(p=>[p.type,p.value]));
-  const minutes=Number(parts.hour)*60+Number(parts.minute);
-  return {day:parts.year+"-"+parts.month+"-"+parts.day,
-    afterReward:minutes>=17*60+1};
+    const date=new Date(timestamp);
+  const minutes=date.getUTCHours()*60+date.getUTCMinutes();
+  return {day:date.toISOString().slice(0,10),
+    afterReward:minutes>=16*60+1};
 }
 
 async function approvedRewardFingerprints(env,includeGuests=false){
@@ -251,7 +240,7 @@ async function approvedRewardFingerprints(env,includeGuests=false){
 }
 
 async function manualTickSlot(env,scheduledTime){
-  const local=parisRewardDay(scheduledTime);
+  const local=utcRewardDay(scheduledTime);
   if(!local?.afterReward)return null;
   const intent=await read(env.CAPTAIN_BUCKET,manualKey(local.day),3000);
   const started=Date.parse(intent?.startedAt);
@@ -276,7 +265,7 @@ export async function rewardManualStatus(env,now=Date.now()){
   if(env?.ROSTER_RETENTION_CONFIRMED!=="true")
     return {status:"retention-not-confirmed"};
   if(!captainConfigReady(env))return {status:"storage-unavailable"};
-  const today=parisRewardDay(now);
+  const today=utcRewardDay(now);
   if(!today)return {status:"invalid-time"};
   const fps=await approvedRewardFingerprints(env,true);
   if(!fps)return {status:"no-approved-alliances",day:today.day};
@@ -314,7 +303,7 @@ export async function collectManualRewardIndex(env,index,now=Date.now(),
   if(env?.ROSTER_RETENTION_CONFIRMED!=="true")
     return {status:"retention-not-confirmed"};
   if(!captainConfigReady(env))return {status:"storage-unavailable"};
-  const local=parisRewardDay(now);
+  const local=utcRewardDay(now);
   if(!local?.afterReward)return {status:"before-reward-cutoff"};
   const intent=await read(env.CAPTAIN_BUCKET,manualKey(local.day),3000);
   const started=Date.parse(intent?.startedAt),until=Date.parse(intent?.expiresAt);
@@ -398,7 +387,7 @@ export async function runRewardInfoAutoTick(env,scheduledTime,fetchImpl=fetch,
     return {status:"retention-not-confirmed"};
   if(!captainConfigReady(env))return {status:"storage-unavailable"};
   try{
-    // The official 17:01–17:30 automatic window always keeps priority.
+    // The official 16:01–16:30 UTC automatic window always keeps priority.
     // Outside it, only a short-lived, explicitly authorized manual intent
     // can wake this same collector. No extra scheduler or daily campaign.
     const automatic=rewardWindow(scheduledTime);

@@ -1,8 +1,8 @@
 // Public, rank-only Arena projection from PRIVATE R2 Infos receipts.
 // No Scopely requests, no OAuth/member IDs, no private R2 key exposure.
 // Source receipts already exist under the 7-day roster-batches lifecycle.
-// Rolling history uses the SAME lifecycle prefix, is trimmed to 30 dates,
-// and is archived from completed receipts, with 20:17 / 22:17 fallback.
+// Temporary R2 views retain their existing lifecycle; the permanent public
+// archive is published to GitHub Pages from a separate rank-only projection.
 import {readApproval} from "./roster-sync-preflight.js";
 import {readCollectibleApprovals,readGuestApprovals} from "./guest-alliance-approvals.js";
 
@@ -12,6 +12,8 @@ const HISTORY_KEY=ROOT+"arena-history/rolling.json";
 const GUEST_HISTORY_KEY=ROOT+"guest-arena-history/rolling.json";
 const INITIAL_DAY="2026-10-31",FIRST_SOURCE_DAY="2026-11-01";
 const DAY_RE=/^\d{4}-\d{2}-\d{2}$/;
+const normalized=v=>String(v||"").trim().toLowerCase().normalize("NFD")
+  .replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,"");
 const FP=/^[a-f0-9]{64}$/;
 const HEADERS={"Content-Type":"application/json; charset=utf-8",
   "Access-Control-Allow-Origin":"*","Cache-Control":"no-store",
@@ -22,16 +24,11 @@ const dateOffset=(day,n)=>{
   const dt=new Date(day+"T00:00:00Z");dt.setUTCDate(dt.getUTCDate()+n);
   return dt.toISOString().slice(0,10);
 };
-function parisParts(ms){
+function utcParts(ms){
   if(!Number.isFinite(ms))throw Error("invalid-clock");
-  const parts=Object.fromEntries(new Intl.DateTimeFormat("en-GB",{
-    timeZone:"Europe/Paris",year:"numeric",month:"2-digit",day:"2-digit",
-    hour:"2-digit",minute:"2-digit",hourCycle:"h23"
-  }).formatToParts(new Date(ms)).filter(p=>
-    ["year","month","day","hour","minute"].includes(p.type)
-  ).map(p=>[p.type,p.value]));
-  return {day:parts.year+"-"+parts.month+"-"+parts.day,
-    hour:Number(parts.hour),minute:Number(parts.minute)};
+  const date=new Date(ms);
+  return {day:date.toISOString().slice(0,10),
+    hour:date.getUTCHours(),minute:date.getUTCMinutes()};
 }
 function earliest(day){return dateOffset(day,-29);}
 function safeText(value,max=140){
@@ -126,7 +123,7 @@ export function mergeArenaHistory(history,incoming,today){
 export async function buildArenaHistory(env,now=Date.now(),scope="losp"){
   const bucket=env?.CAPTAIN_BUCKET;
   if(!bucket?.get)throw Error("storage-unavailable");
-  const today=parisParts(now).day;
+  const today=utcParts(now).day;
   const fps=await fingerprints(env,scope);
   if(!fps||!fps.length)throw Error("no-approved-alliances");
   const guestKeys=scope==="guest"?
@@ -151,18 +148,156 @@ export async function buildArenaHistory(env,now=Date.now(),scope="losp"){
   }
   return mergeArenaHistory(previous,incoming,today);
 }
+async function permanentHistoryProjection(env,day,current=null){
+  const bucket=env?.CAPTAIN_BUCKET;
+  const sources=await Promise.all([
+    json(bucket,HISTORY_KEY,2400000),
+    json(bucket,GUEST_HISTORY_KEY,2400000)
+  ]);
+  const byDay=new Map();
+  for(const history of sources){
+    if(!history)continue;
+    if(history.version!==1||!Array.isArray(history.snapshots))
+      throw Error("invalid-existing-history");
+    for(const source of history.snapshots){
+      if(!validDay(source?.date)||source.date>day||
+         !Array.isArray(source.players)||source.players.length>500)continue;
+      let target=byDay.get(source.date);
+      if(!target){
+        target={version:1,date:source.date,sourceDay:
+          validDay(source.sourceDay)?source.sourceDay:source.date,
+          ...(safeText(source.sourceCampaign,80)?
+            {sourceCampaign:safeText(source.sourceCampaign,80)}:{}),
+          attribution:safeText(source.attribution,100)||"legacy-r2-arena-history",
+          sourceKind:safeText(source.sourceKind,40)||"legacy-r2",
+          ...(Number.isFinite(Date.parse(source.capturedAt))?
+            {capturedAt:source.capturedAt}:{}),
+          provenance:Array.isArray(source.provenance)?source.provenance
+            .filter(x=>safeText(x?.alliance,140)&&Number.isFinite(Date.parse(x?.capturedAt)))
+            .map(x=>({alliance:safeText(x.alliance,140),capturedAt:x.capturedAt})):[],
+          players:[]};
+        byDay.set(source.date,target);
+      }
+      const seen=new Set(target.players.map(p=>p.playerId+"\u0000"+p.alliance));
+      for(const row of source.players){
+        const name=safeText(row?.name),alliance=safeText(row?.alliance),
+          rank=row?.arenaRank;
+        if(!name||!alliance||!Number.isSafeInteger(rank)||rank<1)continue;
+        const allianceKey=/^[a-z][a-z0-9-]{1,63}$/.test(row.allianceKey||"")?
+          row.allianceKey:null;
+        const identity="legacy:"+String(allianceKey||alliance)+":"+normalized(name);
+        const digest=await crypto.subtle.digest("SHA-256",
+          new TextEncoder().encode(identity));
+        const playerId="p_"+[...new Uint8Array(digest)]
+          .map(x=>x.toString(16).padStart(2,"0")).join("");
+        const unique=playerId+"\u0000"+alliance;
+        if(seen.has(unique))continue;
+        seen.add(unique);
+        target.players.push({playerId,name,alliance,
+          ...(allianceKey?{allianceKey}:{}),arenaRank:rank,
+          ...(Number.isFinite(Date.parse(row.observedAt))?
+            {observedAt:row.observedAt}:{})});
+      }
+    }
+  }
+  if(current)byDay.set(day,current);
+  return [...byDay.values()].filter(x=>x.players.length)
+    .sort((a,b)=>a.date.localeCompare(b.date));
+}
+export async function publicArenaSnapshot(request,env,now=Date.now()){
+  if(request.method!=="GET")return Response.json({status:"method-not-allowed"},
+    {status:405,headers:HEADERS});
+  try{
+    const requested=new URL(request.url).searchParams.get("date");
+    const today=new Date(now).toISOString().slice(0,10);
+    if(!validDay(requested)||requested>today||
+       Date.parse(today+"T00:00:00Z")-Date.parse(requested+"T00:00:00Z")>7*86400000)
+      return Response.json({status:"invalid-date"},
+        {status:400,headers:HEADERS});
+    const approved=await readCollectibleApprovals(env);
+    if(approved.status!=="configured"||!approved.alliances.length||
+       approved.guestRegistryStatus==="invalid-registry"||
+       approved.guestRegistryStatus==="unavailable")
+      throw Error("approval-registry-unavailable");
+    const fps=approved.alliances.map(x=>x.fingerprint);
+    if(!fps.length||fps.length>30||fps.some(x=>!FP.test(x))||
+       new Set(fps).size!==fps.length)throw Error("invalid-alliance-scope");
+    const guests=await readGuestApprovals(env);
+    const guestKeys=new Map((guests.alliances||[])
+      .filter(x=>x.allianceKey).map(x=>[x.fingerprint,x.allianceKey]));
+    const cutoff=Date.parse(requested+"T16:01:00Z");
+    const receipts=await Promise.all(fps.map(async fp=>{
+      try{
+        const raw=await json(env.CAPTAIN_BUCKET,
+          ROOT+fp+"/campaigns/"+requested+"-reward-infos.json");
+        const clean=sanitizeReceipt(raw,fp,requested,"reward",now);
+        if(!clean||!Number.isFinite(Date.parse(clean.capturedAt))||
+           Date.parse(clean.capturedAt)<cutoff)return null;
+        return {fp,clean,raw};
+      }catch{return null;}
+    }));
+    const complete=receipts.filter(Boolean);
+    if(complete.length!==fps.length)
+      return Response.json({status:"incomplete",date:requested,
+        alliancesExpected:fps.length,alliancesComplete:complete.length},
+        {status:409,headers:HEADERS});
+    const players=[];
+    for(const {fp,clean,raw} of complete){
+      for(const row of clean.rows){
+        const original=raw.rows.find(x=>x?.name===row.name);
+        const sourceIdentity=typeof original?.aid==="string"||
+          Number.isSafeInteger(original?.aid)?
+          "aid:"+String(original.aid):
+          "alliance:"+String(guestKeys.get(fp)||row.alliance)+":"+
+            normalized(row.name);
+        const digest=await crypto.subtle.digest("SHA-256",
+          new TextEncoder().encode(sourceIdentity));
+        const playerId="p_"+[...new Uint8Array(digest)]
+          .map(x=>x.toString(16).padStart(2,"0")).join("");
+        players.push({playerId,name:row.name,alliance:row.alliance,
+          ...(guestKeys.has(fp)?{allianceKey:guestKeys.get(fp)}:{}),
+          arenaRank:row.arenaRank,
+          ...(row.observedAt?{observedAt:row.observedAt}:{})});
+      }
+    }
+    if(!players.length||players.length>500)
+      throw Error("invalid-player-count");
+    const provenance=complete.map(({clean,raw})=>({
+      alliance:clean.rows[0]?.alliance||safeText(raw.allianceName),
+      capturedAt:clean.capturedAt
+    }));
+    const snapshot={
+      version:1,date:requested,sourceDay:requested,
+      sourceCampaign:requested+"-reward",
+      campaignId:requested+"-reward",
+      attribution:"cloudflare-arena-reward-collection",
+      sourceKind:"reward",alliancesExpected:fps.length,
+      alliancesComplete:complete.length,provenance,players
+    };
+    const includeHistory=new URL(request.url).searchParams.get("include_history")==="1";
+    const history=includeHistory?
+      await permanentHistoryProjection(env,requested,snapshot):null;
+    return Response.json({status:"complete",snapshot,
+      ...(history?{history}:{})},{headers:HEADERS});
+  }catch{
+    return Response.json({status:"unavailable"},
+      {status:503,headers:HEADERS});
+  }
+}
 export async function publicArenaHistory(request,env,now=Date.now()){
   if(request.method!=="GET")return Response.json({status:"method-not-allowed"},
     {status:405,headers:HEADERS});
   try{
-    const data=await buildArenaHistory(env,now);
-    return Response.json(data,{headers:HEADERS});
+    const day=utcParts(now).day;
+    const snapshots=await permanentHistoryProjection(env,day);
+    return Response.json({version:1,kind:"common-arena-history",
+      status:"ok",snapshots},{headers:HEADERS});
   }catch{
     return Response.json({status:"unavailable",snapshots:[]},
       {status:503,headers:HEADERS});
   }
 }
-// The 17:01 reward collection has already persisted source receipts in R2.
+// The 16:01 UTC reward collection has already persisted source receipts in R2.
 // On the first quiet minute after completion, promote *each scope* as soon
 // as all of its own approved alliances have valid receipts for TODAY. Guests
 // never block LoSP and are NEVER added to its public history.
@@ -171,7 +306,7 @@ async function archiveScope(env,now,scope,whenReady=false){
     const bucket=env.CAPTAIN_BUCKET;
     const key=scope==="guest"?GUEST_HISTORY_KEY:HISTORY_KEY;
     if(whenReady){
-      const day=parisParts(now).day;
+      const day=utcParts(now).day;
       const saved=await json(bucket,key,2400000);
       if(saved&&(saved.version!==1||!Array.isArray(saved.snapshots)))
         throw Error("invalid-existing-history");
@@ -204,27 +339,25 @@ async function archiveBothScopes(env,now,whenReady){
     return {...losp,guestStatus:guest.status,guestSnapshots:guest.snapshots};
   }catch{return {...losp,guestStatus:"unavailable"};}
 }
-// Called only following a completed *zero-Scopely-request* collector tick.
-// Avoid stacking R2 operations onto the collector's existing request budget.
-// Support same-day, explicitly authorized manual recovery as late as 20:16.
+// Called after a quiet collector tick. All windows and campaign dates are UTC.
 export async function archiveArenaHistoryWhenReady(env,now=Date.now()){
-  const local=parisParts(now);
+  const local=utcParts(now);
   const minute=local.hour*60+local.minute;
-  if(minute<17*60+1||minute>=20*60+17)
+  if(minute<16*60+1)
     return {status:"outside-window"};
   return archiveBothScopes(env,now,true);
 }
-// The 20:17 and 22:17 scheduled consolidations stay in place as fallbacks.
+// Keep two UTC-only R2 recovery consolidations as a fallback.
 export async function archiveArenaHistory(env,now=Date.now()){
-  const local=parisParts(now);
-  if(!([20,22].includes(local.hour)&&local.minute===17))
+  const local=utcParts(now);
+  if(!([19,21].includes(local.hour)&&local.minute===17))
     return {status:"outside-window"};
   return archiveBothScopes(env,now,false);
 }
 
 
 // Capture a genuine "current at onboarding" Arena observation as soon as
-// AM/PM Infos receipts are collected. Never label it as the 17:01 reward.
+// AM/PM Infos receipts are collected. Never label them as a 16:01 UTC reward.
 // The later real reward snapshot replaces this initial point for that date.
 export async function archiveGuestInitialArena(env,fp,allianceKey,now=Date.now()){
   if(!FP.test(fp||"")||!/^[a-z][a-z0-9-]{1,63}$/.test(allianceKey||"")||
@@ -261,7 +394,7 @@ export async function archiveGuestInitialArena(env,fp,allianceKey,now=Date.now()
         ...(typeof profile?.frame==="string"?{frame:profile.frame}:{})};
     });
     if(!players.length)return {status:"awaiting-arena-ranks"};
-    const today=parisParts(now).day;
+    const today=utcParts(now).day;
     const previous=await json(bucket,GUEST_HISTORY_KEY,2400000);
     if(previous&&(previous.version!==1||!Array.isArray(previous.snapshots)))
       return {status:"invalid-history"};

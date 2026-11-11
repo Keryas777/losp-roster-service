@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {buildArenaHistory,mergeArenaHistory,archiveArenaHistory,
-  archiveArenaHistoryWhenReady,publicArenaHistory} from "../src/public-arena-history.js";
+  archiveArenaHistoryWhenReady,publicArenaHistory,publicArenaSnapshot} from "../src/public-arena-history.js";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 import {GUEST_APPROVAL_KEY} from "../src/guest-alliance-approvals.js";
 
@@ -20,7 +20,7 @@ function fixture(){
 function add(store,fp,kind,rank,stamp){
   const campaign="2026-11-01-"+kind;
   const body={version:1,kind:kind==="am"?"alliance-infos-campaign":"alliance-infos-reward",
-    campaign,allianceFingerprint:fp,allianceName:fp===fp1?"LoSP Zeus":"LoSP Kronos",
+    campaign,allianceFingerprint:fp,allianceName:fp===fp1?"LoSP Zeus":fp===fp2?"LoSP Kronos":"MARINES",
     capturedAt:stamp,expiresAt:"2026-11-08T19:00:00Z",
     rows:[{name:fp===fp1?"Keryas I":"Bob",latestArena:rank},
           {name:"Sans rang"}],
@@ -61,7 +61,7 @@ test("history is immutable per date and pruned to 30 dates",()=>{
   assert.deepEqual(result.snapshots.map(s=>s.date),["2026-10-31","2026-11-29"]);
   assert.equal(result.snapshots[0].players[0].arenaRank,5);
 });
-test("archives on existing cron at 20:17 Paris; endpoint is read-only",async()=>{
+test("archives on the 19:17 UTC fallback; endpoint is read-only",async()=>{
   const f=fixture();
   for(const fp of [fp1,fp2]){
     add(f.store,fp,"am",5,"2026-11-01T03:30:00Z");
@@ -81,7 +81,7 @@ test("archives on existing cron at 20:17 Paris; endpoint is read-only",async()=>
   assert.equal(f.puts.length,1);
 });
 
-test("guest Arena points are archived privately, never merged into the public LoSP endpoint",async()=>{
+test("approved guest Arena points join the sanitized common public history",async()=>{
  const f=fixture(),guest="3".repeat(64);
  f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,
    alliances:[{fingerprint:guest}]}));
@@ -98,8 +98,9 @@ test("guest Arena points are archived privately, never merged into the public Lo
    new Request("https://service.test/api/public/arena-history"),f.env,now);
  const publicData=await response.json();
  assert.equal(response.status,200);
- assert.ok(publicData.snapshots.every(s=>s.players.length===2),
-   "Only the two LoSP alliances must appear publicly");
+ assert.ok(publicData.snapshots.every(s=>s.players.length===3),
+   "The public history includes both LoSP alliances and the approved guest");
+ assert.doesNotMatch(JSON.stringify(publicData),/fingerprint|expiresAt|rosterShare/);
  const privateData=JSON.parse(f.store.get(
    "roster-batches/v1/guest-arena-history/rolling.json"));
  assert.ok(privateData.snapshots.every(s=>s.players.length===1));
@@ -118,7 +119,7 @@ function addRewardDay(store,fp,day,rank,time){
 const day5="2026-11-05";
 const t5=s=>Date.parse(day5+"T"+s+"Z");
 
-test("quiet 17:08 tick archives both scopes with real same-day receipts, no Scopely",async()=>{
+test("quiet 16:08 UTC tick archives both scopes with real same-day receipts, no Scopely",async()=>{
   const f=fixture(),guest="3".repeat(64);
   f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,
     alliances:[{fingerprint:guest,allianceKey:"marines"}]}));
@@ -138,7 +139,9 @@ test("quiet 17:08 tick archives both scopes with real same-day receipts, no Scop
   const publicRes=await publicArenaHistory(
     new Request("https://service.test/api/public/arena-history"),f.env,t5("16:08:00"));
   assert.equal(publicRes.status,200);
-  assert.doesNotMatch(await publicRes.text(),/MARINES|3{64}/);
+  const publicText=await publicRes.text();
+  assert.match(publicText,/MARINES/);
+  assert.doesNotMatch(publicText,/3{64}|fingerprint|expiresAt|rosterShare/);
   const second=await archiveArenaHistoryWhenReady(f.env,t5("16:09:00"));
   assert.equal(second.status,"unchanged");
   assert.equal(second.guestStatus,"unchanged");
@@ -176,18 +179,97 @@ test("incomplete LoSP source remains pending until valid and never invents a poi
     "updated");
   assert.equal(f.puts.length,1);
 });
-test("time gates never archive before 17:01 or after backup starts; 20:17 rescue remains",async()=>{
+test("UTC time gates begin at 16:01 and keep retrying through the end of the day",async()=>{
   const f=fixture();
   for(const fp of [fp1,fp2])
     addRewardDay(f.store,fp,day5,21,day5+"T16:01:00Z");
   assert.equal((await archiveArenaHistoryWhenReady(f.env,t5("16:00:00"))).status,
     "outside-window");
-  assert.equal((await archiveArenaHistoryWhenReady(f.env,t5("19:17:00"))).status,
-    "outside-window");
   assert.deepEqual(f.puts,[]);
-  const backup=await archiveArenaHistory(f.env,t5("19:17:00"));
-  assert.equal(backup.status,"updated");
+  const ready=await archiveArenaHistoryWhenReady(f.env,t5("16:01:00"));
+  assert.ok(["updated","unchanged"].includes(ready.status));
   assert.equal(f.puts.length,1);
+  assert.notEqual((await archiveArenaHistoryWhenReady(f.env,t5("23:59:00"))).status,
+    "outside-window");
+  assert.ok(["updated","unchanged"].includes((await archiveArenaHistory(f.env,t5("19:17:00"))).status));
   assert.equal((await archiveArenaHistory(f.env,t5("19:18:00"))).status,
     "outside-window");
+});
+
+test("public GitHub projection includes every approved alliance using only rank fields",async()=>{
+  const f=fixture(),guest="3".repeat(64);
+  f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,
+    alliances:[{fingerprint:guest,allianceKey:"marines"}]}));
+  for(const fp of [fp1,fp2,guest]){
+    add(f.store,fp,"reward",fp===guest?12:8,"2026-11-01T16:01:00Z");
+    const key="roster-batches/v1/"+fp+"/campaigns/2026-11-01-reward-infos.json";
+    const receipt=JSON.parse(f.store.get(key));
+    receipt.rows[0].aid="private-provider-id";
+    f.store.set(key,JSON.stringify(receipt));
+  }
+  const response=await publicArenaSnapshot(
+    new Request("https://service.test/api/public/arena-snapshot?date=2026-11-01"),
+    f.env,now);
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.status,"complete");
+  assert.equal(body.snapshot.alliancesExpected,3);
+  assert.equal(body.snapshot.alliancesComplete,3);
+  assert.equal(body.snapshot.players.length,3);
+  assert.equal(body.snapshot.players.find(p=>p.allianceKey==="marines").arenaRank,12);
+  assert.ok(body.snapshot.players.every(p=>/^p_[a-f0-9]{64}$/.test(p.playerId)));
+  assert.doesNotMatch(JSON.stringify(body),/private-provider-id|fingerprint|expiresAt|rosterShare/);
+});
+test("public GitHub projection stays explicitly incomplete when any approved alliance is missing",async()=>{
+  const f=fixture();
+  add(f.store,fp1,"reward",8,"2026-11-01T16:01:00Z");
+  const response=await publicArenaSnapshot(
+    new Request("https://service.test/api/public/arena-snapshot?date=2026-11-01"),
+    f.env,now);
+  assert.equal(response.status,409);
+  assert.deepEqual(await response.json(),{status:"incomplete",date:"2026-11-01",
+    alliancesExpected:2,alliancesComplete:1});
+});
+
+test("permanent export merges legacy LoSP and guest R2 history while preserving its provenance",async()=>{
+  const f=fixture(),guest="3".repeat(64);
+  f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,
+    alliances:[{fingerprint:guest,allianceKey:"marines"}]}));
+  for(const fp of [fp1,fp2,guest])
+    add(f.store,fp,"reward",6,"2026-11-01T16:05:00Z");
+  const point=(name,alliance,rank,extra={})=>({name,alliance,arenaRank:rank,...extra});
+  f.store.set("roster-batches/v1/arena-history/rolling.json",JSON.stringify({
+    version:1,snapshots:[{date:"2026-10-31",sourceDay:"2026-11-01",
+      attribution:"backdated-from-first-next-day-collection",
+      sourceKind:"onboarding",capturedAt:"2026-11-01T03:20:00Z",
+      players:[point("Old LoSP","LoSP Zeus",9,{icon:"private"})]}]
+  }));
+  f.store.set("roster-batches/v1/guest-arena-history/rolling.json",JSON.stringify({
+    version:1,snapshots:[{date:"2026-10-31",sourceDay:"2026-11-01",
+      attribution:"onboarding-current-observation",sourceKind:"onboarding",
+      capturedAt:"2026-11-01T03:25:00Z",
+      players:[point("Old Guest","MARINES",11,{allianceKey:"marines",frame:"private"})]}]
+  }));
+  const response=await publicArenaSnapshot(
+    new Request("https://service.test/api/public/arena-snapshot?date=2026-11-01&include_history=1"),
+    f.env,now);
+  const body=await response.json();
+  assert.equal(response.status,200);
+  assert.equal(body.history.length,2);
+  const old=body.history[0];
+  assert.equal(old.attribution,"backdated-from-first-next-day-collection");
+  assert.equal(old.sourceDay,"2026-11-01");
+  assert.equal(old.players.length,2);
+  assert.equal(old.players.find(p=>p.allianceKey==="marines").arenaRank,11);
+  assert.doesNotMatch(JSON.stringify(body),/private|fingerprint|rosterShare/);
+});
+test("live Arena freshness endpoint omits the older R2 history payload",async()=>{
+  const f=fixture();
+  for(const fp of [fp1,fp2])add(f.store,fp,"reward",6,"2026-11-01T16:05:00Z");
+  const response=await publicArenaSnapshot(
+    new Request("https://service.test/api/public/arena-snapshot?date=2026-11-01"),
+    f.env,now);
+  const body=await response.json();
+  assert.equal(response.status,200);
+  assert.equal(Object.hasOwn(body,"history"),false);
 });

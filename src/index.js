@@ -13,7 +13,8 @@ import {runRosterRecoveryTick} from "./roster-auto-recovery.js";
 import {runGuestInitialSyncTick} from "./guest-initial-sync.js";
 import {runMemberInfoAutoTick} from "./member-info-scheduler.js";
 import {runRewardInfoAutoTick} from "./member-info-reward.js";
-import {publicArenaHistory,archiveArenaHistory,archiveArenaHistoryWhenReady} from "./public-arena-history.js";
+import {publicArenaHistory,publicArenaSnapshot,archiveArenaHistory,archiveArenaHistoryWhenReady} from "./public-arena-history.js";
+import {dispatchArenaPublication} from "./arena-github-dispatch.js";
 import {secureGuestArenaHistory} from "./secure-guest-arena-history.js";
 import {secureGuestInfos} from "./secure-guest-infos.js";
 import {secureGuestRosters} from "./secure-guest-rosters.js";
@@ -198,21 +199,31 @@ export default {
         timeZone:"Europe/Paris",hour:"2-digit",minute:"2-digit",hourCycle:"h23"
       }).formatToParts(slot).filter(p=>p.type==="hour"||p.type==="minute")
         .map(p=>[p.type,Number(p.value)]));
-      // When the existing 17:01 collector is quiet, persist genuine R2
-      // receipts immediately. After its 17:30 window, retry R2-only every
+      // When the 16:01 UTC collector is quiet, persist genuine R2
+      // receipts immediately. After its 16:30 window, retry R2-only every
       // five minutes (including after a late deploy) until the fallback.
       // Never stack archive reads on a tick that just used Scopely GETs.
       const quietReward=reward.status==="complete"&&!(reward.requests>0);
-      const afterWindow=reward.status==="outside-window"&&
-        (parts.hour===17&&parts.minute>=31||
-         parts.hour===18||parts.hour===19||
-         parts.hour===20&&parts.minute<17)&&parts.minute%5===0;
+      const arenaUtcHour=slot.getUTCHours(),arenaUtcMinute=slot.getUTCMinutes();
+      const afterWindow=reward.status==="outside-window"&&arenaUtcHour>=16&&
+        (arenaUtcHour>16||arenaUtcMinute>=31)&&arenaUtcMinute%5===0;
       if(quietReward||afterWindow){
         try{
           const ready=await archiveArenaHistoryWhenReady(env,scheduled);
-          if(["updated","unavailable"].includes(ready.status)||
-             ["updated","unavailable"].includes(ready.guestStatus))
+          if(["updated","unavailable","awaiting-receipts"].includes(ready.status)||
+             ["updated","unavailable","awaiting-receipts"].includes(ready.guestStatus))
             console.info("arena-history-ready",JSON.stringify(ready));
+          const scopesReady=["updated","unchanged"].includes(ready.status)&&
+            (!ready.guestStatus||["updated","unchanged"].includes(ready.guestStatus));
+          if(scopesReady){
+            const day=slot.toISOString().slice(0,10);
+            const result=await dispatchArenaPublication(env,day);
+            if(["dispatched","retry-pending","unavailable"].includes(result.status))
+              console.info("arena-github-dispatch",JSON.stringify({
+                status:result.status,date:day,
+                ...(result.httpStatus?{httpStatus:result.httpStatus}:{})
+              }));
+          }
         }catch{
           console.warn("arena-history-ready",JSON.stringify({
             status:"unavailable"}));
@@ -294,7 +305,7 @@ export default {
         if(!["outside-window","unchanged","idle","disabled"].includes(archive.status))
           console.info("guest-evolution-history",JSON.stringify(archive));
       }
-      // R2-only scheduled backup at 20:17/22:17 Paris.
+      // Arena R2 fallback consolidations at 19:17/21:17 UTC.
       // Ready-to-publish snapshots are already handled after quiet ticks.
       const arenaHistory=await archiveArenaHistory(env,controller.scheduledTime);
       if(!["outside-window","unchanged"].includes(arenaHistory.status)||
@@ -333,10 +344,10 @@ export default {
       }
       // An approved R2 recovery queue can run while Safari is closed.
       // Skip slots already using Scopely for the independent Info collectors,
-      // and the 20:17 / 22:17 Paris arena snapshots. One alliance per tick.
+      // and the 19:17 / 21:17 UTC Arena snapshots. One alliance per tick.
       let recoveryRequests=0;
       if(!(info.requests>0)&&!(reward.requests>0)&&
-         !(parts.minute===17&&[20,22].includes(parts.hour))){
+         !(slot.getUTCMinutes()===17&&[19,21].includes(slot.getUTCHours()))){
         const recovery=await runRosterRecoveryTick(env,controller.scheduledTime);
         recoveryRequests=recovery.requestsThisTick||0;
         if(!["idle","disabled"].includes(recovery.status))
@@ -508,6 +519,8 @@ export default {
       return publicAwakenedMaterials(request,env);
     if(url.pathname==="/api/public/arena-history")
       return publicArenaHistory(request,env);
+    if(url.pathname==="/api/public/arena-snapshot")
+      return publicArenaSnapshot(request,env);
     if(url.pathname==="/api/secure/guest-arena-history")
       return secureGuestArenaHistory(request,env);
     if(url.pathname==="/api/secure/guest-infos")
