@@ -12,10 +12,10 @@ const listing=path=>({path,root:"phase2",mode:"list",page:1,perPage:100});
 export const phase2RootTasks=()=>EPISODIC_TYPES.map(type=>
   listing(BASE+"episodics/"+type));
 export function officialDarkDimensionRoomIds(rays){
-  const rooms=new Set(),stack=Array.isArray(rays)?[...rays]:[];
+  const rooms=new Set(),stack=Array.isArray(rays)?[...rays].reverse():[];
   while(stack.length){
     const value=stack.pop();
-    if(Array.isArray(value)){for(const child of value)stack.push(child);continue;}
+    if(Array.isArray(value)){for(let i=value.length-1;i>=0;i--)stack.push(value[i]);continue;}
     const raw=typeof value==="string"?value:value?.id;
     if(typeof raw==="string"&&ID.test(raw))rooms.add(raw);
   }
