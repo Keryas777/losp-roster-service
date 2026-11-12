@@ -83,3 +83,39 @@ if(dd9TargetedStart&&dd9TargetedStatus){
     }finally{dd9TargetedStart.disabled=false;}
   });
 }
+
+// Persistent R2-backed DD9 status, including after a page reload.
+if(dd9TargetedStart&&dd9TargetedStatus){
+  const refreshDd9=async()=>{
+    try{
+      const response=await fetch("/admin/api/game-differential-dd9",{
+        credentials:"same-origin",cache:"no-store"
+      });
+      if(!response.ok)throw Error("HTTP "+response.status);
+      const state=await response.json();
+      if(state.status==="not-started")return;
+      if(state.status==="finished"){
+        dd9TargetedStatus.textContent="Dernière collecte DD9 terminée : "+
+          (state.processed??0)+"/"+(state.total??0)+" traitées, "+
+          (state.archived??0)+" archivées, "+(state.failed??0)+
+          " sans archive. État conservé dans R2.";
+      }else if(state.status==="previous-campaign"){
+        dd9TargetedStatus.textContent="Dernière collecte DD9 : campagne antérieure. Vérifier les archives R2.";
+      }else{
+        dd9TargetedStatus.textContent="Collecte DD9 ("+state.status+") : "+
+          (state.processed??0)+"/"+(state.total??state.queued??0)+
+          " traitées, "+(state.archived??0)+" archivées.";
+      }
+    }catch(error){
+      dd9TargetedStatus.textContent="Statut DD9 indisponible : "+
+        (error instanceof Error?error.message:"erreur inconnue");
+    }
+  };
+  void refreshDd9();
+  const original=dd9TargetedStart.onclick;
+  dd9TargetedStart.addEventListener("click",()=>{
+    // Read back the persisted result after the enqueue request settles.
+    setTimeout(()=>void refreshDd9(),2000);
+  });
+  if(gameArchiveRefresh)gameArchiveRefresh.addEventListener("click",()=>void refreshDd9());
+}

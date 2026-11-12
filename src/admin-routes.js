@@ -30,7 +30,7 @@ import {handleRewardInfoManual} from "./member-info-reward.js";
 import {handleAdminArenaCoverage} from "./admin-arena-coverage.js";
 import {handlePlayerR2Explorer} from "./player-r2-explorer.js";
 import {handleCollectionOverview} from "./collection-overview.js";
-import {gameDifferentialStatus,enqueueDd9Rooms} from "./game-differential-sync.js";
+import {gameDifferentialStatus,enqueueDd9Rooms,dd9TargetedStatus} from "./game-differential-sync.js";
 import {handleGameDifferentialFailureDiagnostic} from "./game-differential-diagnostic.js";
 import {handleGameDifferentialFailureAudit} from "./game-differential-failure-audit.js";
 import {handleGameDifferentialComparisonAudit} from "./game-differential-comparison-audit.js";
@@ -352,6 +352,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   if(pathname==="/admin/api/game-differential-failures")
     return handleGameDifferentialFailureDiagnostic(request,env);
   if(pathname==="/admin/api/game-differential-dd9"){
+    if(request.method==="GET")return Response.json(await dd9TargetedStatus(env),{headers:{"Cache-Control":"private, no-store"}});
     if(request.method!=="POST")return Response.json({status:"method-not-allowed"},{status:405});
     return Response.json(await enqueueDd9Rooms(env),{headers:{"Cache-Control":"private, no-store"}});
   }
