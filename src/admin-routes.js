@@ -30,7 +30,7 @@ import {handleRewardInfoManual} from "./member-info-reward.js";
 import {handleAdminArenaCoverage} from "./admin-arena-coverage.js";
 import {handlePlayerR2Explorer} from "./player-r2-explorer.js";
 import {handleCollectionOverview} from "./collection-overview.js";
-import {gameDifferentialStatus,enqueueDd9Rooms,dd9TargetedStatus,probeDd9A1,dd9A1ProbeStatus,probeDd9Expansion,dd9ExpansionDiagnosticStatus} from "./game-differential-sync.js";
+import {gameDifferentialStatus,enqueueDd9Rooms,dd9TargetedStatus,probeDd9A1,dd9A1ProbeStatus,probeDd9Expansion,dd9ExpansionDiagnosticStatus,probeDd9Meta,dd9MetaProbeStatus} from "./game-differential-sync.js";
 import {handleGameDifferentialFailureDiagnostic} from "./game-differential-diagnostic.js";
 import {handleGameDifferentialFailureAudit} from "./game-differential-failure-audit.js";
 import {handleGameDifferentialComparisonAudit} from "./game-differential-comparison-audit.js";
@@ -178,7 +178,9 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<div><label for="game-dd9-expansion-mode">Diagnostic A1 — un paramètre à la fois</label> '+
 '<select id="game-dd9-expansion-mode"><option value="baseline">Sans paramètre (structure JSON)</option><option value="nodeReqs">nodeReqs=full</option><option value="nodeCombat">nodeCombat=full</option><option value="nodeRewards">nodeRewards=full</option></select> '+
 '<button id="game-dd9-expansion-run" type="button">Tester cette variante A1</button></div>'+ 
-'<p id="game-dd9-expansion-status" role="status" aria-live="polite">Aucun appel automatique.</p>'+ 
+'<p id="game-dd9-expansion-status" role="status" aria-live="polite">Aucun appel automatique.</p>'+
+'<div><button id="game-dd9-meta-run" type="button">Inspecter la structure meta de A1 (1 appel)</button></div>'+ 
+'<pre id="game-dd9-meta-status" style="white-space:pre-wrap;overflow-wrap:anywhere" aria-live="polite">Aucun diagnostic meta effectué.</pre>'+ 
 '<p id="game-dd9-targeted-status" role="status" aria-live="polite">La collecte ciblée ajoute les salles manquantes à la file existante ; le Cron effectue ensuite les appels officiels.</p>'+
 '<p id="game-archive-action-status" role="status"></p>'+ 
 '<h3>Audit des lacunes R2</h3><p>Lecture seule des écarts déjà consignés, sans nouveaux appels Scopely. Les lacunes peuvent évoluer pendant la collecte.</p>'+
@@ -324,7 +326,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
         "/admin/api/game-provenance-reconcile",
         "/admin/api/game-differential-failure-audit",
         "/admin/api/game-differential-comparison-audit",
-        "/admin/api/game-differential-dd9","/admin/api/game-dd9-a1-probe","/admin/api/game-dd9-expansion-probe",
+        "/admin/api/game-differential-dd9","/admin/api/game-dd9-a1-probe","/admin/api/game-dd9-expansion-probe","/admin/api/game-dd9-meta-probe",
         "/admin/api/alliance-season-ranks","/admin/api/guest-season-rank-backfill","/admin/api/player-extras",
          "/admin/api/player-campaign", "/admin/api/reward-infos-manual",
          "/admin/api/player-links"].includes(endpoint)))
@@ -357,6 +359,11 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     return handleGameDifferentialFailureAudit(request,env);
   if(pathname==="/admin/api/game-differential-failures")
     return handleGameDifferentialFailureDiagnostic(request,env);
+  if(pathname==="/admin/api/game-dd9-meta-probe"){
+    if(request.method==="GET")return Response.json(await dd9MetaProbeStatus(env),{headers:{"Cache-Control":"private, no-store"}});
+    if(request.method==="POST")return Response.json(await probeDd9Meta(env),{headers:{"Cache-Control":"private, no-store"}});
+    return Response.json({status:"method-not-allowed"},{status:405});
+  }
   if(pathname==="/admin/api/game-dd9-expansion-probe"){
     if(request.method==="GET")return Response.json(await dd9ExpansionDiagnosticStatus(env),{headers:{"Cache-Control":"private, no-store"}});
     if(request.method==="POST"){
