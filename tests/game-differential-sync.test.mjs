@@ -89,6 +89,33 @@ async function finish(f,start=NOW){
   }
   throw Error("diff did not finish: "+JSON.stringify(last));
 }
+test("legacy shared budget without date retains usage and permits differential progress",async()=>{
+  const f=fixture();await f.seed();
+  const day="2026-10-23",key=GAME_ARCHIVE_ROOT+"budget/"+day+".json";
+  f.store.set(key,JSON.stringify({used:7,diffUsed:0}));
+  const before=f.calls.length;
+  const tick=await runGameDifferentialTick(f.env,f.provider,NOW);
+  assert.notEqual(tick.status,"invalid-budget");
+  const budget=JSON.parse(f.store.get(key));
+  assert.equal(budget.date,day);
+  assert.ok(budget.used>=7,"preserves the existing shared GET count");
+  assert.ok(budget.diffUsed>=0);
+  assert.ok(f.calls.length>=before);
+});
+
+test("invalid dated or out-of-range shared budgets remain rejected",async()=>{
+  for(const budget of [{date:"2026-10-22",used:7,diffUsed:0},
+    {used:9001,diffUsed:0},{used:-1,diffUsed:0},
+    {used:7,diffUsed:-1}]){
+    const f=fixture();await f.seed();
+    const key=GAME_ARCHIVE_ROOT+"budget/2026-10-23.json";
+    f.store.set(key,JSON.stringify(budget));
+    const result=await runGameDifferentialTick(f.env,f.provider,NOW);
+    assert.ok(["invalid-budget","invalid-diff-budget"].includes(result.status));
+    assert.deepEqual(JSON.parse(f.store.get(key)),budget);
+  }
+});
+
 test("verified scheduled differential automatically publishes new awakened icons",async()=>{
   const icon="https://assets.marvelstrikeforce.com/imgs/NEW_HERO_SPECIAL_aa112233.png";
   const id="ABILITY_MATERIAL_UNIQUE_ABILITY_MAT_NEW_HERO_SPECIAL";
