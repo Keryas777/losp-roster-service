@@ -1093,7 +1093,7 @@ export async function probeDd9Expansion(env,mode,fetchImpl=fetch,now=Date.now())
 }
 
 // Safe metadata-only inspection of one official DD9 room response.
-const DD9_META_PROBE=ROOT+"admin-targets/dd9-a1-meta.json";
+const DD9_META_PROBE=ROOT+"admin-targets/dd9-a2-meta.json";
 export async function dd9MetaProbeStatus(env){
   try{return await read(env.CAPTAIN_BUCKET,DD9_META_PROBE)||{status:"not-tested"};}
   catch{return {status:"unavailable"};}
@@ -1112,14 +1112,14 @@ export async function probeDd9Meta(env,fetchImpl=fetch,now=Date.now()){
     const token=await appToken(env,fetchImpl,now);
     if(!token)return {status:"app-oauth-unavailable"};
     budget.used=(budget.used||0)+1;await write(b,budgetKey(now),budget);
-    const path=DD9_ROOT_PATH+"/A1";let result;
+    const path=DD9_ROOT_PATH+"/A2";let result;
     try{
       const response=await fetchImpl(API+path,{method:"GET",cache:"no-store",
         redirect:"manual",signal:AbortSignal.timeout(15000),headers:{
           "x-api-key":API_KEY,Authorization:"Bearer "+token,
           "User-Agent":"APIClient/1.0 (Server)",Accept:"application/json"
         }});
-      result={status:"tested",httpStatus:response.status,date:date(now),
+      result={status:"tested",roomId:"A2",httpStatus:response.status,date:date(now),
         checkedAt:new Date(now).toISOString()};
       if(response.ok&&(response.headers.get("content-type")||"").includes("json")){
         const json=await response.json();
