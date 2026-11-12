@@ -371,12 +371,20 @@ export default {
       }
     }
     if(controller?.cron===GAME_ARCHIVE_CRON){
-      const result=await runGameArchiveTick(env);
-      console.info("game-archive-cron",JSON.stringify({
-        status:result.status,processed:result.processed||0,
-        completedTasks:result.completedTasks||0,
-        requestsToday:result.requestsToday||0
-      }));
+      // A failure in the primary archive must not silently prevent the
+      // already queued differential tasks from running on this Cron tick.
+      try{
+        const result=await runGameArchiveTick(env);
+        console.info("game-archive-cron",JSON.stringify({
+          status:result.status,processed:result.processed||0,
+          completedTasks:result.completedTasks||0,
+          requestsToday:result.requestsToday||0
+        }));
+      }catch(error){
+        console.warn("game-archive-cron-error",JSON.stringify({
+          name:error?.name||"Error",message:String(error?.message||"unavailable").slice(0,160)
+        }));
+      }
       // The weekly /game differential reuses the primary collector lock and
       // budget, and starts only after the initial archive has completed.
       const differential=await runGameDifferentialTick(env);
