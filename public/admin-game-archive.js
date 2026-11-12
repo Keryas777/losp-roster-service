@@ -148,3 +148,40 @@ if(dd9ProbeButton&&dd9ProbeStatus){
     finally{dd9ProbeButton.disabled=false;}
   });
 }
+
+// One explicit API call per click; persisted diagnostic is read-only on load.
+const dd9ExpansionMode=document.getElementById("game-dd9-expansion-mode");
+const dd9ExpansionRun=document.getElementById("game-dd9-expansion-run");
+const dd9ExpansionStatus=document.getElementById("game-dd9-expansion-status");
+if(dd9ExpansionMode&&dd9ExpansionRun&&dd9ExpansionStatus){
+  let last={};
+  const render=()=>{
+    const v=last[dd9ExpansionMode.value];
+    dd9ExpansionStatus.textContent=!v?"Aucun test enregistré pour cette variante.":
+      "Résultat "+dd9ExpansionMode.value+" : "+(v.httpStatus?"HTTP "+v.httpStatus:"statut "+v.status)+
+      ", JSON racine "+(v.rootShape||"non lu")+", clés ["+(v.rootKeys||[]).join(", ")+
+      "], data "+(v.dataShape||"non lu")+", clés data ["+(v.dataKeys||[]).join(", ")+
+      "], taille data "+(v.dataLength??"n/a")+". Vérifié : "+v.checkedAt;
+  };
+  fetch("/admin/api/game-dd9-expansion-probe",{credentials:"same-origin",cache:"no-store"})
+    .then(r=>r.json()).then(v=>{last=v.tests||{};render();})
+    .catch(()=>{dd9ExpansionStatus.textContent="Diagnostic indisponible.";});
+  dd9ExpansionMode.addEventListener("change",render);
+  dd9ExpansionRun.addEventListener("click",async()=>{
+    const mode=dd9ExpansionMode.value;
+    if(!window.confirm("Effectuer UN appel Scopely A1 pour "+mode+" ?"))return;
+    dd9ExpansionRun.disabled=true;dd9ExpansionStatus.textContent="Test en cours…";
+    try{
+      const r=await fetch("/admin/api/game-dd9-expansion-probe",{
+        method:"POST",credentials:"same-origin",cache:"no-store",
+        headers:{"Content-Type":"application/json"},body:JSON.stringify({mode})
+      });
+      if(!r.ok)throw Error("HTTP "+r.status);
+      const v=await r.json();
+      if(v.status==="already-tested-today"&&v.result)last[mode]=v.result;
+      else last[mode]=v;
+      render();
+    }catch(e){dd9ExpansionStatus.textContent="Erreur : "+e.message;}
+    finally{dd9ExpansionRun.disabled=false;}
+  });
+}

@@ -1025,3 +1025,63 @@ export async function dd9A1ProbeStatus(env){
   try{return await read(env.CAPTAIN_BUCKET,DD9_A1_PROBE)||{status:"not-tested"};}
   catch{return {status:"unavailable"};}
 }
+
+// Strictly bounded, one request per explicit click and expansion per UTC day.
+const DD9_EXPANSIONS=Object.freeze({baseline:"",nodeReqs:"?nodeReqs=full",
+  nodeCombat:"?nodeCombat=full",nodeRewards:"?nodeRewards=full"});
+const dd9ExpansionKey=mode=>ROOT+"admin-targets/dd9-expansion-"+mode+".json";
+export async function dd9ExpansionDiagnosticStatus(env){
+  try{
+    const out={status:"ready",tests:{}};
+    for(const mode of Object.keys(DD9_EXPANSIONS))
+      out.tests[mode]=await read(env.CAPTAIN_BUCKET,dd9ExpansionKey(mode));
+    return out;
+  }catch{return {status:"unavailable"};}
+}
+export async function probeDd9Expansion(env,mode,fetchImpl=fetch,now=Date.now()){
+  if(!Object.hasOwn(DD9_EXPANSIONS,mode))return {status:"invalid-mode"};
+  const b=env?.CAPTAIN_BUCKET;
+  if(!b?.get||!b?.put||!env?.ROSTER_BATCH_LOCK?.get)return {status:"storage-unavailable"};
+  const holder=crypto.randomUUID();let acquired=false;
+  try{
+    acquired=await lock(env,holder,"acquire");
+    if(!acquired)return {status:"busy"};
+    const key=dd9ExpansionKey(mode),previous=await read(b,key);
+    if(previous?.date===date(now))return {status:"already-tested-today",result:previous};
+    const budget=await read(b,budgetKey(now))||{used:0,diffUsed:0};
+    if((budget.used||0)>=GAME_ARCHIVE_DAILY_LIMIT)return {status:"daily-budget-exhausted"};
+    const token=await appToken(env,fetchImpl,now);
+    if(!token)return {status:"app-oauth-unavailable"};
+    budget.used=(budget.used||0)+1;
+    await write(b,budgetKey(now),budget);
+    const path=DD9_ROOT_PATH+"/A1"+DD9_EXPANSIONS[mode];
+    let result;
+    try{
+      const response=await fetchImpl(API+path,{method:"GET",cache:"no-store",
+        redirect:"manual",signal:AbortSignal.timeout(15000),headers:{
+          "x-api-key":API_KEY,Authorization:"Bearer "+token,
+          "User-Agent":"APIClient/1.0 (Server)",Accept:"application/json"
+        }});
+      result={status:"tested",mode,httpStatus:response.status,ok:response.ok,
+        checkedAt:new Date(now).toISOString(),date:date(now)};
+      if(response.ok){
+        if((response.headers.get("content-type")||"").includes("json")){
+          try{
+            const payload=await response.json();
+            const shape=value=>value===null?"null":Array.isArray(value)?"array":typeof value;
+            result.rootShape=shape(payload);
+            result.rootKeys=payload&&typeof payload==="object"&&!Array.isArray(payload)?
+              Object.keys(payload).slice(0,20):[];
+            result.dataShape=shape(payload?.data);
+            result.dataKeys=payload?.data&&typeof payload.data==="object"&&!Array.isArray(payload.data)?
+              Object.keys(payload.data).slice(0,30):[];
+            result.dataLength=Array.isArray(payload?.data)?payload.data.length:null;
+          }catch{result.bodyStatus="invalid-json";}
+        }else{result.bodyStatus="non-json";await response.body?.cancel();}
+      }else{await response.body?.cancel();}
+    }catch{result={status:"network-error",mode,date:date(now),checkedAt:new Date(now).toISOString()};}
+    await write(b,key,result);
+    return result;
+  }catch{return {status:"unavailable"};}
+  finally{if(acquired)try{await lock(env,holder,"release");}catch{}}
+}
