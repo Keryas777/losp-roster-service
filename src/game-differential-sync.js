@@ -961,7 +961,16 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
     await write(b,STATE,s);
     return {status:s.status,checked:s.checked,changed:s.changed,
       unchanged:s.unchanged,failed:s.failed,calls};
-  }catch{return {status:"unavailable"};}
+  }catch(error){
+    console.warn("game-differential-tick-error",JSON.stringify({
+      name:error?.name||"Error",message:String(error?.message||"unavailable").slice(0,160)
+    }));
+    try{await write(env.CAPTAIN_BUCKET,ROOT+"admin-targets/dd9-last-tick.json",{
+      status:"exception",at:new Date(now).toISOString(),
+      reason:String(error?.name||"Error")
+    });}catch{}
+    return {status:"unavailable"};
+  }
   finally{if(acquired)try{await lock(env,holder,"release");}catch{}}
 }
 
@@ -992,6 +1001,11 @@ export async function dd9TargetedStatus(env){
       archived:archived+(intent.archived||0),processed,
       failed:finished?Math.max(0,total-archived):null,
       total,completedAt:finished?state.completedAt:null,
+      lastCheckedAt:state.lastCheckedAt||null,
+      lastOutcome:state.lastOutcome||null,
+      pauseUntil:state.pauseUntil||null,
+      readIndex:state.readIndex,writeIndex:state.writeIndex,
+      lastTick:await read(b,ROOT+"admin-targets/dd9-last-tick.json"),
       runId:intent.runId};
   }catch{return {status:"unavailable"};}
 }
