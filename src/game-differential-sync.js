@@ -618,6 +618,11 @@ async function checkOne(b,s,task,token,fetchImpl,now,committed=null){
   if(parsed.status==="archived-unindexed")
     return {error:"unindexed-large-json",objectKey:parsed.objectKey,retry:false};
   if(parsed.status!=="ok")return {error:parsed.status,retry:true};
+  // DD9 room responses with empty data must never become successful archives.
+  if(/^\\/game\\/v1\\/dds\\/dd_id_insanity_event_card_info_09\\/[A-E][1-9](?:\\?|$)/.test(task.path)&&
+     (!parsed.data?.data||typeof parsed.data.data!=="object"||
+      Object.keys(parsed.data.data).length===0))
+    return {error:"dd9-empty-room-data",retry:false};
   const raw=await hash(parsed.bytes);
   const sem=await semantic(parsed.data);
   const oldSem=await priorSemantic(b,ref);
@@ -1082,6 +1087,52 @@ export async function probeDd9Expansion(env,mode,fetchImpl=fetch,now=Date.now())
     }catch{result={status:"network-error",mode,date:date(now),checkedAt:new Date(now).toISOString()};}
     await write(b,key,result);
     return result;
+  }catch{return {status:"unavailable"};}
+  finally{if(acquired)try{await lock(env,holder,"release");}catch{}}
+}
+
+// Safe metadata-only inspection of one official DD9 room response.
+const DD9_META_PROBE=ROOT+"admin-targets/dd9-a1-meta.json";
+export async function dd9MetaProbeStatus(env){
+  try{return await read(env.CAPTAIN_BUCKET,DD9_META_PROBE)||{status:"not-tested"};}
+  catch{return {status:"unavailable"};}
+}
+export async function probeDd9Meta(env,fetchImpl=fetch,now=Date.now()){
+  const b=env?.CAPTAIN_BUCKET;
+  if(!b?.get||!b?.put||!env?.ROSTER_BATCH_LOCK?.get)return {status:"storage-unavailable"};
+  const holder=crypto.randomUUID();let acquired=false;
+  try{
+    acquired=await lock(env,holder,"acquire");
+    if(!acquired)return {status:"busy"};
+    const prior=await read(b,DD9_META_PROBE);
+    if(prior?.date===date(now))return {status:"already-tested-today",result:prior};
+    const budget=await read(b,budgetKey(now))||{used:0,diffUsed:0};
+    if((budget.used||0)>=GAME_ARCHIVE_DAILY_LIMIT)return {status:"daily-budget-exhausted"};
+    const token=await appToken(env,fetchImpl,now);
+    if(!token)return {status:"app-oauth-unavailable"};
+    budget.used=(budget.used||0)+1;await write(b,budgetKey(now),budget);
+    const path=DD9_ROOT_PATH+"/A1";let result;
+    try{
+      const response=await fetchImpl(API+path,{method:"GET",cache:"no-store",
+        redirect:"manual",signal:AbortSignal.timeout(15000),headers:{
+          "x-api-key":API_KEY,Authorization:"Bearer "+token,
+          "User-Agent":"APIClient/1.0 (Server)",Accept:"application/json"
+        }});
+      result={status:"tested",httpStatus:response.status,date:date(now),
+        checkedAt:new Date(now).toISOString()};
+      if(response.ok&&(response.headers.get("content-type")||"").includes("json")){
+        const json=await response.json();
+        const describe=value=>({type:value===null?"null":Array.isArray(value)?"array":typeof value,
+          keys:value&&typeof value==="object"&&!Array.isArray(value)?Object.keys(value).slice(0,30):[],
+          length:Array.isArray(value)?value.length:null});
+        result.data=describe(json?.data);
+        result.meta=describe(json?.meta);
+        // Only structural metadata, no actual values, IDs, player information or response bodies.
+        result.metaFields=json?.meta&&typeof json.meta==="object"&&!Array.isArray(json.meta)?
+          Object.fromEntries(Object.entries(json.meta).slice(0,15).map(([k,v])=>[k,describe(v)])):{};
+      }else await response.body?.cancel();
+    }catch{result={status:"network-error",date:date(now),checkedAt:new Date(now).toISOString()};}
+    await write(b,DD9_META_PROBE,result);return result;
   }catch{return {status:"unavailable"};}
   finally{if(acquired)try{await lock(env,holder,"release");}catch{}}
 }

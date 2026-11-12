@@ -185,3 +185,24 @@ if(dd9ExpansionMode&&dd9ExpansionRun&&dd9ExpansionStatus){
     finally{dd9ExpansionRun.disabled=false;}
   });
 }
+
+// Read-only display on load, explicit single-call metadata-only probe.
+const dd9MetaRun=document.getElementById("game-dd9-meta-run");
+const dd9MetaStatus=document.getElementById("game-dd9-meta-status");
+if(dd9MetaRun&&dd9MetaStatus){
+  const show=v=>{dd9MetaStatus.textContent=JSON.stringify(v,null,2);};
+  fetch("/admin/api/game-dd9-meta-probe",{credentials:"same-origin",cache:"no-store"})
+    .then(r=>r.json()).then(show).catch(()=>{dd9MetaStatus.textContent="Statut indisponible.";});
+  dd9MetaRun.addEventListener("click",async()=>{
+    if(!window.confirm("Un seul appel Scopely A1 pour inspecter les types et noms de champs meta ?"))return;
+    dd9MetaRun.disabled=true;dd9MetaStatus.textContent="Inspection en cours…";
+    try{
+      const r=await fetch("/admin/api/game-dd9-meta-probe",{
+        method:"POST",credentials:"same-origin",cache:"no-store"
+      });
+      if(!r.ok)throw Error("HTTP "+r.status);
+      show(await r.json());
+    }catch(e){dd9MetaStatus.textContent="Erreur : "+e.message;}
+    finally{dd9MetaRun.disabled=false;}
+  });
+}
