@@ -119,3 +119,32 @@ if(dd9TargetedStart&&dd9TargetedStatus){
   });
   if(gameArchiveRefresh)gameArchiveRefresh.addEventListener("click",()=>void refreshDd9());
 }
+
+// Deliberate one-call diagnostic; status is restored after reload.
+const dd9ProbeButton=document.getElementById("game-dd9-a1-probe");
+const dd9ProbeStatus=document.getElementById("game-dd9-a1-probe-status");
+if(dd9ProbeButton&&dd9ProbeStatus){
+  const renderProbe=data=>{
+    dd9ProbeStatus.textContent=data.status==="tested"?
+      "Test A1 : HTTP "+data.httpStatus+(data.ok?" (réponse valide)":" (rejet API)")+
+      ". Champs data : "+(data.dataKeys?.join(", ")||"aucun")+
+      ". Vérifié : "+data.checkedAt:
+      data.status==="not-tested"?"Aucun test A1 effectué.":
+      "Diagnostic A1 : "+data.status+(data.result?.httpStatus?" (HTTP "+data.result.httpStatus+")":"");
+  };
+  fetch("/admin/api/game-dd9-a1-probe",{credentials:"same-origin",cache:"no-store"})
+    .then(r=>{if(!r.ok)throw Error("HTTP "+r.status);return r.json();})
+    .then(renderProbe).catch(()=>{dd9ProbeStatus.textContent="Statut du diagnostic indisponible.";});
+  dd9ProbeButton.addEventListener("click",async()=>{
+    if(dd9ProbeButton.disabled||!window.confirm("Effectuer un seul appel Scopely pour A1, sans expansions ?"))return;
+    dd9ProbeButton.disabled=true;dd9ProbeStatus.textContent="Test A1 en cours…";
+    try{
+      const r=await fetch("/admin/api/game-dd9-a1-probe",{
+        method:"POST",credentials:"same-origin",cache:"no-store"
+      });
+      if(!r.ok)throw Error("HTTP "+r.status);
+      renderProbe(await r.json());
+    }catch(error){dd9ProbeStatus.textContent="Erreur : "+(error instanceof Error?error.message:"inconnue");}
+    finally{dd9ProbeButton.disabled=false;}
+  });
+}
