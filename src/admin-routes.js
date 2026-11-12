@@ -30,7 +30,7 @@ import {handleRewardInfoManual} from "./member-info-reward.js";
 import {handleAdminArenaCoverage} from "./admin-arena-coverage.js";
 import {handlePlayerR2Explorer} from "./player-r2-explorer.js";
 import {handleCollectionOverview} from "./collection-overview.js";
-import {gameDifferentialStatus,enqueueDd9Rooms,dd9TargetedStatus} from "./game-differential-sync.js";
+import {gameDifferentialStatus,enqueueDd9Rooms,dd9TargetedStatus,probeDd9A1,dd9A1ProbeStatus} from "./game-differential-sync.js";
 import {handleGameDifferentialFailureDiagnostic} from "./game-differential-diagnostic.js";
 import {handleGameDifferentialFailureAudit} from "./game-differential-failure-audit.js";
 import {handleGameDifferentialComparisonAudit} from "./game-differential-comparison-audit.js";
@@ -172,7 +172,9 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<button id="game-archive-refresh" type="button">Actualiser l’état de la collecte (R2)</button>'+
 '<button id="game-archive-start" type="button">Démarrer une collecte générale</button>'+
 '<button id="game-archive-tick" type="button">Exécuter le premier micro-lot maintenant</button>'+
-'<div><button id="game-dd9-targeted-start" type="button">Collecter les salles DD9</button></div>'+ 
+'<div><button id="game-dd9-targeted-start" type="button">Collecter les salles DD9</button></div>'+
+'<div><button id="game-dd9-a1-probe" type="button">Tester uniquement la salle A1 (sans paramètres)</button></div>'+ 
+'<p id="game-dd9-a1-probe-status" role="status" aria-live="polite">Diagnostic : aucun appel automatique.</p>'+ 
 '<p id="game-dd9-targeted-status" role="status" aria-live="polite">La collecte ciblée ajoute les salles manquantes à la file existante ; le Cron effectue ensuite les appels officiels.</p>'+
 '<p id="game-archive-action-status" role="status"></p>'+ 
 '<h3>Audit des lacunes R2</h3><p>Lecture seule des écarts déjà consignés, sans nouveaux appels Scopely. Les lacunes peuvent évoluer pendant la collecte.</p>'+
@@ -318,7 +320,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
         "/admin/api/game-provenance-reconcile",
         "/admin/api/game-differential-failure-audit",
         "/admin/api/game-differential-comparison-audit",
-        "/admin/api/game-differential-dd9",
+        "/admin/api/game-differential-dd9","/admin/api/game-dd9-a1-probe",
         "/admin/api/alliance-season-ranks","/admin/api/guest-season-rank-backfill","/admin/api/player-extras",
          "/admin/api/player-campaign", "/admin/api/reward-infos-manual",
          "/admin/api/player-links"].includes(endpoint)))
@@ -351,6 +353,11 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
     return handleGameDifferentialFailureAudit(request,env);
   if(pathname==="/admin/api/game-differential-failures")
     return handleGameDifferentialFailureDiagnostic(request,env);
+  if(pathname==="/admin/api/game-dd9-a1-probe"){
+    if(request.method==="GET")return Response.json(await dd9A1ProbeStatus(env),{headers:{"Cache-Control":"private, no-store"}});
+    if(request.method==="POST")return Response.json(await probeDd9A1(env),{headers:{"Cache-Control":"private, no-store"}});
+    return Response.json({status:"method-not-allowed"},{status:405});
+  }
   if(pathname==="/admin/api/game-differential-dd9"){
     if(request.method==="GET")return Response.json(await dd9TargetedStatus(env),{headers:{"Cache-Control":"private, no-store"}});
     if(request.method!=="POST")return Response.json({status:"method-not-allowed"},{status:405});
