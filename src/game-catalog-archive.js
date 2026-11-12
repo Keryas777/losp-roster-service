@@ -448,9 +448,13 @@ export async function runGameArchiveTick(env,fetchImpl=fetch,now=Date.now()){
     }
     const day=dateOf(now),budgetKey=dailyKey(day);
     const budget=await read(bucket,budgetKey)||{date:day,used:0};
-    if(budget.date!==day||!Number.isSafeInteger(budget.used)||
-       budget.used<0||budget.used>GAME_ARCHIVE_DAILY_LIMIT)
+    // Older shared budget records may omit date. The R2 key already scopes
+    // them to this UTC day; retain the real counters, never reset usage.
+    if((budget.date!==undefined&&budget.date!==day)||
+       !Number.isSafeInteger(budget.used)||budget.used<0||
+       budget.used>GAME_ARCHIVE_DAILY_LIMIT)
       return {status:"invalid-budget"};
+    if(budget.date===undefined){budget.date=day;await write(bucket,budgetKey,budget);}
     if(budget.used>=GAME_ARCHIVE_DAILY_LIMIT)return {status:"daily-limit"};
     let token;
     try{token=await appToken(env,fetchImpl,now);}

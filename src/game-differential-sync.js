@@ -884,11 +884,15 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
     }
     // Shared global /game cap and Durable Object lock, no separate 1500/day throttle.
     let budget=await read(b,budgetKey(now))||{date:date(now),used:0,diffUsed:0};
-    if(budget.date!==date(now)||!Number.isSafeInteger(budget.used)||
-       budget.used<0||budget.used>GAME_ARCHIVE_DAILY_LIMIT)
+    // Legacy budget entries can have valid used/diffUsed but no date.
+    // The budgetKey is day-scoped; preserve counters and normalize in place.
+    if((budget.date!==undefined&&budget.date!==date(now))||
+       !Number.isSafeInteger(budget.used)||budget.used<0||
+       budget.used>GAME_ARCHIVE_DAILY_LIMIT)
       return {status:"invalid-budget"};
     if(budget.diffUsed!==undefined&&(!Number.isSafeInteger(budget.diffUsed)||
        budget.diffUsed<0||budget.diffUsed>DAILY))return {status:"invalid-diff-budget"};
+    if(budget.date===undefined){budget.date=date(now);await write(b,budgetKey(now),budget);}
     noteBudgetPerf(s,now,budget.used,GAME_ARCHIVE_DAILY_LIMIT);
     let token=null,calls=0,processed=0;
     const checkedAtStart=s.checked;
