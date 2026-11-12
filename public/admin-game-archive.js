@@ -189,8 +189,26 @@ if(dd9ExpansionMode&&dd9ExpansionRun&&dd9ExpansionStatus){
 // Read-only display on load, explicit single-call metadata-only probe.
 const dd9MetaRun=document.getElementById("game-dd9-meta-run");
 const dd9MetaStatus=document.getElementById("game-dd9-meta-status");
+const dd9MetaCopy=document.getElementById("game-dd9-meta-copy");
 if(dd9MetaRun&&dd9MetaStatus){
-  const show=v=>{dd9MetaStatus.textContent=JSON.stringify(v,null,2);};
+  const show=v=>{
+    dd9MetaStatus.textContent=JSON.stringify(v,null,2);
+    if(dd9MetaCopy)dd9MetaCopy.disabled=false;
+  };
+  if(dd9MetaCopy)dd9MetaCopy.addEventListener("click",async()=>{
+    const value=dd9MetaStatus.textContent;
+    try{
+      if(!navigator.clipboard?.writeText)throw Error("clipboard-unavailable");
+      await navigator.clipboard.writeText(value);
+      dd9MetaCopy.textContent="Copié !";
+    }catch{
+      // iOS Safari / embedded browsers without Clipboard API: select the JSON for manual copy.
+      const selection=window.getSelection();
+      const range=document.createRange();range.selectNodeContents(dd9MetaStatus);
+      selection?.removeAllRanges();selection?.addRange(range);
+      dd9MetaCopy.textContent="Texte sélectionné : Copier";
+    }
+  });
   fetch("/admin/api/game-dd9-meta-probe",{credentials:"same-origin",cache:"no-store"})
     .then(r=>r.json()).then(show).catch(()=>{dd9MetaStatus.textContent="Statut indisponible.";});
   dd9MetaRun.addEventListener("click",async()=>{
