@@ -179,8 +179,9 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<select id="game-dd9-expansion-mode"><option value="baseline">Sans paramètre (structure JSON)</option><option value="nodeReqs">nodeReqs=full</option><option value="nodeCombat">nodeCombat=full</option><option value="nodeRewards">nodeRewards=full</option></select> '+
 '<button id="game-dd9-expansion-run" type="button">Tester cette variante A1</button></div>'+ 
 '<p id="game-dd9-expansion-status" role="status" aria-live="polite">Aucun appel automatique.</p>'+
-'<div><button id="game-dd9-meta-run" type="button">Inspecter la structure meta de A1 (1 appel)</button></div>'+ 
-'<pre id="game-dd9-meta-status" style="white-space:pre-wrap;overflow-wrap:anywhere" aria-live="polite">Aucun diagnostic meta effectué.</pre>'+ 
+'<div><button id="game-dd9-meta-run" type="button">Inspecter la structure meta de A2 (1 appel)</button></div>'+ 
+'<div><button id="game-dd9-meta-copy" type="button" disabled>Copier le résultat JSON</button></div>'+ 
+'<pre id="game-dd9-meta-status" style="white-space:pre-wrap;overflow-wrap:anywhere" aria-live="polite">Aucun diagnostic A2 effectué.</pre>'+ 
 '<p id="game-dd9-targeted-status" role="status" aria-live="polite">La collecte ciblée ajoute les salles manquantes à la file existante ; le Cron effectue ensuite les appels officiels.</p>'+
 '<p id="game-archive-action-status" role="status"></p>'+ 
 '<h3>Audit des lacunes R2</h3><p>Lecture seule des écarts déjà consignés, sans nouveaux appels Scopely. Les lacunes peuvent évoluer pendant la collecte.</p>'+
@@ -299,7 +300,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-arena-coverage.js" defer></script>'+
 '<script src="/admin-reward-info-manual.js" defer></script>'+ 
 '<script src="/admin-secondary-probes.js" defer></script>'+
-'<script src="/admin-game-archive.js?v=199" defer></script>'+
+'<script src="/admin-game-archive.js?v=203" defer></script>'+
 '<script src="/admin-game-archive-inspector.js" defer></script>'+
 '<script src="/admin-game-archive-item-search.js" defer></script>'+
 '<script src="/admin-game-archive-content-search.js" defer></script>'+
