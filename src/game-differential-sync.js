@@ -977,3 +977,51 @@ export async function dd9TargetedStatus(env){
       runId:intent.runId};
   }catch{return {status:"unavailable"};}
 }
+
+// Single, explicit admin diagnostic. No expansion, queue mutation, or response-body disclosure.
+const DD9_A1_PROBE=ROOT+"admin-targets/dd9-a1-probe.json";
+export async function probeDd9A1(env,fetchImpl=fetch,now=Date.now()){
+  const b=env?.CAPTAIN_BUCKET;
+  if(!b?.get||!b?.put||!env?.ROSTER_BATCH_LOCK?.get)return {status:"storage-unavailable"};
+  const holder=crypto.randomUUID();let acquired=false;
+  try{
+    acquired=await lock(env,holder,"acquire");
+    if(!acquired)return {status:"busy"};
+    const previous=await read(b,DD9_A1_PROBE);
+    if(previous?.date===date(now))return {status:"already-tested-today",result:previous};
+    const budget=await read(b,budgetKey(now))||{used:0,diffUsed:0};
+    if((budget.used||0)>=GAME_ARCHIVE_DAILY_LIMIT)return {status:"daily-budget-exhausted"};
+    const token=await appToken(env,fetchImpl,now);
+    if(!token)return {status:"app-oauth-unavailable"};
+    budget.used=(budget.used||0)+1;
+    await write(b,budgetKey(now),budget);
+    const path=DD9_ROOT_PATH+"/A1";
+    let result;
+    try{
+      const response=await fetchImpl(API+path,{method:"GET",cache:"no-store",
+        redirect:"manual",signal:AbortSignal.timeout(15000),headers:{
+          "x-api-key":API_KEY,Authorization:"Bearer "+token,
+          "User-Agent":"APIClient/1.0 (Server)",Accept:"application/json"
+        }});
+      result={status:"tested",httpStatus:response.status,ok:response.ok,
+        path,checkedAt:new Date(now).toISOString(),date:date(now)};
+      if(response.ok){
+        const contentType=response.headers.get("content-type")||"";
+        if(contentType.includes("json")){
+          try{
+            const payload=await response.json();
+            result.dataKeys=payload?.data&&typeof payload.data==="object"?
+              Object.keys(payload.data).slice(0,30):[];
+          }catch{result.bodyStatus="invalid-json";}
+        }
+      }else{await response.body?.cancel();}
+    }catch{result={status:"network-error",path,checkedAt:new Date(now).toISOString(),date:date(now)};}
+    await write(b,DD9_A1_PROBE,result);
+    return result;
+  }catch{return {status:"unavailable"};}
+  finally{if(acquired)try{await lock(env,holder,"release");}catch{}}
+}
+export async function dd9A1ProbeStatus(env){
+  try{return await read(env.CAPTAIN_BUCKET,DD9_A1_PROBE)||{status:"not-tested"};}
+  catch{return {status:"unavailable"};}
+}
