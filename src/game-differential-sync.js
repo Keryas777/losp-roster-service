@@ -619,7 +619,8 @@ async function checkOne(b,s,task,token,fetchImpl,now,committed=null){
     return {error:"unindexed-large-json",objectKey:parsed.objectKey,retry:false};
   if(parsed.status!=="ok")return {error:parsed.status,retry:true};
   // DD9 room responses with empty data must never become successful archives.
-  if(/^\\/game\\/v1\\/dds\\/dd_id_insanity_event_card_info_09\\/[A-E][1-9](?:\\?|$)/.test(task.path)&&
+  if(task.path.startsWith(DD9_ROOT_PATH+"/")&&
+     /^[A-E][1-9]$/.test(task.path.slice((DD9_ROOT_PATH+"/").length).split("?")[0])&&
      (!parsed.data?.data||typeof parsed.data.data!=="object"||
       Object.keys(parsed.data.data).length===0))
     return {error:"dd9-empty-room-data",retry:false};
