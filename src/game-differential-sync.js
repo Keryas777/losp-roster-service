@@ -619,10 +619,9 @@ async function checkOne(b,s,task,token,fetchImpl,now,committed=null){
     return {error:"unindexed-large-json",objectKey:parsed.objectKey,retry:false};
   if(parsed.status!=="ok")return {error:parsed.status,retry:true};
   // DD9 room responses with empty data must never become successful archives.
-  if(task.path.startsWith(DD9_ROOT_PATH+"/")&&
-     /^[A-E][1-9]$/.test(task.path.slice((DD9_ROOT_PATH+"/").length).split("?")[0])&&
-     (!parsed.data?.data||typeof parsed.data.data!=="object"||
-      Object.keys(parsed.data.data).length===0))
+  if(DD9_COMBAT_SET.has(task.path.slice((DD9_ROOT_PATH+"/").length).split("?")[0])&&
+     task.path.startsWith(DD9_ROOT_PATH+"/")&&
+     !validDd9CombatDocument(parsed.data))
     return {error:"dd9-empty-room-data",retry:false};
   const raw=await hash(parsed.bytes);
   const sem=await semantic(parsed.data);
@@ -673,6 +672,18 @@ export async function gameDifferentialStatus(env){
 const DD9_ID="dd_id_insanity_event_card_info_09";
 const DD9_ROOT_PATH="/game/v1/dds/"+DD9_ID;
 const DD9_ENQUEUE=ROOT+"admin-targets/dd9.json";
+// Playable combat positions confirmed against the official DD9 map.
+// A1 is the starting point; the other seven non-combat positions are excluded.
+const DD9_COMBAT_ROOMS=Object.freeze([
+  "A2","A3","A5","A6","A7","B9","C9","D9",
+  "C7","C6","C5","C4","D4","E7","E6","E5"
+]);
+const DD9_COMBAT_SET=new Set(DD9_COMBAT_ROOMS);
+const dd9CombatPath=room=>DD9_ROOT_PATH+"/"+room;
+const validDd9CombatDocument=doc=>Boolean(doc?.data&&
+  typeof doc.data==="object"&&!Array.isArray(doc.data)&&
+  typeof doc.data.combatId==="string"&&doc.data.combatId.length>0);
+
 // Explicit, one-shot enqueue through the existing differential checkpoint.
 // This performs R2 reads/writes only; the minute Cron makes provider requests.
 export async function enqueueDd9Rooms(env,now=Date.now()){
@@ -693,10 +704,10 @@ export async function enqueueDd9Rooms(env,now=Date.now()){
     const s=await read(b,STATE);
     if(!s||s.sourceRun!==active.runId)return {status:"differential-missing"};
     const prior=await read(b,DD9_ENQUEUE);
-    if(prior?.runId===s.runId&&prior.status==="queued")
+    if(prior?.version===2&&prior.runId===s.runId&&prior.status==="queued")
       return {status:"already-queued",queued:prior.queued||0,
         archived:prior.archived||0,runId:s.runId};
-    if(prior?.runId===s.runId&&prior.status==="prepared"&&
+    if(prior?.version===2&&prior.runId===s.runId&&prior.status==="prepared"&&
        Number.isSafeInteger(prior.writeIndex)&&s.writeIndex>prior.writeIndex){
       s.status="checking";s.completedAt=null;
       s.lastOutcome="admin-dd9-targeted-queue";
@@ -705,7 +716,7 @@ export async function enqueueDd9Rooms(env,now=Date.now()){
         s.queued-(prior.queuedBefore||0));
       prior.completedAt=new Date(now).toISOString();
       await write(b,DD9_ENQUEUE,prior);
-      return {status:"queued",discovered:prior.discovered||23,
+      return {status:"queued",discovered:prior.discovered||16,
         archived:prior.archived||0,pending:prior.pending||0,
         queued:prior.queued,runId:s.runId};
     }
@@ -730,12 +741,14 @@ export async function enqueueDd9Rooms(env,now=Date.now()){
     const positions=new Set(officialDarkDimensionRoomIds(payload.data.rays));
     if(positions.size!==23)return {status:"invalid-official-position-count",
       discovered:positions.size,expected:23};
-    const discovered=discoverGamePhase2(DD9_ROOT_PATH,payload)
-      .filter(task=>task.path.startsWith(DD9_ROOT_PATH+"/")&&
-        task.path.includes("?nodeReqs=full&nodeCombat=full&nodeRewards=full"));
-    const byPath=new Map(discovered.map(task=>[task.path,task]));
-    if(byPath.size!==23)return {status:"invalid-discovery-count",
-      discovered:byPath.size,expected:23};
+    if(!DD9_COMBAT_ROOMS.every(room=>positions.has(room)))
+      return {status:"official-combat-position-missing"};
+    // The previous combined full query returned 422; A2 baseline returns
+    // the actual node record. Queue only verified playable coordinates.
+    const byPath=new Map(DD9_COMBAT_ROOMS.map(room=>{
+      const path=dd9CombatPath(room);
+      return [path,{path}];
+    }));
     const candidates=[];
     let archived=0,pending=0;
     for(const task of byPath.values()){
@@ -750,8 +763,7 @@ export async function enqueueDd9Rooms(env,now=Date.now()){
         if(object){
           try{
             const document=JSON.parse(await object.text());
-            if(document&&typeof document==="object"&&
-               Object.hasOwn(document,"data")){archived++;continue;}
+            if(validDd9CombatDocument(document)){archived++;continue;}
           }catch{}
         }
       }
@@ -762,14 +774,14 @@ export async function enqueueDd9Rooms(env,now=Date.now()){
     // Persist an intent before queue writes. If the Worker is interrupted
     // after the checkpoint write, the next explicit call recognizes the
     // advanced writeIndex and does not append the same batch twice.
-    const intent={version:1,runId:s.runId,status:"prepared",
+    const intent={version:2,runId:s.runId,status:"prepared",
       writeIndex:s.writeIndex,queuedBefore:s.queued,paths:candidates.map(x=>x.path),
-      discovered:positions.size,archived,pending,preparedAt:new Date(now).toISOString()};
+      discovered:DD9_COMBAT_ROOMS.length,archived,pending,preparedAt:new Date(now).toISOString()};
     await write(b,DD9_ENQUEUE,intent);
     if(!candidates.length){
       intent.status="queued";intent.queued=0;intent.completedAt=new Date(now).toISOString();
       await write(b,DD9_ENQUEUE,intent);
-      return {status:"nothing-to-queue",discovered:23,archived,pending,queued:0,runId:s.runId};
+      return {status:"nothing-to-queue",discovered:DD9_COMBAT_ROOMS.length,archived,pending,queued:0,runId:s.runId};
     }
     const queuedBefore=s.queued;
     await queue(b,s,candidates,now);
@@ -781,7 +793,7 @@ export async function enqueueDd9Rooms(env,now=Date.now()){
     intent.status="queued";intent.queued=Math.max(0,queued);
     intent.completedAt=new Date(now).toISOString();
     await write(b,DD9_ENQUEUE,intent);
-    return {status:queued?"queued":"already-seen",discovered:23,
+    return {status:queued?"queued":"already-seen",discovered:DD9_COMBAT_ROOMS.length,
       archived,pending,queued:Math.max(0,queued),runId:s.runId};
   }catch{
     return {status:"unavailable"};
@@ -959,7 +971,7 @@ export async function dd9TargetedStatus(env){
   if(!b?.get)return {status:"storage-unavailable"};
   try{
     const intent=await read(b,DD9_ENQUEUE);
-    if(!intent)return {status:"not-started"};
+    if(!intent||intent.version!==2)return {status:"not-started"};
     const state=await read(b,STATE);
     if(!state||state.runId!==intent.runId)
       return {status:"previous-campaign",queued:intent.queued||0};
