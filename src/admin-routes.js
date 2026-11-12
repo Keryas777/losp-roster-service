@@ -299,7 +299,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-arena-coverage.js" defer></script>'+
 '<script src="/admin-reward-info-manual.js" defer></script>'+ 
 '<script src="/admin-secondary-probes.js" defer></script>'+
-'<script src="/admin-game-archive.js" defer></script>'+
+'<script src="/admin-game-archive.js?v=199" defer></script>'+
 '<script src="/admin-game-archive-inspector.js" defer></script>'+
 '<script src="/admin-game-archive-item-search.js" defer></script>'+
 '<script src="/admin-game-archive-content-search.js" defer></script>'+
