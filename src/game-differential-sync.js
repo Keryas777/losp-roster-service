@@ -946,3 +946,34 @@ export async function runGameDifferentialTick(env,fetchImpl=fetch,now=Date.now()
   }catch{return {status:"unavailable"};}
   finally{if(acquired)try{await lock(env,holder,"release");}catch{}}
 }
+
+// Read-only persistent status for the admin DD9 enqueue control.
+export async function dd9TargetedStatus(env){
+  const b=env?.CAPTAIN_BUCKET;
+  if(!b?.get)return {status:"storage-unavailable"};
+  try{
+    const intent=await read(b,DD9_ENQUEUE);
+    if(!intent)return {status:"not-started"};
+    const state=await read(b,STATE);
+    if(!state||state.runId!==intent.runId)
+      return {status:"previous-campaign",queued:intent.queued||0};
+    const paths=Array.isArray(intent.paths)?intent.paths:[];
+    let archived=0;
+    for(const path of paths){
+      const latest=await read(b,latestKey(await hash(path)));
+      if(latest?.path===path&&typeof latest.objectKey==="string"&&
+         await b.head(latest.objectKey))archived++;
+    }
+    const total=paths.length;
+    const processed=Math.min(total,Math.max(0,
+      (state.checked||0)-(intent.queuedBefore||0)));
+    const finished=state.readIndex>=state.writeIndex&&
+      ["partial","completed"].includes(state.status);
+    return {status:finished?"finished":state.status,
+      queued:intent.queued||0,discovered:intent.discovered||0,
+      archived:archived+(intent.archived||0),processed,
+      failed:finished?Math.max(0,total-archived):null,
+      total,completedAt:finished?state.completedAt:null,
+      runId:intent.runId};
+  }catch{return {status:"unavailable"};}
+}
