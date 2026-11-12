@@ -182,6 +182,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<div><button id="game-dd9-meta-run" type="button">Inspecter la structure meta de A2 (1 appel)</button></div>'+ 
 '<div><button id="game-dd9-meta-copy" type="button" disabled>Copier le résultat JSON</button></div>'+ 
 '<pre id="game-dd9-meta-status" style="white-space:pre-wrap;overflow-wrap:anywhere" aria-live="polite">Aucun diagnostic A2 effectué.</pre>'+ 
+'<button id="game-dd9-targeted-refresh" type="button">Actualiser la progression DD9</button>'+ 
 '<p id="game-dd9-targeted-status" role="status" aria-live="polite">La collecte ciblée ajoute les salles manquantes à la file existante ; le Cron effectue ensuite les appels officiels.</p>'+
 '<p id="game-archive-action-status" role="status"></p>'+ 
 '<h3>Audit des lacunes R2</h3><p>Lecture seule des écarts déjà consignés, sans nouveaux appels Scopely. Les lacunes peuvent évoluer pendant la collecte.</p>'+
@@ -300,7 +301,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-arena-coverage.js" defer></script>'+
 '<script src="/admin-reward-info-manual.js" defer></script>'+ 
 '<script src="/admin-secondary-probes.js" defer></script>'+
-'<script src="/admin-game-archive.js?v=203" defer></script>'+
+'<script src="/admin-game-archive.js?v=205" defer></script>'+
 '<script src="/admin-game-archive-inspector.js" defer></script>'+
 '<script src="/admin-game-archive-item-search.js" defer></script>'+
 '<script src="/admin-game-archive-content-search.js" defer></script>'+
