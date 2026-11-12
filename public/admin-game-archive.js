@@ -104,7 +104,10 @@ if(dd9TargetedStart&&dd9TargetedStatus){
       }else{
         dd9TargetedStatus.textContent="Collecte DD9 ("+state.status+") : "+
           (state.processed??0)+"/"+(state.total??state.queued??0)+
-          " traitées, "+(state.archived??0)+" archivées.";
+          " traitées, "+(state.archived??0)+" archivées."+
+          (state.lastCheckedAt?" Dernier traitement : "+new Date(state.lastCheckedAt).toLocaleString("fr-FR")+".":" Aucun nouveau traitement confirmé.")+
+          (state.lastOutcome?" Dernier état : "+state.lastOutcome+".":"")+
+          (state.lastTick?.status==="exception"?" Erreur du collecteur : "+state.lastTick.reason+" ("+state.lastTick.at+").":"");
       }
     }catch(error){
       dd9TargetedStatus.textContent="Statut DD9 indisponible : "+
@@ -112,6 +115,8 @@ if(dd9TargetedStart&&dd9TargetedStatus){
     }
   };
   void refreshDd9();
+  const refreshButton=document.getElementById("game-dd9-targeted-refresh");
+  if(refreshButton)refreshButton.addEventListener("click",()=>void refreshDd9());
   const original=dd9TargetedStart.onclick;
   dd9TargetedStart.addEventListener("click",()=>{
     // Read back the persisted result after the enqueue request settles.
