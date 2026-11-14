@@ -145,7 +145,9 @@ export async function buildArenaHistory(env,now=Date.now(),scope="losp"){
   for(const day of [dateOffset(today,-1),today]){
     if(day<FIRST_SOURCE_DAY||day>today)continue;
     if((previous?.snapshots||[]).some(s=>s.date===day&&s.sourceKind!=="onboarding"))continue;
-    const allowPartial=day<today||utcParts(now).hour>16||\n      (utcParts(now).hour===16&&utcParts(now).minute>=31);\n    const point=await snapshot(bucket,fps,day,"reward",now,guestKeys,allowPartial);
+    const allowPartial=day<today||utcParts(now).hour>16||
+      (utcParts(now).hour===16&&utcParts(now).minute>=31);
+    const point=await snapshot(bucket,fps,day,"reward",now,guestKeys,allowPartial);
     if(point)incoming.push(point);
   }
   return mergeArenaHistory(previous,incoming,today);
@@ -317,7 +319,9 @@ async function archiveScope(env,now,scope,whenReady=false){
       const fps=await fingerprints(env,scope);
       if(!fps?.length)return {status:"unavailable"};
       // Read the R2 receipts only; do not call the Scopely API again.
-      const clock=utcParts(now);\n      const allowPartial=clock.hour>16||(clock.hour===16&&clock.minute>=31);\n      if(!await snapshot(bucket,fps,day,"reward",now,null,allowPartial))
+      const clock=utcParts(now);
+      const allowPartial=clock.hour>16||(clock.hour===16&&clock.minute>=31);
+      if(!await snapshot(bucket,fps,day,"reward",now,null,allowPartial))
         return {status:"awaiting-receipts"};
     }
     const history=await buildArenaHistory(env,now,scope);
