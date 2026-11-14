@@ -213,8 +213,9 @@ export default {
           if(["updated","unavailable","awaiting-receipts"].includes(ready.status)||
              ["updated","unavailable","awaiting-receipts"].includes(ready.guestStatus))
             console.info("arena-history-ready",JSON.stringify(ready));
-          const scopesReady=["updated","unchanged"].includes(ready.status)&&
-            (!ready.guestStatus||["updated","unchanged"].includes(ready.guestStatus));
+          // A guest without a session cannot veto a verified LoSP campaign.
+          // The public export still independently verifies every included receipt.
+          const scopesReady=["updated","unchanged"].includes(ready.status);
           if(scopesReady){
             const day=slot.toISOString().slice(0,10);
             const result=await dispatchArenaPublication(env,day);
