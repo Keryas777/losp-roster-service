@@ -220,15 +220,18 @@ test("public GitHub projection includes every approved alliance using only rank 
   assert.ok(body.snapshot.players.every(p=>/^p_[a-f0-9]{64}$/.test(p.playerId)));
   assert.doesNotMatch(JSON.stringify(body),/private-provider-id|fingerprint|expiresAt|rosterShare/);
 });
-test("public GitHub projection stays explicitly incomplete when any approved alliance is missing",async()=>{
+test("public GitHub projection publishes verified partial rows when an approved alliance is missing",async()=>{
   const f=fixture();
   add(f.store,fp1,"reward",8,"2026-11-01T16:01:00Z");
   const response=await publicArenaSnapshot(
     new Request("https://service.test/api/public/arena-snapshot?date=2026-11-01"),
     f.env,now);
-  assert.equal(response.status,409);
-  assert.deepEqual(await response.json(),{status:"incomplete",date:"2026-11-01",
-    alliancesExpected:2,alliancesComplete:1});
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.status,"partial");
+  assert.equal(body.snapshot.alliancesExpected,2);
+  assert.equal(body.snapshot.alliancesComplete,1);
+  assert.equal(body.snapshot.players.length,1);
 });
 
 test("permanent export merges legacy LoSP and guest R2 history while preserving its provenance",async()=>{
@@ -272,4 +275,21 @@ test("live Arena freshness endpoint omits the older R2 history payload",async()=
   const body=await response.json();
   assert.equal(response.status,200);
   assert.equal(Object.hasOwn(body,"history"),false);
+});
+
+test("partial guest reward archive starts after grace period, without inventing Red",async()=>{
+  const f=fixture(),marine="3".repeat(64),red="4".repeat(64);
+  f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
+    {fingerprint:marine,allianceKey:"marines"},
+    {fingerprint:red,allianceKey:"endgame-revolution-red"}]}));
+  for(const fp of [fp1,fp2,marine])
+    addRewardDay(f.store,fp,day5,8,day5+"T16:05:00Z");
+  const early=await archiveArenaHistoryWhenReady(f.env,t5("16:08:00"));
+  assert.equal(early.guestStatus,"awaiting-receipts");
+  const late=await archiveArenaHistoryWhenReady(f.env,t5("16:35:00"));
+  assert.equal(late.guestStatus,"updated");
+  const guest=JSON.parse(f.store.get("roster-batches/v1/guest-arena-history/rolling.json"));
+  assert.deepEqual(guest.snapshots[0].players.map(x=>x.allianceKey),["marines"]);
+  assert.equal(guest.snapshots[0].alliancesExpected,2);
+  assert.equal(guest.snapshots[0].alliancesComplete,1);
 });

@@ -77,7 +77,7 @@ function sanitizeReceipt(receipt,fp,day,kind,now){
   }
   return {rows,capturedAt:receipt.capturedAt||null};
 }
-async function snapshot(bucket,fps,sourceDay,kind,now,guestKeys=null){
+async function snapshot(bucket,fps,sourceDay,kind,now,guestKeys=null,allowPartial=false){
   if(!validDay(sourceDay))return null;
   const receipts=await Promise.all(fps.map(async fp=>{
     try{
@@ -86,20 +86,22 @@ async function snapshot(bucket,fps,sourceDay,kind,now,guestKeys=null){
       return sanitizeReceipt(raw,fp,sourceDay,kind,now);
     }catch{return null;}
   }));
-  // Never label a date as complete if even one alliance has no valid receipt.
-  if(receipts.some(x=>!x))return null;
+  // A disconnected or newly approved alliance must not block valid peers.
+  // Keep the expected/observed counts explicit: this is a partial observation.
+  if(!receipts.some(Boolean)||(!allowPartial&&receipts.some(x=>!x)))return null;
   // Private guest archive ONLY: tag each real receipt with the approved
   // stable alliance key. This prevents lookalike/duplicate names from
   // allowing a different guest's rank to cross tenant boundaries.
-  const players=receipts.flatMap((x,i)=>x.rows.map(row=>
+  const players=receipts.flatMap((x,i)=>!x?[]:x.rows.map(row=>
     guestKeys?.get(fps[i])?{...row,allianceKey:guestKeys.get(fps[i])}:row));
   if(!players.length||players.length>500)return null;
   const day=kind==="am"?INITIAL_DAY:sourceDay;
   return {date:day,sourceDay,
     attribution:kind==="am"?"backdated-from-first-next-day-collection":
       "after-daily-arena-rewards",
-    sourceKind:kind,alliancesComplete:fps.length,
-    capturedAt:receipts.map(x=>x.capturedAt).filter(Boolean).sort().at(-1)||null,
+    sourceKind:kind,alliancesExpected:fps.length,
+    alliancesComplete:receipts.filter(Boolean).length,
+    capturedAt:receipts.map(x=>x?.capturedAt).filter(Boolean).sort().at(-1)||null,
     players};
 }
 export function mergeArenaHistory(history,incoming,today){
@@ -143,7 +145,7 @@ export async function buildArenaHistory(env,now=Date.now(),scope="losp"){
   for(const day of [dateOffset(today,-1),today]){
     if(day<FIRST_SOURCE_DAY||day>today)continue;
     if((previous?.snapshots||[]).some(s=>s.date===day&&s.sourceKind!=="onboarding"))continue;
-    const point=await snapshot(bucket,fps,day,"reward",now,guestKeys);
+    const allowPartial=day<today||utcParts(now).hour>16||\n      (utcParts(now).hour===16&&utcParts(now).minute>=31);\n    const point=await snapshot(bucket,fps,day,"reward",now,guestKeys,allowPartial);
     if(point)incoming.push(point);
   }
   return mergeArenaHistory(previous,incoming,today);
@@ -237,9 +239,9 @@ export async function publicArenaSnapshot(request,env,now=Date.now()){
       }catch{return null;}
     }));
     const complete=receipts.filter(Boolean);
-    if(complete.length!==fps.length)
+    if(!complete.length)
       return Response.json({status:"incomplete",date:requested,
-        alliancesExpected:fps.length,alliancesComplete:complete.length},
+        alliancesExpected:fps.length,alliancesComplete:0},
         {status:409,headers:HEADERS});
     const players=[];
     for(const {fp,clean,raw} of complete){
@@ -277,7 +279,7 @@ export async function publicArenaSnapshot(request,env,now=Date.now()){
     const includeHistory=new URL(request.url).searchParams.get("include_history")==="1";
     const history=includeHistory?
       await permanentHistoryProjection(env,requested,snapshot):null;
-    return Response.json({status:"complete",snapshot,
+    return Response.json({status:complete.length===fps.length?"complete":"partial",snapshot,
       ...(history?{history}:{})},{headers:HEADERS});
   }catch{
     return Response.json({status:"unavailable"},
@@ -315,7 +317,7 @@ async function archiveScope(env,now,scope,whenReady=false){
       const fps=await fingerprints(env,scope);
       if(!fps?.length)return {status:"unavailable"};
       // Read the R2 receipts only; do not call the Scopely API again.
-      if(!await snapshot(bucket,fps,day,"reward",now))
+      const clock=utcParts(now);\n      const allowPartial=clock.hour>16||(clock.hour===16&&clock.minute>=31);\n      if(!await snapshot(bucket,fps,day,"reward",now,null,allowPartial))
         return {status:"awaiting-receipts"};
     }
     const history=await buildArenaHistory(env,now,scope);
