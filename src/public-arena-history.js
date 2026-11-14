@@ -77,7 +77,7 @@ function sanitizeReceipt(receipt,fp,day,kind,now){
   }
   return {rows,capturedAt:receipt.capturedAt||null};
 }
-async function snapshot(bucket,fps,sourceDay,kind,now,guestKeys=null){
+async function snapshot(bucket,fps,sourceDay,kind,now,guestKeys=null,allowPartial=false){
   if(!validDay(sourceDay))return null;
   const receipts=await Promise.all(fps.map(async fp=>{
     try{
@@ -88,7 +88,7 @@ async function snapshot(bucket,fps,sourceDay,kind,now,guestKeys=null){
   }));
   // A disconnected or newly approved alliance must not block valid peers.
   // Keep the expected/observed counts explicit: this is a partial observation.
-  if(!receipts.some(Boolean))return null;
+  if(!receipts.some(Boolean)||(!allowPartial&&receipts.some(x=>!x)))return null;
   // Private guest archive ONLY: tag each real receipt with the approved
   // stable alliance key. This prevents lookalike/duplicate names from
   // allowing a different guest's rank to cross tenant boundaries.
@@ -145,7 +145,7 @@ export async function buildArenaHistory(env,now=Date.now(),scope="losp"){
   for(const day of [dateOffset(today,-1),today]){
     if(day<FIRST_SOURCE_DAY||day>today)continue;
     if((previous?.snapshots||[]).some(s=>s.date===day&&s.sourceKind!=="onboarding"))continue;
-    const point=await snapshot(bucket,fps,day,"reward",now,guestKeys);
+    const allowPartial=day<today||utcParts(now).hour>16||\n      (utcParts(now).hour===16&&utcParts(now).minute>=31);\n    const point=await snapshot(bucket,fps,day,"reward",now,guestKeys,allowPartial);
     if(point)incoming.push(point);
   }
   return mergeArenaHistory(previous,incoming,today);
@@ -317,7 +317,7 @@ async function archiveScope(env,now,scope,whenReady=false){
       const fps=await fingerprints(env,scope);
       if(!fps?.length)return {status:"unavailable"};
       // Read the R2 receipts only; do not call the Scopely API again.
-      if(!await snapshot(bucket,fps,day,"reward",now))
+      const clock=utcParts(now);\n      const allowPartial=clock.hour>16||(clock.hour===16&&clock.minute>=31);\n      if(!await snapshot(bucket,fps,day,"reward",now,null,allowPartial))
         return {status:"awaiting-receipts"};
     }
     const history=await buildArenaHistory(env,now,scope);
