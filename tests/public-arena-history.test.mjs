@@ -46,12 +46,14 @@ test("31 Oct backdate keeps real 1 Nov AM source; 1 Nov reward is distinct",asyn
   assert.ok(result.snapshots[0].players.every(p=>!p.observedAt));
   assert.doesNotMatch(JSON.stringify(result),/1{64}|2{64}|aid|token/);
 });
-test("never synthesize a complete day from incomplete alliance receipts",async()=>{
+test("partial reward day preserves only verified receipts, never fabricates missing ranks",async()=>{
   const f=fixture();
   for(const fp of [fp1,fp2])add(f.store,fp,"am",10,"2026-11-01T03:30:00Z");
   add(f.store,fp1,"reward",5,"2026-11-01T18:30:00Z");
   const result=await buildArenaHistory(f.env,now);
-  assert.deepEqual(result.snapshots.map(s=>s.date),["2026-10-31"]);
+  assert.deepEqual(result.snapshots.map(s=>s.date),["2026-10-31","2026-11-01"]);
+  assert.equal(result.snapshots[1].players.length,1);
+  assert.equal(result.snapshots[1].players[0].arenaRank,5);
 });
 test("history is immutable per date and pruned to 30 dates",()=>{
   const item=(date,rank)=>({date,players:[{name:"A",arenaRank:rank}]});
