@@ -54,7 +54,8 @@ function scored(s){
         c.methods.slice(0,30).map(method).filter(Boolean):[];
       if(cap===undefined||!m.length)return null;
       return {cap,methods:m,...(Number.isSafeInteger(c.rewardTier)&&
-        c.rewardTier>=0?{rewardTier:c.rewardTier}:{})};
+        c.rewardTier>=0?{rewardTier:c.rewardTier}:{}),
+      ...(c.isPremium===true?{isPremium:true}:{})};
     }).filter(Boolean):[];
   return {description:clean(s.description,700),methods,cappedScorings};
 }
@@ -299,6 +300,101 @@ export function buildDailyPublicEvents(englishPages,frenchPages=null,now=Date.no
     updatedAt:new Date(now).toISOString(),revision,total,count:events.length,
     pages:englishPages.length,events:localized,locale,localizationStatus,
     localizedFields,localizedAt:locale==="fr"?new Date(now).toISOString():null};
+}
+
+// The game events list contains scoring goals, not the rewards earned for
+// completing an objective. Verified, already archived /game/v1/events/{id}
+// details include reward tiers; attach only the event-point currency quantity.
+// This enrichment makes no Scopely requests and never reads player progress.
+const EVENT_POINT_ITEM=/^EVTA_META_[A-Z0-9_]+$/;
+function objectiveEventPoints(raw,tier){
+  const rewards=tier?.rewards?.allOf;
+  if(!Array.isArray(rewards))return null;
+  const matches=rewards.filter(reward=>
+    EVENT_POINT_ITEM.test(reward?.item?.id||"")||
+    /milestone points/i.test(reward?.item?.name||""));
+  if(matches.length!==1)return null;
+  const quantity=matches[0].quantity;
+  return Number.isSafeInteger(quantity)&&quantity>0&&quantity<=1e9?
+    quantity:null;
+}
+async function archivedEventDetail(bucket,event,now){
+  const path="/game/v1/events/"+event.id;
+  const pointerKey=LATEST+await sha256(path)+".json";
+  const {document:pointer}=await read(bucket,pointerKey,5000);
+  const objectMatch=OBJECT.exec(pointer?.objectKey||"");
+  if(pointer?.version!==2||pointer.path!==path||
+    !SHA.test(pointer?.sha256||"")||!objectMatch||
+    objectMatch[1]!==pointer.sha256||!RECEIPT.test(pointer.receiptKey||"")||
+    !pointer.receiptKey.startsWith(ROOT+"diff/runs/"+pointer.runId+"/checks/"))
+    throw Error("invalid-event-detail-pointer");
+  const at=stamp(pointer.storedAt,now);
+  if(at===null||now-at>=MAX_AGE)throw Error("stale-event-detail");
+  const {document:receipt}=await read(bucket,pointer.receiptKey,8000);
+  if(!["changed","unchanged"].includes(receipt?.status)||
+    receipt.path!==path||receipt.sha256!==pointer.sha256||
+    receipt.objectKey!==pointer.objectKey||receipt.storedAt!==pointer.storedAt)
+    throw Error("invalid-event-detail-receipt");
+  const {raw,document}=await read(bucket,pointer.objectKey,MAX_BYTES);
+  if(await sha256(raw)!==pointer.sha256)throw Error("invalid-event-detail-sha");
+  const detail=document?.data;
+  if(detail?.id!==event.id||detail.startTime!==event.startTime||
+    detail.endTime!==event.endTime||detail.type!==event.type)
+    throw Error("event-detail-identity-mismatch");
+  return detail;
+}
+function eventWithVerifiedRewards(event,detail){
+  const listed=event.milestone?.scoring?.cappedScorings;
+  const archived=detail?.milestone?.scoring?.cappedScorings;
+  if(!Array.isArray(listed)||!Array.isArray(archived)||
+    listed.length!==archived.length||!listed.length)return null;
+  // The French list overlays descriptions, not numeric scoring.
+  for(let i=0;i<listed.length;i++){
+    const a=listed[i],b=archived[i];
+    if(a.cap!==b?.cap||a.rewardTier!==b?.rewardTier||
+      a.methods.length!==b.methods?.length||
+      a.methods.some((m,j)=>m.points!==b.methods[j].points))
+      return null;
+  }
+  const tiers=detail.milestone?.brackets?.find(b=>b.id==="default")?.objective?.tiers;
+  if(!tiers||typeof tiers!=="object")return null;
+  let enriched=0;
+  const cappedScorings=listed.map((item,index)=>{
+    const archivedItem=archived[index];
+    const tier=tiers[String(item.rewardTier-1)];
+    const eventPoints=objectiveEventPoints(detail,tier);
+    const premium=archivedItem.isPremium===true;
+    if(eventPoints===null&&!premium)return item;
+    enriched++;
+    return {...item,...(eventPoints!==null?{eventPoints}:{}),
+      ...(premium?{isPremium:true}:{})};
+  });
+  if(!enriched)return null;
+  return {...event,milestone:{...event.milestone,scoring:{
+    ...event.milestone.scoring,cappedScorings}}};
+}
+export async function enrichDailyEventRewards(catalog,bucket,now=Date.now()){
+  if(!bucket?.get||!Array.isArray(catalog?.events))
+    throw Error("invalid-reward-enrichment");
+  // Only live Command Center objective feeders; never query all events,
+  // nor historical/expired tasks, nor the milestone wrapper's large tiers.
+  const relevant=catalog.events.filter(event=>
+    event.locationHints?.includes("lohub_feeder")&&
+    event.startTime*1000<=now&&event.endTime*1000>now&&
+    event.milestone?.scoring?.cappedScorings?.length);
+  const changed=new Map();
+  for(let start=0;start<relevant.length;start+=5){
+    await Promise.all(relevant.slice(start,start+5).map(async event=>{
+      try{
+        const detail=await archivedEventDetail(bucket,event,now);
+        const enriched=eventWithVerifiedRewards(event,detail);
+        if(enriched)changed.set(event.id,enriched);
+      }catch{/* Missing or unverifiable details never generate guessed rewards. */}
+    }));
+  }
+  if(!changed.size)return catalog;
+  return {...catalog,events:catalog.events.map(event=>
+    changed.get(event.id)||event)};
 }
 
 // The full catalogue is replaced in ONE R2 PUT; a failed daily fetch does not

@@ -1,7 +1,7 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
-import {publicEvents,buildPublicEvents,DAILY_EVENTS_KEY,buildDailyPublicEvents} from "../src/public-events.js";
+import {publicEvents,buildPublicEvents,DAILY_EVENTS_KEY,buildDailyPublicEvents,enrichDailyEventRewards} from "../src/public-events.js";
 
 const NOW=Date.parse("2026-11-04T09:00:00Z");
 const BASE="game-archive/v1/";
@@ -128,6 +128,92 @@ test("rejects duplicates, no private roster or provider calls",async()=>{
   assert.equal((await publicEvents(new Request(URL),f.env,NOW)).status,503);
   assert.deepEqual(f.calls.put,[]);
 });
+test("verified archived feeder details attach true rewards and premium without altering goals",async()=>{
+  const id="a".repeat(24),path="/game/v1/events/"+id;
+  const start=Math.floor(NOW/1000)-3600,end=start+7*86400;
+  const event={id,type:"milestone",startTime:start,endTime:end,
+    name:"Breaker of Wills - Month 1 Battle Plan",
+    locationHints:["lohub_feeder"],
+    milestone:{type:"solo",scoring:{methods:[],cappedScorings:[
+      {cap:3,rewardTier:2,methods:[{description:"Combattre avec Cyclope",points:1}]},
+      {cap:1,rewardTier:3,methods:[{description:"Ultron palier 21",points:1}]}
+    ]},brackets:[{id:"default"}]}};
+  const detail={...event,milestone:{...event.milestone,scoring:{
+    ...event.milestone.scoring,cappedScorings:[
+      {cap:3,rewardTier:2,methods:[{description:"Battle with Cyclops",points:1}]},
+      {cap:1,rewardTier:3,isPremium:true,methods:[{description:"Battle with Ultron",points:1}]}
+    ]},brackets:[{id:"default",objective:{tiers:{
+      "1":{goal:1,rewards:{allOf:[{item:{id:"EVTA_META_NOV_A",
+        name:"The Breaker of Wills Milestone Points"},quantity:20}]}},
+      "2":{goal:1,rewards:{allOf:[{item:{id:"EVTA_META_NOV_A",
+        name:"The Breaker of Wills Milestone Points"},quantity:5},
+        {item:{id:"SC",name:"Gold"},quantity:1000000}]}}
+    }}}]}};
+  const object=JSON.stringify({data:detail}),sha=hash(object);
+  const objectKey=BASE+"diff/runs/"+RUN+"/objects/"+sha+".json";
+  const receiptKey=BASE+"diff/runs/"+RUN+"/checks/00000027.json";
+  const storedAt=new Date(NOW-3600000).toISOString();
+  const pointer={version:2,path,sha256:sha,objectKey,receiptKey,
+    storedAt,runId:RUN};
+  const store=new Map([
+    [BASE+"diff/latest/"+hash(path)+".json",JSON.stringify(pointer)],
+    [objectKey,object],
+    [receiptKey,JSON.stringify({status:"changed",path,sha256:sha,
+      objectKey,storedAt})]
+  ]);
+  const keys=[];
+  const bucket={get:async key=>{
+    keys.push(key);
+    const body=store.get(key);
+    return body?{size:Buffer.byteLength(body),text:async()=>body}:null;
+  }};
+  const payload={status:"ok",events:[event]};
+  const result=await enrichDailyEventRewards(payload,bucket,NOW);
+  assert.equal(result.events.length,1);
+  const scored=result.events[0].milestone.scoring.cappedScorings;
+  assert.deepEqual(scored.map(x=>x.eventPoints),[20,5]);
+  assert.equal(scored[1].isPremium,true);
+  assert.equal(scored[0].methods[0].description,"Combattre avec Cyclope");
+  assert.equal(scored[0].cap,3);
+  assert.equal(scored[0].methods[0].points,1);
+  assert.equal(keys.length,3);
+  assert.equal(payload.events[0].milestone.scoring.cappedScorings[0].eventPoints,undefined);
+  // A detail with mismatched numeric scoring must not be trusted.
+  const bad={...detail,milestone:{...detail.milestone,scoring:{
+    ...detail.milestone.scoring,cappedScorings:[
+      {...detail.milestone.scoring.cappedScorings[0],cap:4},
+      detail.milestone.scoring.cappedScorings[1]
+    ]}}};
+  const wrong=JSON.stringify({data:bad}),wrongHash=hash(wrong);
+  const wrongKey=BASE+"diff/runs/"+RUN+"/objects/"+wrongHash+".json";
+  store.set(wrongKey,wrong);
+  store.set(BASE+"diff/latest/"+hash(path)+".json",JSON.stringify({
+    ...pointer,sha256:wrongHash,objectKey:wrongKey
+  }));
+  store.set(receiptKey,JSON.stringify({status:"changed",path,
+    sha256:wrongHash,objectKey:wrongKey,storedAt}));
+  const noMatch=await enrichDailyEventRewards(payload,bucket,NOW);
+  assert.equal(noMatch.events[0].milestone.scoring.cappedScorings[0].eventPoints,undefined);
+  // Expired objectives and non-feeder events are deliberately skipped.
+  const skipped=await enrichDailyEventRewards({events:[
+    {...event,endTime:start-1},{...event,locationHints:["lohub_wrapper"]}
+  ]},bucket,NOW);
+  assert.equal(skipped.events.length,2);
+});
+
+test("list projection preserves explicit premium flag",()=>{
+  const event={id:"f".repeat(24),type:"milestone",
+    startTime:Math.floor(NOW/1000)-1,endTime:Math.floor(NOW/1000)+86400,
+    milestone:{type:"solo",scoring:{methods:[],cappedScorings:[
+      {cap:1,isPremium:true,rewardTier:2,
+        methods:[{description:"Battle with Ultron",points:1}]}
+    ]}}};
+  const page={data:[event],meta:{page:1,perPage:100,perTotal:1,
+    hashes:{events:"a".repeat(20)}}};
+  const result=buildDailyPublicEvents([page],null,NOW);
+  assert.equal(result.events[0].milestone.scoring.cappedScorings[0].isPremium,true);
+});
+
 test("public GET ignores browser tracking parameters, other methods fail",async()=>{
   const f=setup(150);
   const r=await publicEvents(new Request(URL+"?utm_source=chatgpt"),f.env,NOW);
