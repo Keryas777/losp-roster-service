@@ -4,7 +4,7 @@
 // Never reads /player, never exposes provider secrets, never writes browser files.
 import {API_KEY} from "./player-card.js";
 import {appToken,GAME_ARCHIVE_ROOT,GAME_ARCHIVE_DAILY_LIMIT} from "./game-catalog-archive.js";
-import {buildDailyPublicEvents,DAILY_EVENTS_KEY} from "./public-events.js";
+import {buildDailyPublicEvents,enrichDailyEventRewards,DAILY_EVENTS_KEY} from "./public-events.js";
 
 const ROOT=GAME_ARCHIVE_ROOT+"events-daily/";
 const STATE=ROOT+"state.json";
@@ -185,7 +185,10 @@ export async function runGameDailyEventsTick(env,fetchImpl=fetch,now=Date.now())
         // French is optional: keep the complete, verified English source.
         french=null;
       }
-      const catalog=buildDailyPublicEvents(english,french,now);
+      const baseCatalog=buildDailyPublicEvents(english,french,now);
+      // Read only previously verified R2 detail objects. A missing detail
+      // leaves the base catalogue valid and never creates synthetic rewards.
+      const catalog=await enrichDailyEventRewards(baseCatalog,bucket,now);
       const previous=await read(bucket,DAILY_EVENTS_KEY);
       const changed=JSON.stringify(previous?.catalog?.events)!==
         JSON.stringify(catalog.events);
