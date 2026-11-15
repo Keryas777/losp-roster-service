@@ -5,9 +5,10 @@
 import {CAPTAIN_PREFIX,getCaptainRecord} from "./captain-vault.js";
 import {tokenForKey} from "./admin-data-api.js";
 import {API_KEY} from "./player-card.js";
-import {EVENTS_DIRTY_KEY} from "./game-events-daily-keys.js";
+import {GAME_ARCHIVE_ROOT} from "./game-catalog-archive.js";
 
 export const EVENT_REFERENCE_CONFIG_KEY="roster-batches/v1/events-reference/config.json";
+const EVENTS_DIRTY_KEY=GAME_ARCHIVE_ROOT+"events-daily/dirty.json";
 const SID=/^[a-f0-9]{64}$/;
 const ID=/^[a-f0-9]{24}$/;
 const API="https://api.marvelstrikeforce.com";
@@ -90,12 +91,20 @@ export function selectLevel110Events(catalog,personal,now=Date.now()){
     hints(e,"lohub_wrapper")&&publicById.has(e.id)&&
     e.milestone?.brackets?.some(b=>b.id==="85_and_up"));
   if(wrappers.length===0)throw Error("reference-missing-85-plus-wrapper");
-  const groupNames=new Set(wrappers.map(e=>name(e.name)));
   const ids=catalog.events.filter(e=>live(e,now)&&selected.has(e.id)&&
-    (hints(e,"lohub_wrapper")||hints(e,"lohub_feeder"))&&
-    groupNames.has(name(e.name))).map(e=>e.id);
+    (hints(e,"lohub_wrapper")||hints(e,"lohub_feeder"))).map(e=>e.id);
   const feederIds=ids.filter(id=>hints(publicById.get(id),"lohub_feeder"));
   if(feederIds.length===0)throw Error("reference-no-active-feeders");
+  // Do not mark a new daily collection as complete if the authorized
+  // player's endpoint is still returning yesterday's daily mission.
+  for(const wrapper of wrappers){
+    const key=name(wrapper.name);
+    const candidateDaily=catalog.events.filter(e=>live(e,now)&&
+      hints(e,"lohub_feeder")&&name(e.name)===key&&
+      e.endTime-e.startTime<=86400);
+    if(candidateDaily.length&&!candidateDaily.some(e=>selected.has(e.id)))
+      throw Error("reference-daily-not-yet-ready");
+  }
   // The only public payload contains IDs of already-public game objects.
   return {source:"scopely-player-level110-reference",bracket:"85_and_up",
     observedAt:iso(now),eligibleEventIds:ids.sort()};
