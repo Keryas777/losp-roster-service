@@ -4,7 +4,7 @@ import {selectLevel110Events,attachLevel110Reference,
   EVENT_REFERENCE_CONFIG_KEY,manageEventReference} from "../src/game-events-reference.js";
 import {putCaptainRecord,CAPTAIN_PREFIX} from "../src/captain-vault.js";
 
-const NOW=Date.parse("2026-11-15T21:06:00Z");
+const NOW=Math.floor(Date.now()/1000)*1000;
 const day=86400;
 const hex=n=>n.repeat(24);
 const name="Briseur de volontés - Plan de bataille du mois 1";
@@ -82,9 +82,9 @@ test("reference is off by default; complete consented collection is public-IDs-o
   assert.equal(selection.status,200);
   assert.equal(stored.has(EVENT_REFERENCE_CONFIG_KEY),true);
   const projected=await attachLevel110Reference(catalog,env,fetchImpl,realNow);
-  // Fixture events were created in the past relative to test wall clock:
-  // call a fresh projection with an explicit event window instead.
-  assert.ok(projected.objectiveEligibility===undefined||projected.events.length===4);
+  assert.deepEqual(projected.objectiveEligibility.eligibleEventIds,[wrapper.id,raid.id]);
+  assert.equal(projected.objectiveEligibility.bracket,"85_and_up");
+  assert.ok(!JSON.stringify(projected.objectiveEligibility).includes("test-access"));
   assert.ok(stored.has("game-archive/v1/events-daily/dirty.json"));
   const del=await manageEventReference(new Request("https://example.com/admin/api/events-reference",{
     method:"POST",headers:{Origin:"https://example.com","Content-Type":"application/json"},
