@@ -63,14 +63,26 @@
     unavailable:"État indisponible"
   })[v]||v||"Inconnu";
 
-  // Render official MSF color markers as text + a bounded CSS color.
-  // Keep the original Unicode text and create only safe DOM text nodes.
+  // MSF alliance names may contain <#RRGGBB> or <color=...> markup.
+  // Render the color on the name only; never interpret source text as HTML.
   function allianceNameParts(value){
     const raw=String(value??"");
-    const markers=raw.match(/<#[0-9a-f]{6}>/gi);
-    const color=markers?.length?"#"+markers[markers.length-1].slice(2,-1):null;
-    const cleaned=raw.replace(/<#[0-9a-f]{6}>/gi,"")
-      .replace(/\s+/g," ").trim().replace(/^(LoSP\s+){2,}/i,"LoSP ");
+    const colors={red:"#ff0000",orange:"#ff8800",yellow:"#ffff00",
+      green:"#008000",blue:"#0000ff",purple:"#800080",white:"#ffffff",
+      black:"#000000"};
+    let color=null;
+    const cleaned=raw.replace(/<#[0-9a-f]{6}>|<color\s*=\s*[^>]*>|<\/color>/gi,marker=>{
+      const hex=/^<#([0-9a-f]{6})>$/i.exec(marker);
+      const tag=/^<color\s*=\s*([^>]*)>$/i.exec(marker);
+      if(hex)color="#"+hex[1];
+      if(tag){
+        const value=tag[1].trim().replace(/^["']|["']$/g,"").toLowerCase();
+        if(/^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/.test(value))
+          color=value;
+        else if(Object.hasOwn(colors,value))color=colors[value];
+      }
+      return "";
+    }).replace(/\s+/g," ").trim().replace(/^(LoSP\s+){2,}/i,"LoSP ");
     const match=/^(LoSP\s+)(.+)$/i.exec(cleaned);
     return {prefix:match?.[1]||"",name:match?.[2]||cleaned,color};
   }
