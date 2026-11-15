@@ -1,7 +1,8 @@
 // Small independent daily refresh for public /game/v1/events only.
 // Reuses the current minute Cron, OAuth app token, R2, global /game budget
 // and the SAME Durable Object lock as the general differential collector.
-// Never reads /player, never exposes provider secrets, never writes browser files.
+// Reads /player only for an explicitly authorized level-110 reference;
+// exports only eligible public game IDs, never personal fields or secrets.
 import {API_KEY} from "./player-card.js";
 import {appToken,GAME_ARCHIVE_ROOT,GAME_ARCHIVE_DAILY_LIMIT} from "./game-catalog-archive.js";
 import {buildDailyPublicEvents,enrichDailyEventRewards,DAILY_EVENTS_KEY} from "./public-events.js";
