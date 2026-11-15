@@ -212,7 +212,7 @@ export async function runGameDailyEventsTick(env,fetchImpl=fetch,now=Date.now())
         locale:catalog.locale,changed};
     }catch(error){
       const reason=String(error?.message||"events-daily-error");
-      const retryAfterMs=reason==="provider-rate-limited"?60*60000:RETRY;
+      const retryAfterMs=["provider-rate-limited","reference-provider-rate-limited"].includes(reason)?60*60000:RETRY;
       await write(bucket,STATE,{date,status:"failed",attemptAt:iso(now),
         retryAfterMs,reason});
       return {status:"failed",reason};
