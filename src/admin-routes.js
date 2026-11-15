@@ -1,5 +1,6 @@
 import {diagnoseAdminAuth,adminReady} from "./admin-auth.js";
 import {handleAdminPlayerLinks} from "./player-identity-links.js";
+import {manageEventReference} from "./game-events-reference.js";
 import {rosterSyncPreflight,saveRosterSyncApprovals,approveOneRosterAlliance} from "./roster-sync-preflight.js";
 import {handlePrivateRosterPilot} from "./private-roster-pilot.js";
 import {handleRosterMicrobatch,getRosterBatchStatus} from "./private-roster-batches.js";
@@ -118,6 +119,13 @@ const html = '<!doctype html><html lang="fr"><head><meta charset="utf-8">'+
 '<button id="player-campaign-refresh" type="button">Voir l’avancement (R2)</button>'+ 
 '<p id="player-campaign-status" role="status">Vérifier le statut de la synchronisation automatique dans R2.</p>'+  
 '<div id="player-campaign-report" class="scroll"></div></section>'+ 
+'<section id="events-reference-admin"><h2>Référence commune des objectifs — niveau 110</h2>'+
+'<p>Sélectionne ton propre compte Scopely connecté. Seuls les identifiants des missions éligibles seront utilisés dans le catalogue public LoSP. La progression, les jetons et le nom du compte ne seront jamais publiés. Cette référence est valable pour les joueurs et invités niveau 110.</p>'+
+'<button type="button" id="events-reference-load">Charger les comptes OAuth</button>'+
+'<label>Compte de référence<select id="events-reference-session"><option value="">Charger les comptes…</option></select></label>'+
+'<div class="actions"><button id="events-reference-select" type="button">Utiliser ce compte niveau 110</button>'+
+'<button id="events-reference-clear" type="button">Désactiver la référence</button></div>'+
+'<p id="events-reference-status" role="status" aria-live="polite">Aucun compte sélectionné sur cet écran.</p></section>'+
 '<section id="player-r2-explorer"><h2>Explorer les vrais fichiers privés /player (R2)</h2>'+
 '<p>Lecture seule : sélectionner un compte OAuth ou une alliance approuvée, ouvrir une page source Scopely ou un roster archivé. Affiche les preuves physiques, la fraîcheur et les échecs connus. Aucun appel à Scopely.</p>'+
 '<button type="button" id="player-r2-load">Charger les comptes et alliances depuis R2</button>'+
@@ -297,6 +305,7 @@ PUBLIC_SOURCE_ROUTES.map(x=>'<option value="'+x.id+'">'+x.id+'</option>').join('
 '<script src="/admin-roster-r2-coverage.js" defer></script>'+ 
 '<script src="/admin-player-extras.js" defer></script>'+
 '<script src="/admin-player-r2-explorer.js" defer></script>'+ 
+'<script src="/admin-events-reference.js" defer></script>'+ 
 '<script src="/admin-player-campaign.js" defer></script>'+
 '<script src="/admin-arena-coverage.js" defer></script>'+
 '<script src="/admin-reward-info-manual.js" defer></script>'+ 
@@ -330,7 +339,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
         "/admin/api/game-differential-comparison-audit",
         "/admin/api/game-differential-dd9","/admin/api/game-dd9-a1-probe","/admin/api/game-dd9-expansion-probe","/admin/api/game-dd9-meta-probe",
         "/admin/api/alliance-season-ranks","/admin/api/guest-season-rank-backfill","/admin/api/player-extras",
-         "/admin/api/player-campaign", "/admin/api/reward-infos-manual",
+         "/admin/api/player-campaign", "/admin/api/events-reference", "/admin/api/reward-infos-manual",
          "/admin/api/player-links"].includes(endpoint)))
     return new Response("Method Not Allowed",{status:405});
   if(!adminReady(env))return new Response("Administration désactivée",{
@@ -391,6 +400,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   if(pathname==="/admin/api/collection-overview")return handleCollectionOverview(request,env);
   if(pathname==="/admin/api/catalog")return adminCatalog();
   if(pathname==="/admin/api/sessions")return adminSessionList(env,fetchImpl,new URL(request.url));
+  if(pathname==="/admin/api/events-reference")return manageEventReference(request,env,fetchImpl);
   if(pathname==="/admin/api/coverage")return adminCoverage(env,fetchImpl);
   if(pathname==="/admin/api/refresh-cron")return adminRefreshCron(env);
   if(pathname==="/admin/api/data")return adminResource(request,env,fetchImpl);
