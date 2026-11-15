@@ -5,6 +5,7 @@
 import {API_KEY} from "./player-card.js";
 import {appToken,GAME_ARCHIVE_ROOT,GAME_ARCHIVE_DAILY_LIMIT} from "./game-catalog-archive.js";
 import {buildDailyPublicEvents,enrichDailyEventRewards,DAILY_EVENTS_KEY} from "./public-events.js";
+import {attachLevel110Reference} from "./game-events-reference.js";
 
 const ROOT=GAME_ARCHIVE_ROOT+"events-daily/";
 const STATE=ROOT+"state.json";
@@ -188,7 +189,11 @@ export async function runGameDailyEventsTick(env,fetchImpl=fetch,now=Date.now())
       const baseCatalog=buildDailyPublicEvents(english,french,now);
       // Read only previously verified R2 detail objects. A missing detail
       // leaves the base catalogue valid and never creates synthetic rewards.
-      const catalog=await enrichDailyEventRewards(baseCatalog,bucket,now);
+      const withRewards=await enrichDailyEventRewards(baseCatalog,bucket,now);
+      // The shared level-110 profile is opt-in and sourced from the
+      // selected authorized player's CURRENT events. Unavailable personal
+      // data fails closed instead of guessing a level-to-feeder mapping.
+      const catalog=await attachLevel110Reference(withRewards,env,fetchImpl,now);
       const previous=await read(bucket,DAILY_EVENTS_KEY);
       const changed=JSON.stringify(previous?.catalog?.events)!==
         JSON.stringify(catalog.events);
