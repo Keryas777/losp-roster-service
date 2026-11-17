@@ -2,7 +2,7 @@
 import {captainConfigReady} from "./captain-vault.js";
 import {readCollectibleApprovals} from "./guest-alliance-approvals.js";
 import {handleRosterMicrobatch,BATCH_PREFIX} from "./private-roster-batches.js";
-import {dispatchCompleteRosterCampaign} from "./roster-github-dispatch.js";
+import {dispatchLoSPRosterCampaigns} from "./losp-roster-github-dispatch.js";
 import {dispatchGuestRosterCampaigns} from "./guest-roster-github-dispatch.js";
 import {dispatchCompleteTrophyCards} from "./trophy-github-dispatch.js";
 import {rosterAttemptKey,rosterCooldownKey,rosterAttemptRecord}
@@ -304,8 +304,8 @@ export async function runRosterAutoTick(env,controller,fetchImpl=fetch,options={
     let githubDispatch="disabled";
     if(slot.tick%5===0||(used>0&&outcomes.some(o=>
       o.status==="complete"||o.status==="partial-consent"))){
-      try{githubDispatch=await dispatchCompleteRosterCampaign(env,slot,
-        approval.lospAlliances.map(a=>a.fingerprint),options.githubFetch||fetch);}
+      try{githubDispatch=await dispatchLoSPRosterCampaigns(env,slot,
+        options.githubFetch||fetch);}
       catch{githubDispatch="unavailable";}
     }
     // Guest campaigns publish independently as soon as EACH approved,
