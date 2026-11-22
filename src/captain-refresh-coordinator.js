@@ -15,6 +15,10 @@ function safeResponse(obj,status=200){
 }
 function isToken(s){return typeof s==="string" && s.length>0 && s.length<=16384;}
 function validExpiry(value){return Number.isInteger(value) && value>=60 && value<=30*86400;}
+function hasPersistentReadScope(scope){
+  const scopes=new Set(typeof scope==="string"?scope.split(/\s+/):[]);
+  return scopes.has("offline")&&(scopes.has("m3p.f.ar.ros")||scopes.has("m3p.f.pr.act"));
+}
 function basicAuth(env){
   const id=env.SCOPELY_CLIENT_ID, secret=env.SCOPELY_CLIENT_SECRET;
   if(typeof id!=="string" || !id || typeof secret!=="string" || !secret) throw Error("OAuth secrets missing");
@@ -56,8 +60,7 @@ export class CaptainRefreshCoordinator {
       const value=payload.record;
       if(!value || !isToken(value.accessToken) || !isToken(value.refreshToken) ||
         !validExpiry(value.expiresIn) || typeof value.scope!=="string" ||
-        !value.scope.split(/\s+/).includes("offline") ||
-        !value.scope.split(/\s+/).includes("m3p.f.ar.ros"))
+        !hasPersistentReadScope(value.scope))
         return safeResponse({status:"invalid"},400);
       // Refuse to overwrite an unreadable encrypted grant (wrong key/rotation).
       if(await bucket.get(payload.key))
@@ -96,7 +99,7 @@ export class CaptainRefreshCoordinator {
       lastRotatedAt:Number.isSafeInteger(r.lastRotatedAt)?r.lastRotatedAt:null
     });
     if(record.accessExpiresAt>now+SOON)
-      return safeResponse({status:"active",accessExpiresAt:record.accessExpiresAt,
+      return safeResponse({status:"active",accessExpiresAt:record.accessExpiresAt,scope:record.scope,
         ...metadata(record),rotated:false,
         ...(payload.action==="access"?{accessToken:record.accessToken}:{})});
     try {
@@ -128,7 +131,7 @@ export class CaptainRefreshCoordinator {
       }
       const issuedScope=typeof data.scope==="string" ? data.scope : record.scope;
       const scopes=new Set(issuedScope.trim().split(/\s+/));
-      if(!scopes.has("offline") || !scopes.has("m3p.f.ar.ros")){
+      if(!hasPersistentReadScope(issuedScope)){
         await auditCaptainEvent(this.env,payload.key,"failed","missing-scope");
         await deleteCaptainRecord(bucket,payload.key);
         await auditCaptainEvent(this.env,payload.key,"deleted","missing-scope");
@@ -142,7 +145,7 @@ export class CaptainRefreshCoordinator {
           ?record.observedRotations:0)+1),lastRotatedAt:now
       });
       await auditCaptainEvent(this.env,payload.key,"renewed","refresh");
-      return safeResponse({status:"active",accessExpiresAt:now+data.expires_in*1000,
+      return safeResponse({status:"active",accessExpiresAt:now+data.expires_in*1000,scope:issuedScope,
         observedRotations:Math.min(1000000000,(Number.isSafeInteger(record.observedRotations)
           ?record.observedRotations:0)+1),lastRotatedAt:now,rotated:true,
         ...(payload.action==="access"?{accessToken:data.access_token}:{})});

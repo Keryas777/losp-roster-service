@@ -41,12 +41,14 @@
   "durable_objects": {
     "bindings": [
       { "name": "CAPTAIN_REFRESH_COORDINATOR", "class_name": "CaptainRefreshCoordinator" },
-      { "name": "ROSTER_BATCH_LOCK", "class_name": "RosterBatchLock" }
+      { "name": "ROSTER_BATCH_LOCK", "class_name": "RosterBatchLock" },
+      { "name": "PERSONAL_EVENT_CACHE", "class_name": "PersonalEventProgressCache" }
     ]
   },
   "migrations": [
     { "tag": "captain-oauth-v1", "new_sqlite_classes": ["CaptainRefreshCoordinator"] },
-    { "tag": "roster-batch-v1", "new_sqlite_classes": ["RosterBatchLock"] }
+    { "tag": "roster-batch-v1", "new_sqlite_classes": ["RosterBatchLock"] },
+    { "tag": "personal-event-cache-v1", "new_sqlite_classes": ["PersonalEventProgressCache"] }
   ],
   "triggers": {
     "crons": ["15 * * * *", "15 3 * * *", "* 2-3,14-15 * * *", "* * * * *"]

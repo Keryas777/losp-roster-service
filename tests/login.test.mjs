@@ -56,6 +56,24 @@ test("each login generates unique state and verifier", async () => {
   assert.notEqual(a["__Host-losp_oauth_verifier"], b["__Host-losp_oauth_verifier"]);
 });
 
+test("personal events OAuth requests only profile, event access and offline scopes", async () => {
+  const bindings={...env,CAPTAIN_SESSIONS_ENABLED:"true",CAPTAIN_ENCRYPTION_KEY_HEX:"a".repeat(64),
+    CAPTAIN_BUCKET:{put(){},get(){},delete(){}},CAPTAIN_REFRESH_COORDINATOR:{idFromName(){}}};
+  const response = await call("/login/events",{},bindings);
+  assert.equal(response.status, 302);
+  const target = new URL(response.headers.get("location"));
+  assert.equal(target.searchParams.get("scope"),
+    "openid m3p.f.pr.pro m3p.f.pr.act offline");
+  const cookies = response.headers.getSetCookie();
+  assert.equal(cookies.length, 3);
+  const marker = cookies.find(value => value.startsWith("__Host-losp_oauth_personal_events="));
+  assert.ok(marker);
+  assert.ok(marker.includes("=" + target.searchParams.get("state") + ";"));
+  assert.match(marker,/HttpOnly; SameSite=Lax/);
+  const unavailable=await call("/login/events");
+  assert.equal(unavailable.status,503);
+});
+
 test("login refuses non-production hosts", async () => {
   const response = await worker.fetch(
     new Request("https://preview.example.workers.dev/login"), env

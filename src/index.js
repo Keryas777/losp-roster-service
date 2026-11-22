@@ -5,6 +5,8 @@ import { captainConfigReady } from "./captain-vault.js";
 import { handleCaptainSession, handleCaptainLogout, handleCaptainLanding, handleCaptainRosters, handleCaptainCoverage, renewCaptainGrants } from "./captain-session-routes.js";
 export { CaptainRefreshCoordinator } from "./captain-refresh-coordinator.js";
 export { RosterBatchLock } from "./roster-batch-lock.js";
+export { PersonalEventProgressCache } from "./personal-event-progress.js";
+import {handlePersonalEventProgress} from "./personal-event-progress.js";
 import { buildPrivateCoverage } from "./alliance-coverage.js";
 import { handleAdmin } from "./admin-routes.js";
 import { prunePrivateRosterPilots } from "./private-roster-pilot.js";
@@ -81,6 +83,12 @@ async function startLogin(request, env, url) {
       status: 503, headers: { "Cache-Control": "no-store" }
     });
   }
+  if(url.pathname==="/login/events"&&
+      (env?.CAPTAIN_SESSIONS_ENABLED!=="true"||!captainConfigReady(env))){
+    return new Response("Personal event session storage is not configured",{
+      status:503,headers:{"Cache-Control":"no-store"}
+    });
+  }
   const clientId = env?.SCOPELY_CLIENT_ID;
   if (typeof clientId !== "string" || !clientId.trim()) {
     return new Response("OAuth is not configured", {
@@ -128,6 +136,7 @@ async function startLogin(request, env, url) {
   const metricsProbe = url.pathname === "/login/metrics-test";
   const isoIconsProbe = url.pathname === "/login/iso-icons-test";
   const inventoryProbe = url.pathname === "/login/inventory-test";
+  const personalEventsMode = url.pathname === "/login/events";
   const rosterScopeProbe = url.pathname === "/login/roster-scope-test";
   const allianceScopeProbe = url.pathname === "/login/alliance-scope-test";
   const collectionProbe = url.pathname === "/login/alliance-collection-test";
@@ -137,7 +146,7 @@ async function startLogin(request, env, url) {
   const allianceProbe = url.pathname === "/login/alliance-test" || rosterScopeProbe;
   const scopes = allianceProbe || allianceScopeProbe || collectionProbe || rosterViewerMode || profilesProbe || coverageProbe || cardTypesProbe || metricsProbe
     ? LOGIN_SCOPES + " m3p.f.ar.pro" : LOGIN_SCOPES;
-  authorize.searchParams.set("scope", captainMode ? CAPTAIN_SCOPES :
+  authorize.searchParams.set("scope", personalEventsMode ? "openid m3p.f.pr.pro m3p.f.pr.act offline" : captainMode ? CAPTAIN_SCOPES :
     scopeProbe ? allianceScopeRequest(scopeProbe) :
     inventoryProbe ? LOGIN_SCOPES + " m3p.f.pr.inv" :
     (allianceScopeProbe || collectionProbe || rosterViewerMode) ? scopes + " m3p.f.ar.ros" :
@@ -164,6 +173,7 @@ async function startLogin(request, env, url) {
   if (collectionProbe) headers.append("Set-Cookie", "__Host-losp_oauth_collection_test=" + state + "; " + attributes);
   if (rosterViewerMode) headers.append("Set-Cookie", "__Host-losp_oauth_roster_viewer=" + state + "; " + attributes);
   if (captainMode) headers.append("Set-Cookie", "__Host-losp_oauth_captain=" + state + "; " + attributes);
+  if (personalEventsMode) headers.append("Set-Cookie", "__Host-losp_oauth_personal_events=" + state + "; " + attributes);
   if (scopeProbe) headers.append("Set-Cookie", scopeProbe.cookie + "=" + state + "; " + attributes);
   if (inventoryProbe) headers.append("Set-Cookie", "__Host-losp_oauth_inventory_test=" + state + "; " + attributes);
   if (profilesProbe) headers.append("Set-Cookie", "__Host-losp_oauth_profiles_test=" + state + "; " + attributes);
@@ -526,6 +536,10 @@ export default {
   },
   async fetch(request, env) {
     const url = new URL(request.url);
+    if(url.pathname==="/captain/api/events")
+      return handlePersonalEventProgress(request,env);
+    if(url.pathname==="/captain/events")
+      return handlePersonalEventProgress(request,env);
     if(url.pathname==="/api/public/events")
       return publicEvents(request,env);
     if(url.pathname==="/api/public/awakened-materials")
@@ -562,6 +576,7 @@ export default {
         url.pathname === "/login/alliance-collection-test" ||
         url.pathname === "/login/rosters" ||
         url.pathname === "/login/captain" ||
+        url.pathname === "/login/events" ||
         url.pathname === "/login/inventory-test" ||
         url.pathname === "/login/profiles-test" ||
         url.pathname === "/login/coverage-test" ||

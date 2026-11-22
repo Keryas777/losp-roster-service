@@ -8,7 +8,7 @@ import { probeAllianceRoster, probeOwnRoster, renderAllianceProbe } from "./alli
 import { collectAllianceRosterSample, renderRosterCollectionSample } from "./roster-collector.js";
 import { renderLiveRosterViewer } from "./roster-viewer.js";
 import { auditCaptainScopes } from "./captain-scopes.js";
-import { saveCaptainConsent } from "./captain-session-routes.js";
+import { saveCaptainConsent,savePersonalEventsConsent } from "./captain-session-routes.js";
 import { captainConfigReady } from "./captain-vault.js";
 import { discoverAlliance } from "./alliance-coverage.js";
 import { readApproval } from "./roster-sync-preflight.js";
@@ -113,6 +113,8 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     readCookie(cookies, "__Host-losp_oauth_roster_viewer"), expectedState);
   const captainMode = equalStates(
     readCookie(cookies, "__Host-losp_oauth_captain"), expectedState);
+  const personalEventsMode = equalStates(
+    readCookie(cookies, "__Host-losp_oauth_personal_events"), expectedState);
   const scopeProbe = ALLIANCE_SCOPE_PROBES.find(probe =>
     equalStates(readCookie(cookies, probe.cookie), expectedState)) || null;
   const inventoryMode = equalStates(
@@ -141,6 +143,7 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
           failure === "access_denied" ? "access-denied" : "oauth-error"
       });
     }
+
     return backToStatus("denied");
   }
 
@@ -231,6 +234,19 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     if (scopeProbe) {
       return renderAllianceScopeProbe(scopeProbe,
         auditAllianceScopeProbe(scopeProbe, result.scope));
+    }
+
+    if(personalEventsMode){
+      const granted=new Set(typeof result.scope==="string"?result.scope.trim().split(/\s+/):[]);
+      if(!granted.has("m3p.f.pr.act")||!granted.has("offline"))
+        return new Response("Le scope événements personnels ou le maintien de l’autorisation n’a pas été accordé.",{status:403,headers:{"Cache-Control":"no-store"}});
+      if(env?.CAPTAIN_SESSIONS_ENABLED!=="true"||!captainConfigReady(env))
+        return new Response("Le stockage sécurisé des sessions n’est pas configuré.",{status:503,headers:{"Cache-Control":"no-store"}});
+      if(typeof result.refresh_token!=="string"||!result.refresh_token||!Number.isInteger(result.expires_in)||result.expires_in<60)
+        return new Response("Scopely n’a pas renvoyé de renouvellement OAuth exploitable.",{status:502,headers:{"Cache-Control":"no-store"}});
+      try{
+        return await savePersonalEventsConsent(new Response(null,{status:303,headers:{"Cache-Control":"no-store","Referrer-Policy":"no-referrer"}}),result,env,request);
+      }catch{return new Response("La session n’a pas pu être enregistrée de façon sécurisée.",{status:503,headers:{"Cache-Control":"no-store"}});}
     }
 
     // Full captain consent. Persist only after R2 + serialized refresh are

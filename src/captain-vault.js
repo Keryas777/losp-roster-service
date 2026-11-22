@@ -7,6 +7,10 @@ const KEY = /^oauth-captains\/v1\/[a-f0-9]{64}$/;
 export const CAPTAIN_MAX_AGE = 365 * 86400000;
 export const CAPTAIN_COOKIE_AGE = 180 * 86400;
 const TOKEN = value => typeof value === "string" && value.length > 0 && value.length <= 16384;
+const hasPersistentReadScope=scope=>{
+  const scopes=new Set(typeof scope==="string"?scope.split(/\s+/):[]);
+  return scopes.has("offline")&&(scopes.has("m3p.f.ar.ros")||scopes.has("m3p.f.pr.act"));
+};
 const b64 = bytes => btoa(String.fromCharCode(...bytes)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/g,"");
 function fromB64(s) {
   if (typeof s !== "string" || !/^[A-Za-z0-9_-]+$/.test(s)) throw Error("Invalid envelope");
@@ -43,8 +47,7 @@ export function validateCaptainRecord(record, now=Date.now()) {
     !Number.isSafeInteger(record.accessExpiresAt) ||
     !TOKEN(record.accessToken) || !TOKEN(record.refreshToken) ||
     typeof record.scope!=="string" || record.scope.length>2000 ||
-    !record.scope.split(/\s+/).includes("offline") ||
-    !record.scope.split(/\s+/).includes("m3p.f.ar.ros")) throw Error("Invalid captain record");
+    !hasPersistentReadScope(record.scope)) throw Error("Invalid captain record");
   return record.expiresAt > now;
 }
 export async function putCaptainRecord(bucket,secret,key,record) {

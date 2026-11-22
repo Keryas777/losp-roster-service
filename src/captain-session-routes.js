@@ -70,6 +70,25 @@ export async function saveCaptainConsent(res,token,env,request,fetchImpl=null){
   headers.append("Set-Cookie",COOKIE+"="+id+"; Max-Age="+CAPTAIN_COOKIE_AGE+attributes);
   return new Response(res.body,{status:res.status,headers});
 }
+export async function savePersonalEventsConsent(res,token,env,request){
+  if(!captainConfigReady(env))throw Error("Personal session storage not available");
+  const previous=readCookie(request);
+  if(previous){
+    const result=await coordinate(env,await captainSessionKey(previous),"logout");
+    if(result.status!=="disconnected")throw Error("Old consent could not be revoked");
+    await removeConnectedAlliance(env,await captainSessionKey(previous));
+  }
+  const id=newCaptainSessionId(),key=await captainSessionKey(id);
+  const stored=await coordinate(env,key,"store",{
+    accessToken:token.access_token,refreshToken:token.refresh_token,
+    expiresIn:token.expires_in,scope:token.scope
+  });
+  if(stored.status!=="stored")throw Error("Personal event grant was not persisted");
+  const headers=new Headers(res.headers);
+  headers.set("Location",ORIGIN+"/captain/events");
+  headers.append("Set-Cookie",COOKIE+"="+id+"; Max-Age="+CAPTAIN_COOKIE_AGE+attributes);
+  return new Response(null,{status:303,headers});
+}
 export async function handleCaptainSession(request,env){
   if(request.method!=="GET")return response({status:"method-not-allowed"},405);
   if(!captainConfigReady(env))return response({status:"not-configured"},503);
