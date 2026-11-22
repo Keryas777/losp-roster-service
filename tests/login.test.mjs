@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import worker from "../src/index.js";
+import worker,{startLogin} from "../src/index.js";
 
 const origin = "https://losp-roster-service.deliriousfan7.workers.dev";
 const env = { SCOPELY_CLIENT_ID: "test-client-id" };
@@ -106,4 +106,21 @@ test("health, home and unknown routes retain existing Worker behavior", async ()
   assert.equal(home.headers.get("location"), origin + "/index.html");
   const notFound = await call("/missing");
   assert.equal(notFound.status, 404);
+});
+
+test("lab OAuth targets only its fixed staging callback and requests only personal read scopes",async()=>{
+  const labOrigin="https://losp-personal-event-lab.deliriousfan7.workers.dev";
+  const labEnv={SCOPELY_CLIENT_ID:"lab-client",PERSONAL_EVENT_LAB_MODE:"true",
+    LOSP_APP_ORIGIN:labOrigin,CAPTAIN_SESSIONS_ENABLED:"true",
+    CAPTAIN_ENCRYPTION_KEY_HEX:"ab".repeat(32),
+    CAPTAIN_BUCKET:{put(){},get(){},delete(){}},
+    CAPTAIN_REFRESH_COORDINATOR:{idFromName(){},get(){}}};
+  const response=await startLogin(new Request(labOrigin+"/login/events-lab"),labEnv,
+    new URL(labOrigin+"/login/events-lab"));
+  assert.equal(response.status,302);
+  const authorize=new URL(response.headers.get("location"));
+  assert.equal(authorize.searchParams.get("redirect_uri"),labOrigin+"/oauth/callback");
+  assert.equal(authorize.searchParams.get("scope"),
+    "openid m3p.f.pr.pro m3p.f.pr.ros m3p.f.pr.inv m3p.f.pr.act offline");
+  assert.ok(response.headers.getSetCookie().some(cookie=>cookie.startsWith("__Host-losp_oauth_personal_events_lab=")));
 });

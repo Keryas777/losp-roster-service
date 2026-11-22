@@ -2,8 +2,8 @@
 import {captainConfigReady} from "./captain-vault.js";
 import {captainSessionKey} from "./captain-vault.js";
 import {API_KEY} from "./player-card.js";
+import {appOrigin} from "./app-origin.js";
 
-const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const ROOT="https://api.marvelstrikeforce.com";
 const COOKIE="__Host-losp_captain_session";
 const COOKIE_RX=/^[A-Za-z0-9_-]{43}$/;
@@ -36,6 +36,21 @@ async function coordinate(env,key){
     }));
     return response.ok?response.json():{status:"unavailable"};
   }catch{return {status:"unavailable"};}
+}
+
+export async function getPersonalEventGrant(request,env,requiredScope=EVENT_SCOPE){
+  if(!captainConfigReady(env))return {error:"not-configured",status:503};
+  const id=cookieId(request);
+  if(!id)return {error:"not-connected",status:401};
+  let grant;
+  try{grant=await coordinate(env,await captainSessionKey(id));}
+  catch{return {error:"authorization-unavailable",status:503};}
+  if(grant.status!=="active"||typeof grant.accessToken!=="string")
+    return {error:grant.status==="revoked"||grant.status==="absent"?"consent-revoked":"authorization-unavailable",
+      status:grant.status==="revoked"||grant.status==="absent"?401:503};
+  if(!scopes(grant.scope).has(requiredScope))
+    return {error:"scope-insufficient",requiredScope,status:403};
+  return {accessToken:grant.accessToken,scope:grant.scope};
 }
 
 export function numericProgressFacts(event){
@@ -126,7 +141,8 @@ export async function handlePersonalEventProgress(request,env,fetchImpl=fetch,no
   if(!captainConfigReady(env)||!env?.PERSONAL_EVENT_CACHE?.idFromName||!env?.PERSONAL_EVENT_CACHE?.get)
     return json({error:"not-configured"},503);
   const url=new URL(request.url);
-  if(url.origin!==ORIGIN||request.headers.get("Origin")&&request.headers.get("Origin")!==ORIGIN)
+  const origin=appOrigin(env);
+  if(!origin||url.origin!==origin||request.headers.get("Origin")&&request.headers.get("Origin")!==origin)
     return json({error:"forbidden"},403);
   const force=url.searchParams.get("refresh")==="1";
   const eventId=url.searchParams.get("eventId");
@@ -134,15 +150,9 @@ export async function handlePersonalEventProgress(request,env,fetchImpl=fetch,no
     url.searchParams.size>(Number(force)+Number(eventId!==null))||
     eventId!==null&&!/^[A-Za-z0-9_-]{1,128}$/.test(eventId))
     return json({error:"invalid-request"},400);
-  const id=cookieId(request);
-  if(!id)return json({error:"not-connected"},401);
-  const key=await captainSessionKey(id);
-  let grant;
-  try{grant=await coordinate(env,key);}catch{return json({error:"authorization-unavailable"},503);}
-  if(grant.status!=="active"||typeof grant.accessToken!=="string")
-    return json({error:grant.status==="revoked"||grant.status==="absent"?
-      "consent-revoked":"authorization-unavailable"},grant.status==="revoked"||grant.status==="absent"?401:503);
-  if(!scopes(grant.scope).has(EVENT_SCOPE))return json({error:"scope-insufficient",requiredScope:EVENT_SCOPE},403);
+  const grant=await getPersonalEventGrant(request,env,EVENT_SCOPE);
+  if(grant.error)return json({error:grant.error,...(grant.requiredScope?{requiredScope:grant.requiredScope}:{})},grant.status);
+  const key=await captainSessionKey(cookieId(request));
   try{
     const stub=env.PERSONAL_EVENT_CACHE.get(env.PERSONAL_EVENT_CACHE.idFromName(key));
     const internal=await stub.fetch(new Request("https://personal-event-cache.internal/progress",{

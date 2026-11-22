@@ -1,0 +1,27 @@
+{
+  // Separate temporary Worker. It must never be deployed with the production config.
+  "name": "losp-personal-event-lab",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-08",
+  "workers_dev": true,
+  "observability": { "logs": { "enabled": false } },
+  "vars": {
+    "PERSONAL_EVENT_LAB_MODE": "true",
+    "LOSP_APP_ORIGIN": "https://losp-personal-event-lab.deliriousfan7.workers.dev",
+    "CAPTAIN_SESSIONS_ENABLED": "true",
+    "MSF_ADMIN_ENABLED": "true"
+  },
+  "r2_buckets": [
+    { "binding": "CAPTAIN_BUCKET", "bucket_name": "losp-personal-event-lab-sessions" }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "CAPTAIN_REFRESH_COORDINATOR", "class_name": "CaptainRefreshCoordinator" },
+      { "name": "PERSONAL_EVENT_CACHE", "class_name": "PersonalEventProgressCache" }
+    ]
+  },
+  "migrations": [
+    { "tag": "lab-captain-session-v1", "new_sqlite_classes": ["CaptainRefreshCoordinator"] },
+    { "tag": "lab-event-cache-v1", "new_sqlite_classes": ["PersonalEventProgressCache"] }
+  ]
+}

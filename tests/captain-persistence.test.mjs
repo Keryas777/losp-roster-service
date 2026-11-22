@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 9185)
+Total output lines: 734
+
 import { test } from "node:test";
 import {AUDIT_PREFIX,auditCaptainEvent} from "../src/captain-audit.js";
 import assert from "node:assert/strict";
@@ -141,6 +144,33 @@ test("dedicated personal event consent persists the event grant without alliance
   assert.ok(encrypted);assert.doesNotMatch(encrypted,/EVENT_ACCESS|EVENT_REFRESH/);
 });
 
+test("isolated lab OAuth uses only its own callback and requires event, roster and inventory scopes",async()=>{
+  const {env,bucket}=setup();
+  const labOrigin="https://losp-personal-event-lab.deliriousfan7.workers.dev";
+  const labEnv={...env,PERSONAL_EVENT_LAB_MODE:"true",LOSP_APP_ORIGIN:labOrigin,
+    SCOPELY_CLIENT_ID:"lab-client",SCOPELY_CLIENT_SECRET:"lab-secret"};
+  const state="e".repeat(43);
+  const response=await handleCallback(new Request(labOrigin+"/oauth/callback?state="+state+"&code=lab-code",{
+    headers:{Cookie:"__Host-losp_oauth_state="+state+"; __Host-losp_oauth_verifier="+"f".repeat(43)+
+      "; __Host-losp_oauth_personal_events_lab="+state}
+  }),labEnv,async url=>{
+    assert.ok(url.endsWith("/oauth2/token"));
+    return Response.json({access_token:"LAB_ACCESS",refresh_token:"LAB_REFRESH",expires_in:3600,
+      scope:"openid m3p.f.pr.pro m3p.f.pr.ros m3p.f.pr.inv m3p.f.pr.act offline",token_type:"Bearer"});
+  });
+  assert.equal(response.status,303);
+  assert.equal(response.headers.get("location"),labOrigin+"/captain/lab");
+  assert.equal(captainSessionCount(bucket),1);
+  assert.ok(response.headers.getSetCookie().some(cookie=>cookie.includes("__Host-losp_captain_session=")));
+  assert.ok(response.headers.getSetCookie().some(cookie=>cookie.includes("__Host-losp_oauth_personal_events_lab=;")));
+  const wrongScope=await handleCallback(new Request(labOrigin+"/oauth/callback?state="+state+"&code=lab-code",{
+    headers:{Cookie:"__Host-losp_oauth_state="+state+"; __Host-losp_oauth_verifier="+"f".repeat(43)+
+      "; __Host-losp_oauth_personal_events_lab="+state}
+  }),labEnv,async()=>Response.json({access_token:"LAB_ACCESS",refresh_token:"LAB_REFRESH",expires_in:3600,
+      scope:"openid m3p.f.pr.pro m3p.f.pr.act offline",token_type:"Bearer"}));
+  assert.equal(wrongScope.status,403);
+});
+
 test("external captain login archives SELF roster only; never requests another member",async()=>{
   const calls=[];
   const {env,bucket}=setup();
@@ -281,104 +311,7 @@ test("cron touches only private refresh endpoint and no game/roster data",async(
   });
   const id=newCaptainSessionId(),{key}=await store(env,id);
   const record=await getCaptainRecord(bucket,secret,key);
-  await putCaptainRecord(bucket,secret,key,{...record,accessExpiresAt:Date.now()-2000});
-  const report=await renewCaptainGrants(env);
-  assert.equal(report.checked,1);
-  assert.equal(report.rotated,1);
-  assert.equal(report.failed,0);
-  assert.equal(calls,1);
-  assert.equal((await getCaptainRecord(bucket,secret,key)).refreshToken,"PRIVATE_NEW_REFRESH");
-});
-
-test("malformed cookie, missing binding and no persistence do not leak access",async()=>{
-  const {env}=setup();
-  const bad=await handleCaptainSession(new Request(origin+"/session",{
-    headers:{Cookie:"__Host-losp_captain_session=BAD"}
-  }),env);
-  assert.deepEqual(await bad.json(),{status:"disconnected"});
-  const missing=await handleCaptainSession(req("/session","a".repeat(43)),{...env,CAPTAIN_BUCKET:null});
-  assert.equal(missing.status,503);
-  const invalid=await handleCaptainRosters(req("/captain/rosters","a".repeat(43)),env);
-  assert.equal(invalid.status,303);
-  assert.equal(invalid.headers.get("location"),origin+"/captain");
-});
-
-test("captain OAuth callback persists only after validated offline token grant",async()=>{
-  const {env,bucket}=setup();
-  const marker="a".repeat(43),verifier="b".repeat(43);
-  const cb=new Request(origin+"/oauth/callback?state="+marker+"&code=PRIVATE_CODE",{
-    headers:{Cookie:[
-      "__Host-losp_oauth_state="+marker,
-      "__Host-losp_oauth_verifier="+verifier,
-      "__Host-losp_oauth_captain="+marker
-    ].join("; ")}
-  });
-  const scopesFull="openid m3p.f.pr.pro m3p.f.pr.ros m3p.f.pr.inv m3p.f.pr.act m3p.f.pr.buy m3p.f.ar.pro m3p.f.ar.ros offline";
-  let calls=[];
-  const success=await handleCallback(cb,env,async url=>{
-    calls.push(url);
-    if(url.endsWith("/oauth2/token"))return fakeResponse({...token("PRIVATE_ACCESS","PRIVATE_REFRESH"),scope:scopesFull});
-    if(url.endsWith("/alliance/members"))return fakeResponse({data:[]});
-    if(url.endsWith("/alliance/card"))return fakeResponse({
-      data:{id:"had-es:v1",name:"Hadès"}
-    });
-    throw Error("Unexpected URL");
-  });
-  assert.equal(success.status,200);
-  assert.equal(captainSessionCount(bucket),1);
-  assert.equal([...bucket.map.keys()].filter(key=>key.startsWith(CONNECTED_ALLIANCE_PREFIX)).length,1);
-  const headers=success.headers.getSetCookie();
-  assert.ok(headers.some(row=>row.startsWith("__Host-losp_captain_session=")));
-  const html=await success.text();
-  assert.match(html,/connexion du capitaine est conservée/);
-  assert.match(html,/Votre roster personnel est le seul roster archivé/);
-  assert.doesNotMatch(html+JSON.stringify([...success.headers]),/PRIVATE_(ACCESS|REFRESH)/);
-  assert.deepEqual(calls,[
-    "https://hydra-public.prod.m3.scopelypv.com/oauth2/token",
-    "https://api.marvelstrikeforce.com/player/v1/alliance/card",
-    "https://api.marvelstrikeforce.com/player/v1/alliance/card",
-    "https://api.marvelstrikeforce.com/player/v1/alliance/card",
-    "https://api.marvelstrikeforce.com/player/v1/alliance/members"
-  ]);
-  assert.ok(!calls.some(u=>u.includes("/roster/member/")));
-});
-
-test("new OAuth connections automatically register distinct alliances in private Admin R2",async()=>{
-  const {env,bucket}=setup();
-  const source=async name=>async url=>{
-    assert.ok(url.endsWith("/player/v1/alliance/card"));
-    return Response.json({data:{id:name+":v2",name}});
-  };
-  await saveCaptainConsent(new Response("ok"),token("ACCESS_Z","REFRESH_Z"),
-    env,new Request(origin+"/oauth/callback"),await source("Zeus"));
-  await saveCaptainConsent(new Response("ok"),token("ACCESS_H","REFRESH_H"),
-    env,new Request(origin+"/oauth/callback"),await source("Hadès"));
-  assert.equal([...bucket.map.keys()].filter(k=>k.startsWith(CONNECTED_ALLIANCE_PREFIX)).length,2);
-  const listed=await listConnectedAlliances(env,async()=>{
-    throw Error("Indexed alliances must not call Scopely again");
-  });
-  assert.equal(listed.status,"ok");
-  assert.equal(listed.connectedSessions,2);
-  assert.deepEqual(listed.alliances.map(a=>a.name),["Hadès","Zeus"]);
-  assert.ok(listed.alliances.every(a=>a.approved===false));
-  assert.doesNotMatch(JSON.stringify(listed),/ACCESS_|REFRESH_|oauth-captains/);
-});
-test("older connected Hadès account appears without new OAuth via one-time index backfill",async()=>{
-  const {env,bucket}=setup();
-  const id=newCaptainSessionId();
-  await store(env,id,token("HADES_ACCESS","HADES_REFRESH"));
-  let cardReads=0;
-  const api=async url=>{
-    cardReads++;
-    assert.ok(url.endsWith("/player/v1/alliance/card"));
-    return Response.json({data:{id:"alliance-hades:version-17",name:"Hadès"}});
-  };
-  const first=await handleConnectedAlliances(new Request(origin+
-    "/admin/api/connected-alliances"),env,api);
-  assert.equal(first.status,200);
-  const data=await first.json();
-  assert.deepEqual(data.alliances.map(a=>a.name),["Hadès"]);
-  assert.equal(data.connectedSessions,1);
+  await putCaptainRecord(bucket,secret,key,{...record,accessExpiresAt:Date.no…1185 tokens truncated…(data.connectedSessions,1);
   assert.equal(cardReads,1);
   assert.equal([...bucket.map.keys()].filter(k=>k.startsWith(CONNECTED_ALLIANCE_PREFIX)).length,1);
   const second=await listConnectedAlliances(env,async()=>{

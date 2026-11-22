@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 8805)
+Total output lines: 655
+
 import { handleCallback, handleOAuthStatus } from "./oauth-callback.js";
 import { getAllianceScopeProbe, allianceScopeRequest } from "./alliance-scope-probes.js";
 import { CAPTAIN_SCOPES } from "./captain-scopes.js";
@@ -39,10 +42,11 @@ import {dispatchGameEventsToGithub} from "./game-events-github-dispatch.js";
 import {runGameDifferentialFailureAuditTick} from "./game-differential-failure-audit.js";
 import {runGameDifferentialComparisonAuditTick} from "./game-differential-comparison-audit.js";
 import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
+import {handlePersonalEventLab} from "./personal-event-lab.js";
+import {authenticateAdmin} from "./admin-auth.js";
+import {appOrigin} from "./app-origin.js";
 
 const SCOPELY_AUTH_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/auth";
-const APP_ORIGIN = "https://losp-roster-service.deliriousfan7.workers.dev";
-const REDIRECT_URI = APP_ORIGIN + "/oauth/callback";
 const LOGIN_SCOPES = "openid m3p.f.pr.pro";
 const LOGIN_COOKIE_AGE_SECONDS = 600;
 
@@ -63,7 +67,7 @@ async function sha256Base64Url(value) {
     .replace(/=+$/g, "");
 }
 
-async function startLogin(request, env, url) {
+export async function startLogin(request, env, url) {
   if (request.method !== "GET") {
     return new Response("Method Not Allowed", {
       status: 405,
@@ -71,9 +75,10 @@ async function startLogin(request, env, url) {
     });
   }
 
-  // The OAuth callback is registered for this production hostname only.
-  // Do not initiate production OAuth from preview URLs or forwarded hosts.
-  if (url.origin !== APP_ORIGIN) {
+  const origin=appOrigin(env);
+  // Production keeps its registered callback. A distinct, Access-gated lab
+  // Worker may use only its explicitly configured fixed origin.
+  if (typeof origin!=="string"||url.origin !== origin) {
     return new Response("Not Found", { status: 404 });
   }
 
@@ -83,7 +88,7 @@ async function startLogin(request, env, url) {
       status: 503, headers: { "Cache-Control": "no-store" }
     });
   }
-  if(url.pathname==="/login/events"&&
+  if((url.pathname==="/login/events"||url.pathname==="/login/events-lab")&&
       (env?.CAPTAIN_SESSIONS_ENABLED!=="true"||!captainConfigReady(env))){
     return new Response("Personal event session storage is not configured",{
       status:503,headers:{"Cache-Control":"no-store"}
@@ -103,7 +108,7 @@ async function startLogin(request, env, url) {
     if(status.ok) {
       const previous=await status.json();
       if(previous.status==="connected"){
-        const redirect=Response.redirect(APP_ORIGIN+"/captain",302);
+        const redirect=Response.redirect(origin+"/captain",302);
         // Extend the sliding browser lease only when the Worker confirmed
         // the opaque session. No token is ever sent to the browser.
         const headers=new Headers(redirect.headers);
@@ -129,14 +134,15 @@ async function startLogin(request, env, url) {
   const authorize = new URL(SCOPELY_AUTH_URL);
   authorize.searchParams.set("response_type", "code");
   authorize.searchParams.set("client_id", clientId.trim());
-  authorize.searchParams.set("redirect_uri", REDIRECT_URI);
+  authorize.searchParams.set("redirect_uri", origin + "/oauth/callback");
   const profilesProbe = url.pathname === "/login/profiles-test";
   const coverageProbe = url.pathname === "/login/coverage-test";
   const cardTypesProbe = url.pathname === "/login/card-types-test";
   const metricsProbe = url.pathname === "/login/metrics-test";
   const isoIconsProbe = url.pathname === "/login/iso-icons-test";
   const inventoryProbe = url.pathname === "/login/inventory-test";
-  const personalEventsMode = url.pathname === "/login/events";
+  const personalEventLabMode=url.pathname==="/login/events-lab"&&env?.PERSONAL_EVENT_LAB_MODE==="true";
+  const personalEventsMode = url.pathname === "/login/events"||personalEventLabMode;
   const rosterScopeProbe = url.pathname === "/login/roster-scope-test";
   const allianceScopeProbe = url.pathname === "/login/alliance-scope-test";
   const collectionProbe = url.pathname === "/login/alliance-collection-test";
@@ -146,7 +152,8 @@ async function startLogin(request, env, url) {
   const allianceProbe = url.pathname === "/login/alliance-test" || rosterScopeProbe;
   const scopes = allianceProbe || allianceScopeProbe || collectionProbe || rosterViewerMode || profilesProbe || coverageProbe || cardTypesProbe || metricsProbe
     ? LOGIN_SCOPES + " m3p.f.ar.pro" : LOGIN_SCOPES;
-  authorize.searchParams.set("scope", personalEventsMode ? "openid m3p.f.pr.pro m3p.f.pr.act offline" : captainMode ? CAPTAIN_SCOPES :
+  authorize.searchParams.set("scope", personalEventLabMode ? "openid m3p.f.pr.pro m3p.f.pr.ros m3p.f.pr.inv m3p.f.pr.act offline" :
+    personalEventsMode ? "openid m3p.f.pr.pro m3p.f.pr.act offline" : captainMode ? CAPTAIN_SCOPES :
     scopeProbe ? allianceScopeRequest(scopeProbe) :
     inventoryProbe ? LOGIN_SCOPES + " m3p.f.pr.inv" :
     (allianceScopeProbe || collectionProbe || rosterViewerMode) ? scopes + " m3p.f.ar.ros" :
@@ -173,7 +180,8 @@ async function startLogin(request, env, url) {
   if (collectionProbe) headers.append("Set-Cookie", "__Host-losp_oauth_collection_test=" + state + "; " + attributes);
   if (rosterViewerMode) headers.append("Set-Cookie", "__Host-losp_oauth_roster_viewer=" + state + "; " + attributes);
   if (captainMode) headers.append("Set-Cookie", "__Host-losp_oauth_captain=" + state + "; " + attributes);
-  if (personalEventsMode) headers.append("Set-Cookie", "__Host-losp_oauth_personal_events=" + state + "; " + attributes);
+  if (url.pathname==="/login/events") headers.append("Set-Cookie", "__Host-losp_oauth_personal_events=" + state + "; " + attributes);
+  if (personalEventLabMode) headers.append("Set-Cookie", "__Host-losp_oauth_personal_events_lab=" + state + "; " + attributes);
   if (scopeProbe) headers.append("Set-Cookie", scopeProbe.cookie + "=" + state + "; " + attributes);
   if (inventoryProbe) headers.append("Set-Cookie", "__Host-losp_oauth_inventory_test=" + state + "; " + attributes);
   if (profilesProbe) headers.append("Set-Cookie", "__Host-losp_oauth_profiles_test=" + state + "; " + attributes);
@@ -186,6 +194,7 @@ async function startLogin(request, env, url) {
 
 export default {
   async scheduled(controller, env) {
+    if(env?.PERSONAL_EVENT_LAB_MODE==="true")return;
     // Reuse the existing every-minute Cloudflare trigger; no extra cron.
     // Paris local 00:10, 03:10, ..., 21:10, including DST changes.
     if(controller?.cron==="* * * * *"){
@@ -269,60 +278,7 @@ export default {
       // Paris Sunday 23:00, with a bounded 15-minute retry window.
       // Persist the successful dispatch in private R2; never call Scopely.
       if(parts.hour===23 && parts.minute<15 &&
-         new Intl.DateTimeFormat("en-US",{timeZone:"Europe/Paris",weekday:"short"}).format(slot)==="Sun"){
-        const dateParts=Object.fromEntries(new Intl.DateTimeFormat("en-GB",{
-          timeZone:"Europe/Paris",year:"numeric",month:"2-digit",day:"2-digit"
-        }).formatToParts(slot).filter(p=>["year","month","day"].includes(p.type))
-          .map(p=>[p.type,p.value]));
-        const checkpoint=dateParts.year+"-"+dateParts.month+"-"+dateParts.day;
-        const key="automation/evolution-weekly-dispatch/"+checkpoint+".json";
-        try{
-          if(!env?.CAPTAIN_BUCKET?.get||!env?.CAPTAIN_BUCKET?.put)
-            throw Error("private-storage-unavailable");
-          if(!await env.CAPTAIN_BUCKET.get(key)){
-            const token=env?.ROSTER_GITHUB_DISPATCH_TOKEN;
-            if(typeof token!=="string"||!token)throw Error("github-token-unavailable");
-            const response=await fetch(
-              "https://api.github.com/repos/Keryas777/msf/actions/workflows/snapshot-rosters.yml/dispatches",{
-                method:"POST",
-                headers:{"Accept":"application/vnd.github+json",
-                  "X-GitHub-Api-Version":"2022-11-28",
-                  "User-Agent":"LoSP-Roster-Service",
-                  "Authorization":"Bearer "+token,
-                  "Content-Type":"application/json"},
-                body:JSON.stringify({ref:"main",inputs:{checkpoint}})
-              });
-            if(response.status!==204)throw Error("github-http-"+response.status);
-            await env.CAPTAIN_BUCKET.put(key,JSON.stringify({
-              checkpoint,dispatchedAt:new Date().toISOString(),status:"dispatched"
-            }));
-            console.info("evolution-weekly-dispatch",JSON.stringify({
-              status:"dispatched",checkpoint,scheduledAt:slot.toISOString()
-            }));
-          }
-        }catch(error){
-          console.warn("evolution-weekly-dispatch",JSON.stringify({
-            status:"retry-pending",checkpoint,reason:String(error?.message||"unavailable")
-          }));
-        }
-      }
-      // Guest Evolution uses only existing PRIVATE R2 receipts.
-      // One approved tenant per minute; Sunday snapshots and daily TTL rotation.
-      // Never delays LoSP roster publication or sends another Scopely GET.
-      const guestEvolution=await archiveGuestEvolutionTick(env,scheduled);
-      if(!["outside-window","idle","disabled"].includes(guestEvolution.status))
-        console.info("guest-evolution-cron",JSON.stringify(guestEvolution));
-      // Cumulative WebApp history, separate from temporary R2 receipts.
-      // Enabled in wrangler.jsonc: immutable Sunday files + recoverable index.
-      // Never queries Scopely; current alliance membership gates API reads.
-      if(env?.GUEST_EVOLUTION_LONG_TERM_AUTHORIZED==="true"){
-        const archive=await archivePermanentGuestEvolutionTick(env,scheduled);
-        if(!["outside-window","unchanged","idle","disabled"].includes(archive.status))
-          console.info("guest-evolution-history",JSON.stringify(archive));
-      }
-      // Arena R2 fallback consolidations at 19:17/21:17 UTC.
-      // Ready-to-publish snapshots are already handled after quiet ticks.
-      const arenaHistory=await archiveArenaHistory(env,controller.scheduledTime);
+         new In…805 tokens truncated…tory(env,controller.scheduledTime);
       if(!["outside-window","unchanged"].includes(arenaHistory.status)||
          ["updated","unavailable"].includes(arenaHistory.guestStatus))
         console.info("arena-history-cron",JSON.stringify(arenaHistory));
@@ -536,6 +492,19 @@ export default {
   },
   async fetch(request, env) {
     const url = new URL(request.url);
+    if(env?.PERSONAL_EVENT_LAB_MODE==="true"){
+      if(!await authenticateAdmin(request,env))return new Response("Forbidden",{status:403,
+        headers:{"Cache-Control":"no-store","X-Robots-Tag":"noindex"}});
+      if(!appOrigin(env))return new Response("Lab origin is not configured safely",{status:503,headers:{"Cache-Control":"no-store"}});
+      const oauthPath=url.pathname==="/login/events-lab"||url.pathname==="/oauth/callback"||url.pathname==="/oauth/status";
+      if(oauthPath){
+        if(url.pathname==="/login/events-lab")return startLogin(request,env,url);
+        if(url.pathname==="/oauth/callback")return handleCallback(request,env);
+        return handleOAuthStatus(request,env);
+      }
+      return handlePersonalEventLab(request,env);
+    }
+    if(url.pathname.startsWith("/captain/lab"))return new Response("Not Found",{status:404});
     if(url.pathname==="/captain/api/events")
       return handlePersonalEventProgress(request,env);
     if(url.pathname==="/captain/events")
@@ -607,7 +576,7 @@ export default {
     }
 
     if (url.pathname === "/oauth/status") {
-      return handleOAuthStatus(request);
+      return handleOAuthStatus(request,env);
     }
 
     if (request.method === "GET" && url.pathname === "/") {
