@@ -14,10 +14,12 @@ import { discoverAlliance } from "./alliance-coverage.js";
 import { readApproval } from "./roster-sync-preflight.js";
 import { ALLIANCE_SCOPE_PROBES, auditAllianceScopeProbe, renderAllianceScopeProbe } from "./alliance-scope-probes.js";
 import { getPlayerCard, showEphemeralPlayerCard } from "./player-card.js";
-import {appOrigin,PRODUCTION_ORIGIN} from "./app-origin.js";
+
 
 // First OAuth callback validation: tokens are deliberately not persisted.
 // This allows an end-to-end authorization test without a token database.
+const APP_ORIGIN = "https://losp-roster-service.deliriousfan7.workers.dev";
+const REDIRECT_URI = APP_ORIGIN + "/oauth/callback";
 const TOKEN_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/token";
 const COOKIE_STATE = "__Host-losp_oauth_state";
 const COOKIE_VERIFIER = "__Host-losp_oauth_verifier";
@@ -38,21 +40,20 @@ function equalStates(left, right) {
   return diff === 0;
 }
 
-function clearOAuthCookies(headers,includeLab=false) {
+function clearOAuthCookies(headers) {
   const attributes = "; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax";
   headers.append("Set-Cookie", COOKIE_STATE + "=" + attributes);
   headers.append("Set-Cookie", COOKIE_VERIFIER + "=" + attributes);
-  if(includeLab)headers.append("Set-Cookie", "__Host-losp_oauth_personal_events_lab=" + attributes);
 }
 
-function backToStatus(result, status = 303, origin=PRODUCTION_ORIGIN,includeLab=false) {
+function backToStatus(result, status = 303) {
   const headers = new Headers({
-    Location: origin + "/oauth/status?result=" + result,
+    Location: APP_ORIGIN + "/oauth/status?result=" + result,
     "Cache-Control": "no-store",
     "Referrer-Policy": "no-referrer",
     "X-Robots-Tag": "noindex"
   });
-  clearOAuthCookies(headers,includeLab);
+  clearOAuthCookies(headers);
   return new Response(null, { status, headers });
 }
 
@@ -95,10 +96,8 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
   }
 
   const url = new URL(request.url);
-  const origin=appOrigin(env);
-  const statusRedirect=(result,status=303)=>backToStatus(result,status,origin,
-    env?.PERSONAL_EVENT_LAB_MODE==="true");
-  if (typeof origin!=="string"||url.origin !== origin) return new Response("Not Found", { status: 404 });
+  if (url.origin !== APP_ORIGIN) return new Response("Not Found", { status: 404 });
+  const statusRedirect=(result,status=303)=>backToStatus(result,status);
 
   const cookies = request.headers.get("Cookie") || "";
   const expectedState = readCookie(cookies, COOKIE_STATE);
@@ -118,8 +117,6 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     readCookie(cookies, "__Host-losp_oauth_captain"), expectedState);
   const personalEventsMode = equalStates(
     readCookie(cookies, "__Host-losp_oauth_personal_events"), expectedState);
-  const personalEventLabMode=env?.PERSONAL_EVENT_LAB_MODE==="true"&&equalStates(
-    readCookie(cookies,"__Host-losp_oauth_personal_events_lab"),expectedState);
   const scopeProbe = ALLIANCE_SCOPE_PROBES.find(probe =>
     equalStates(readCookie(cookies, probe.cookie), expectedState)) || null;
   const inventoryMode = equalStates(
@@ -176,7 +173,7 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     const body = new URLSearchParams({
       grant_type: "authorization_code",
       code,
-      redirect_uri: origin + "/oauth/callback",
+      redirect_uri: REDIRECT_URI,
       code_verifier: verifier
     });
     tokenRequest = {
@@ -241,20 +238,17 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
         auditAllianceScopeProbe(scopeProbe, result.scope));
     }
 
-    if(personalEventsMode||personalEventLabMode){
+    if(personalEventsMode){
       const granted=new Set(typeof result.scope==="string"?result.scope.trim().split(/\s+/):[]);
-      const required=personalEventLabMode?["m3p.f.pr.act","m3p.f.pr.ros","m3p.f.pr.inv","offline"]:["m3p.f.pr.act","offline"];
-      if(required.some(scope=>!granted.has(scope)))
-        return new Response("Un scope requis pour le laboratoire ou le maintien de l’autorisation n’a pas été accordé.",{status:403,headers:{"Cache-Control":"no-store"}});
+      if(!granted.has("m3p.f.pr.act")||!granted.has("offline"))
+        return new Response("Un scope requis pour les événements personnels ou le maintien de l’autorisation n’a pas été accordé.",{status:403,headers:{"Cache-Control":"no-store"}});
       if(env?.CAPTAIN_SESSIONS_ENABLED!=="true"||!captainConfigReady(env))
         return new Response("Le stockage sécurisé des sessions n’est pas configuré.",{status:503,headers:{"Cache-Control":"no-store"}});
       if(typeof result.refresh_token!=="string"||!result.refresh_token||!Number.isInteger(result.expires_in)||result.expires_in<60)
         return new Response("Scopely n’a pas renvoyé de renouvellement OAuth exploitable.",{status:502,headers:{"Cache-Control":"no-store"}});
       try{
         const completedHeaders=new Headers({"Cache-Control":"no-store","Referrer-Policy":"no-referrer"});
-        if(personalEventLabMode)clearOAuthCookies(completedHeaders,true);
-        return await savePersonalEventsConsent(new Response(null,{status:303,headers:completedHeaders}),result,env,request,
-          personalEventLabMode?"/captain/lab":"/captain/events");
+        return await savePersonalEventsConsent(new Response(null,{status:303,headers:completedHeaders}),result,env,request);
       }catch{return new Response("La session n’a pas pu être enregistrée de façon sécurisée.",{status:503,headers:{"Cache-Control":"no-store"}});}
     }
 
@@ -405,7 +399,7 @@ export function handleOAuthStatus(request,env) {
     });
   }
   const url = new URL(request.url);
-  if (url.origin !== appOrigin(env)) return new Response("Not Found", { status: 404 });
+  if (url.origin !== APP_ORIGIN) return new Response("Not Found", { status: 404 });
 
   const messages = {
     validated: [

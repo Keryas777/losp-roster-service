@@ -2,7 +2,6 @@
 import {captainConfigReady} from "./captain-vault.js";
 import {captainSessionKey} from "./captain-vault.js";
 import {API_KEY} from "./player-card.js";
-import {appOrigin} from "./app-origin.js";
 
 const ROOT="https://api.marvelstrikeforce.com";
 const COOKIE="__Host-losp_captain_session";
@@ -48,7 +47,7 @@ export async function getPersonalEventGrant(request,env,requiredScope=EVENT_SCOP
   if(grant.status!=="active"||typeof grant.accessToken!=="string")
     return {error:grant.status==="revoked"||grant.status==="absent"?"consent-revoked":"authorization-unavailable",
       status:grant.status==="revoked"||grant.status==="absent"?401:503};
-  if(!scopes(grant.scope).has(requiredScope))
+  if(requiredScope&&!scopes(grant.scope).has(requiredScope))
     return {error:"scope-insufficient",requiredScope,status:403};
   return {accessToken:grant.accessToken,scope:grant.scope};
 }
@@ -141,8 +140,8 @@ export async function handlePersonalEventProgress(request,env,fetchImpl=fetch,no
   if(!captainConfigReady(env)||!env?.PERSONAL_EVENT_CACHE?.idFromName||!env?.PERSONAL_EVENT_CACHE?.get)
     return json({error:"not-configured"},503);
   const url=new URL(request.url);
-  const origin=appOrigin(env);
-  if(!origin||url.origin!==origin||request.headers.get("Origin")&&request.headers.get("Origin")!==origin)
+  if(url.origin!=="https://losp-roster-service.deliriousfan7.workers.dev"||
+      request.headers.get("Origin")&&request.headers.get("Origin")!=="https://losp-roster-service.deliriousfan7.workers.dev")
     return json({error:"forbidden"},403);
   const force=url.searchParams.get("refresh")==="1";
   const eventId=url.searchParams.get("eventId");

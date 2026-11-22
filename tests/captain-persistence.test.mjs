@@ -141,33 +141,6 @@ test("dedicated personal event consent persists the event grant without alliance
   assert.ok(encrypted);assert.doesNotMatch(encrypted,/EVENT_ACCESS|EVENT_REFRESH/);
 });
 
-test("isolated lab OAuth uses only its own callback and requires event, roster and inventory scopes",async()=>{
-  const {env,bucket}=setup();
-  const labOrigin="https://losp-personal-event-lab.deliriousfan7.workers.dev";
-  const labEnv={...env,PERSONAL_EVENT_LAB_MODE:"true",LOSP_APP_ORIGIN:labOrigin,
-    SCOPELY_CLIENT_ID:"lab-client",SCOPELY_CLIENT_SECRET:"lab-secret"};
-  const state="e".repeat(43);
-  const response=await handleCallback(new Request(labOrigin+"/oauth/callback?state="+state+"&code=lab-code",{
-    headers:{Cookie:"__Host-losp_oauth_state="+state+"; __Host-losp_oauth_verifier="+"f".repeat(43)+
-      "; __Host-losp_oauth_personal_events_lab="+state}
-  }),labEnv,async url=>{
-    assert.ok(url.endsWith("/oauth2/token"));
-    return Response.json({access_token:"LAB_ACCESS",refresh_token:"LAB_REFRESH",expires_in:3600,
-      scope:"openid m3p.f.pr.pro m3p.f.pr.ros m3p.f.pr.inv m3p.f.pr.act offline",token_type:"Bearer"});
-  });
-  assert.equal(response.status,303);
-  assert.equal(response.headers.get("location"),labOrigin+"/captain/lab");
-  assert.equal(captainSessionCount(bucket),1);
-  assert.ok(response.headers.getSetCookie().some(cookie=>cookie.includes("__Host-losp_captain_session=")));
-  assert.ok(response.headers.getSetCookie().some(cookie=>cookie.includes("__Host-losp_oauth_personal_events_lab=;")));
-  const wrongScope=await handleCallback(new Request(labOrigin+"/oauth/callback?state="+state+"&code=lab-code",{
-    headers:{Cookie:"__Host-losp_oauth_state="+state+"; __Host-losp_oauth_verifier="+"f".repeat(43)+
-      "; __Host-losp_oauth_personal_events_lab="+state}
-  }),labEnv,async()=>Response.json({access_token:"LAB_ACCESS",refresh_token:"LAB_REFRESH",expires_in:3600,
-      scope:"openid m3p.f.pr.pro m3p.f.pr.act offline",token_type:"Bearer"}));
-  assert.equal(wrongScope.status,403);
-});
-
 test("external captain login archives SELF roster only; never requests another member",async()=>{
   const calls=[];
   const {env,bucket}=setup();

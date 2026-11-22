@@ -7,8 +7,8 @@ import { renderLiveRosterViewer } from "./roster-viewer.js";
 import { discoverAlliance, readAllianceCoverage } from "./alliance-coverage.js";
 import {registerConnectedAlliance,saveConnectedAlliance,removeConnectedAlliance} from "./connected-alliance-index.js";
 import {captureConnectedPersonalRoster} from "./connected-personal-rosters.js";
-import {appOrigin} from "./app-origin.js";
 
+const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const COOKIE="__Host-losp_captain_session";
 const COOKIE_RX=/^[A-Za-z0-9_-]{43}$/;
 const attributes="; Path=/; Secure; HttpOnly; SameSite=Lax";
@@ -70,7 +70,7 @@ export async function saveCaptainConsent(res,token,env,request,fetchImpl=null){
   headers.append("Set-Cookie",COOKIE+"="+id+"; Max-Age="+CAPTAIN_COOKIE_AGE+attributes);
   return new Response(res.body,{status:res.status,headers});
 }
-export async function savePersonalEventsConsent(res,token,env,request,redirectPath="/captain/events"){
+export async function savePersonalEventsConsent(res,token,env,request){
   if(!captainConfigReady(env))throw Error("Personal session storage not available");
   const previous=readCookie(request);
   if(previous){
@@ -85,7 +85,7 @@ export async function savePersonalEventsConsent(res,token,env,request,redirectPa
   });
   if(stored.status!=="stored")throw Error("Personal event grant was not persisted");
   const headers=new Headers(res.headers);
-  headers.set("Location",appOrigin(env)+redirectPath);
+  headers.set("Location",ORIGIN+"/captain/events");
   headers.append("Set-Cookie",COOKIE+"="+id+"; Max-Age="+CAPTAIN_COOKIE_AGE+attributes);
   return new Response(null,{status:303,headers});
 }
@@ -104,7 +104,7 @@ export async function handleCaptainSession(request,env){
 export async function handleCaptainLogout(request,env){
   if(request.method!=="POST")return response({status:"method-not-allowed"},405);
   // SameSite=Lax is insufficient as sole CSRF defense.
-  if(request.headers.get("Origin")!==appOrigin(env)) return response({status:"forbidden"},403);
+  if(request.headers.get("Origin")!==ORIGIN) return response({status:"forbidden"},403);
   if(!captainConfigReady(env))return response({status:"not-configured"},503);
   const id=readCookie(request);
   if(id){
@@ -117,7 +117,7 @@ export async function handleCaptainLogout(request,env){
   const acceptsHtml=(request.headers.get("Accept")||"").includes("text/html");
   const res=acceptsHtml
     ? new Response(null,{status:303,headers:{
-        Location:appOrigin(env)+"/captain","Cache-Control":"no-store",
+        Location:ORIGIN+"/captain","Cache-Control":"no-store",
         "Referrer-Policy":"no-referrer"
       }})
     : response({status:"disconnected"});
@@ -167,11 +167,11 @@ export async function handleCaptainRosters(request,env,fetchImpl=fetch){
   if(request.method!=="GET")return response({status:"method-not-allowed"},405);
   if(!captainConfigReady(env))return response({status:"not-configured"},503);
   const id=readCookie(request);
-  if(!id)return Response.redirect(appOrigin(env)+"/captain",303);
+  if(!id)return Response.redirect(ORIGIN+"/captain",303);
   try{
     const grant=await coordinate(env,await captainSessionKey(id),"access");
     if(grant.status!=="active" || typeof grant.accessToken!=="string"){
-      return Response.redirect(appOrigin(env)+"/captain",303);
+      return Response.redirect(ORIGIN+"/captain",303);
     }
     // Always read the CURRENT alliance from the account's own Scopely token.
     // Never reuse members or roster IDs from a former alliance.
@@ -192,12 +192,12 @@ export async function handleCaptainCoverage(request,env,fetchImpl=fetch){
   if(request.method!=="GET")return response({status:"method-not-allowed"},405);
   if(!captainConfigReady(env))return response({status:"not-configured"},503);
   const id=readCookie(request);
-  if(!id)return Response.redirect(appOrigin(env)+"/captain",303);
+  if(!id)return Response.redirect(ORIGIN+"/captain",303);
   try{
     const access=await coordinate(env,await captainSessionKey(id),"access");
     if(access.status!=="active" || typeof access.accessToken!=="string"){
       if(["absent","revoked","reconnect-required"].includes(access.status))
-        return Response.redirect(appOrigin(env)+"/captain",303);
+        return Response.redirect(ORIGIN+"/captain",303);
       return response({status:"temporarily-unavailable"},503);
     }
     const card=await discoverAlliance(access.accessToken,fetchImpl);

@@ -85,3 +85,15 @@ export async function diagnoseAdminAuth(request,env,fetchImpl=fetch,now=Date.now
 export async function authenticateAdmin(request,env,fetchImpl=fetch,now=Date.now()){
   return (await diagnoseAdminAuth(request,env,fetchImpl,now))==="ok";
 }
+
+// Return the email only after the complete Cloudflare Access JWT validation.
+// The laboratory uses this additional exact match so other configured admins
+// cannot inspect the owner's personal Scopely data.
+export async function verifiedAdminEmail(request,env,fetchImpl=fetch,now=Date.now()){
+  if((await diagnoseAdminAuth(request,env,fetchImpl,now))!=="ok")return null;
+  try{
+    const token=getAccessToken(request);
+    const claims=parsed(token.split(".")[1]);
+    return claims.email.trim().toLowerCase();
+  }catch{return null;}
+}

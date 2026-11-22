@@ -40,10 +40,9 @@ import {runGameDifferentialFailureAuditTick} from "./game-differential-failure-a
 import {runGameDifferentialComparisonAuditTick} from "./game-differential-comparison-audit.js";
 import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
 import {handlePersonalEventLab} from "./personal-event-lab.js";
-import {authenticateAdmin} from "./admin-auth.js";
-import {appOrigin} from "./app-origin.js";
 
 const SCOPELY_AUTH_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/auth";
+const APP_ORIGIN = "https://losp-roster-service.deliriousfan7.workers.dev";
 const LOGIN_SCOPES = "openid m3p.f.pr.pro";
 const LOGIN_COOKIE_AGE_SECONDS = 600;
 
@@ -64,7 +63,7 @@ async function sha256Base64Url(value) {
     .replace(/=+$/g, "");
 }
 
-export async function startLogin(request, env, url) {
+async function startLogin(request, env, url) {
   if (request.method !== "GET") {
     return new Response("Method Not Allowed", {
       status: 405,
@@ -72,10 +71,8 @@ export async function startLogin(request, env, url) {
     });
   }
 
-  const origin=appOrigin(env);
-  // Production keeps its registered callback. A distinct, Access-gated lab
-  // Worker may use only its explicitly configured fixed origin.
-  if (typeof origin!=="string"||url.origin !== origin) {
+  const origin=APP_ORIGIN;
+  if (url.origin !== APP_ORIGIN) {
     return new Response("Not Found", { status: 404 });
   }
 
@@ -85,7 +82,7 @@ export async function startLogin(request, env, url) {
       status: 503, headers: { "Cache-Control": "no-store" }
     });
   }
-  if((url.pathname==="/login/events"||url.pathname==="/login/events-lab")&&
+  if(url.pathname==="/login/events"&&
       (env?.CAPTAIN_SESSIONS_ENABLED!=="true"||!captainConfigReady(env))){
     return new Response("Personal event session storage is not configured",{
       status:503,headers:{"Cache-Control":"no-store"}
@@ -138,8 +135,7 @@ export async function startLogin(request, env, url) {
   const metricsProbe = url.pathname === "/login/metrics-test";
   const isoIconsProbe = url.pathname === "/login/iso-icons-test";
   const inventoryProbe = url.pathname === "/login/inventory-test";
-  const personalEventLabMode=url.pathname==="/login/events-lab"&&env?.PERSONAL_EVENT_LAB_MODE==="true";
-  const personalEventsMode = url.pathname === "/login/events"||personalEventLabMode;
+  const personalEventsMode = url.pathname === "/login/events";
   const rosterScopeProbe = url.pathname === "/login/roster-scope-test";
   const allianceScopeProbe = url.pathname === "/login/alliance-scope-test";
   const collectionProbe = url.pathname === "/login/alliance-collection-test";
@@ -149,8 +145,7 @@ export async function startLogin(request, env, url) {
   const allianceProbe = url.pathname === "/login/alliance-test" || rosterScopeProbe;
   const scopes = allianceProbe || allianceScopeProbe || collectionProbe || rosterViewerMode || profilesProbe || coverageProbe || cardTypesProbe || metricsProbe
     ? LOGIN_SCOPES + " m3p.f.ar.pro" : LOGIN_SCOPES;
-  authorize.searchParams.set("scope", personalEventLabMode ? "openid m3p.f.pr.pro m3p.f.pr.ros m3p.f.pr.inv m3p.f.pr.act offline" :
-    personalEventsMode ? "openid m3p.f.pr.pro m3p.f.pr.act offline" : captainMode ? CAPTAIN_SCOPES :
+  authorize.searchParams.set("scope", personalEventsMode ? "openid m3p.f.pr.pro m3p.f.pr.act offline" : captainMode ? CAPTAIN_SCOPES :
     scopeProbe ? allianceScopeRequest(scopeProbe) :
     inventoryProbe ? LOGIN_SCOPES + " m3p.f.pr.inv" :
     (allianceScopeProbe || collectionProbe || rosterViewerMode) ? scopes + " m3p.f.ar.ros" :
@@ -178,7 +173,6 @@ export async function startLogin(request, env, url) {
   if (rosterViewerMode) headers.append("Set-Cookie", "__Host-losp_oauth_roster_viewer=" + state + "; " + attributes);
   if (captainMode) headers.append("Set-Cookie", "__Host-losp_oauth_captain=" + state + "; " + attributes);
   if (url.pathname==="/login/events") headers.append("Set-Cookie", "__Host-losp_oauth_personal_events=" + state + "; " + attributes);
-  if (personalEventLabMode) headers.append("Set-Cookie", "__Host-losp_oauth_personal_events_lab=" + state + "; " + attributes);
   if (scopeProbe) headers.append("Set-Cookie", scopeProbe.cookie + "=" + state + "; " + attributes);
   if (inventoryProbe) headers.append("Set-Cookie", "__Host-losp_oauth_inventory_test=" + state + "; " + attributes);
   if (profilesProbe) headers.append("Set-Cookie", "__Host-losp_oauth_profiles_test=" + state + "; " + attributes);
@@ -191,7 +185,6 @@ export async function startLogin(request, env, url) {
 
 export default {
   async scheduled(controller, env) {
-    if(env?.PERSONAL_EVENT_LAB_MODE==="true")return;
     // Reuse the existing every-minute Cloudflare trigger; no extra cron.
     // Paris local 00:10, 03:10, ..., 21:10, including DST changes.
     if(controller?.cron==="* * * * *"){
@@ -542,19 +535,7 @@ export default {
   },
   async fetch(request, env) {
     const url = new URL(request.url);
-    if(env?.PERSONAL_EVENT_LAB_MODE==="true"){
-      if(!await authenticateAdmin(request,env))return new Response("Forbidden",{status:403,
-        headers:{"Cache-Control":"no-store","X-Robots-Tag":"noindex"}});
-      if(!appOrigin(env))return new Response("Lab origin is not configured safely",{status:503,headers:{"Cache-Control":"no-store"}});
-      const oauthPath=url.pathname==="/login/events-lab"||url.pathname==="/oauth/callback"||url.pathname==="/oauth/status";
-      if(oauthPath){
-        if(url.pathname==="/login/events-lab")return startLogin(request,env,url);
-        if(url.pathname==="/oauth/callback")return handleCallback(request,env);
-        return handleOAuthStatus(request,env);
-      }
-      return handlePersonalEventLab(request,env);
-    }
-    if(url.pathname.startsWith("/captain/lab"))return new Response("Not Found",{status:404});
+    if(url.pathname.startsWith("/captain/lab"))return handlePersonalEventLab(request,env);
     if(url.pathname==="/captain/api/events")
       return handlePersonalEventProgress(request,env);
     if(url.pathname==="/captain/events")
