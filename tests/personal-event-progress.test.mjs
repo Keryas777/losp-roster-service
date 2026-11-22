@@ -36,6 +36,13 @@ test("Discord-only or insufficient OAuth scope is rejected before any event GET"
   const res=await handlePersonalEventProgress(f.request(),f.env);
   assert.equal(res.status,403);assert.equal((await res.json()).error,"scope-insufficient");assert.equal(f.calls.length,0);
 });
+test("revoked Scopely consent is rejected before reading a warm private cache",async()=>{
+  const f=harness(()=>{throw Error("revoked consent must not reach provider");});
+  f.env.CAPTAIN_REFRESH_COORDINATOR.get=()=>({fetch:async()=>Response.json({status:"revoked"})});
+  const res=await handlePersonalEventProgress(f.request(),f.env);
+  assert.equal(res.status,401);assert.equal((await res.json()).error,"consent-revoked");
+  assert.equal(f.calls.length,0);
+});
 test("event list requests full French data with pagination and reports numeric facts only when present",async()=>{
   const f=harness(url=>{
     const page=Number(new URL(url).searchParams.get("page"));
