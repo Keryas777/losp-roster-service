@@ -239,6 +239,17 @@ function labDocument(){return `<!doctype html><html lang="fr"><head><meta charse
 export function labClientJs(){return `(()=>{
 const $=id=>document.getElementById(id);
 let latest=null,latestEvents=null,before=null,after=null;
+const responseEventId=value=>{
+  for(let depth=0;depth<4;depth++){
+    if(value===null||typeof value!=="object")return null;
+    if(Array.isArray(value)){value=value[0];continue;}
+    if(value.id!=null)return String(value.id);
+    if(value.eventId!=null)return String(value.eventId);
+    if(value.data&&typeof value.data==="object"){value=value.data;continue;}
+    break;
+  }
+  return null;
+};
 const show=(id,value)=>$(id).textContent=typeof value==="string"?value:JSON.stringify(value,null,2);
 const compare=(a,b,path="",out=[])=>{
   if(Object.is(a,b))return out;
@@ -333,8 +344,8 @@ $("events-select").addEventListener("change",event=>{
   if(latest){
     let response=latest.data;
     if(response?.resource==="detail"&&selectedEventId){
-      const detailId=response.data?.data?.id??response.data?.id;
-      if(detailId!=null&&String(detailId)!==String(selectedEventId)&&latestEvents)response=latestEvents;
+      const detailId=responseEventId(response.data);
+      if(detailId!==null&&detailId!==String(selectedEventId)&&latestEvents)response=latestEvents;
     }
     publishAnalysis(response,selectedEventId);
   }
