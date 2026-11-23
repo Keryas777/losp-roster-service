@@ -103,12 +103,12 @@ try{
   await page.waitForFunction(()=>document.querySelector("#events-select")?.options.length===2);
   assert.equal(upstreamCalls.length,1,"list request makes one upstream call");
   await page.locator("#events-select").selectOption("event-fixture");
-  await page.getByText(/Événement de test/).waitFor();
+  await page.locator("#progress-analysis").getByRole("heading",{name:/Événement de test/}).waitFor();
   assert.equal(upstreamCalls.length,1,"selecting an event runs analysis locally");
 
   await page.locator("#query").click();
-  await page.getByText(/Détail de test/).waitFor();
-  await page.getByText(/Actuel 5 \/ cible 10/).waitFor();
+  await page.locator("#progress-analysis").getByRole("heading",{name:/Détail de test/}).waitFor();
+  await page.locator("#progress-analysis").getByText(/Actuel 5 \/ cible 10/).waitFor();
   assert.deepEqual(upstreamCalls,["/player/v1/events","/player/v1/events/event-fixture"]);
   assert.equal(await page.locator("#progress-analysis").count(),1);
   assert.deepEqual(runtimeErrors,[],"no unhandled WebKit page errors");
