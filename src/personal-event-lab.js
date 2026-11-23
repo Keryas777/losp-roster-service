@@ -291,7 +291,7 @@ async function query(){
       }
       selectedEventId=[...data.data.data].some(event=>String(event?.id??event?.eventId)===String(previous))?previous:null;
       sel.value=selectedEventId||"";
-    }else if(data.resource==="detail")selectedEventId=selectedEventId||$("event-id").value.trim()||data.data?.data?.id||data.data?.id||null;
+    }else if(data.resource==="detail")selectedEventId=data.data?.data?.id||data.data?.id||body.eventId||selectedEventId||$("event-id").value.trim()||null;
     publishAnalysis(data,selectedEventId);
     show("response",data);
     $("metrics").replaceChildren(...["HTTP "+r.status,"Requête navigateur "+Math.round(performance.now()-t)+" ms",

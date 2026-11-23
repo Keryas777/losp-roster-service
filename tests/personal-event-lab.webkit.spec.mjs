@@ -25,8 +25,71 @@ async function accessCredentials(){
   return {jwk,jwt:header+"."+payload+"."+Buffer.from(signature).toString("base64url")};
 }
 
+const scenarios=[
+  {id:"event-no-progress",name:"Sans progression personnelle",type:"milestone",
+    expected:/Progression non fournie par Scopely/,
+    response:{data:{id:"event-no-progress",name:"Sans progression personnelle",type:"milestone",
+      milestone:{brackets:[{id:"default",objective:{tiers:{}}}],scoring:{cappedScorings:[]}}}}},
+  {id:"event-zero",name:"Objectif à zéro",type:"milestone",expected:/Actuel 0 \/ cible 10 · 0%/,
+    response:{data:{id:"event-zero",name:"Objectif à zéro",type:"milestone",
+      milestone:{brackets:[{id:"default",objective:{progress:0,target:10}}]}}}},
+  {id:"event-partial",name:"Épreuve d’été — l’Œil d’Æra",type:"milestone",expected:/Actuel 5 \/ cible 10 · 50%/,
+    response:{data:{id:"event-partial",name:"Épreuve d’été — l’Œil d’Æra",type:"milestone",score:37,
+      milestone:{brackets:[{id:"default",name:"Défis d’élite",objective:{progress:5,target:10}}]}}}},
+  {id:"event-complete",name:"Objectif terminé",type:"milestone",expected:/Objectif terminé · completed/,
+    response:{data:{id:"event-complete",name:"Objectif terminé",type:"milestone",
+      milestone:{brackets:[{id:"default",name:"Objectif terminé",objective:{progress:10,target:10}}]}}}},
+  {id:"event-tiers",name:"Paliers multiples",type:"milestone",expected:/Paliers terminés prouvés : 1, 2 · Réclamables : 3/,
+    response:{data:{id:"event-tiers",name:"Paliers multiples",type:"milestone",
+      milestone:{completedTier:2,tiers:[{tier:1,rewards:[]},{tier:2,rewards:[]},{tier:3,rewards:[]}],
+        claimableTiers:[3],brackets:[{id:"default",objective:{progress:20,target:30}}],
+        scoring:{cappedScorings:[
+          {id:"shared-points",name:"Points partagés",soFar:7,cap:20},
+          {id:"shared-points",name:"Points partagés",soFar:7,cap:20},
+          {id:"unknown-points",soFar:null,cap:10}
+        ]}}}}},
+  {id:"event-incomplete",name:"Compteurs incomplets",type:"milestone",expected:/inconnu/,
+    response:{data:{id:"event-incomplete",name:"Compteurs incomplets",type:"milestone",
+      milestone:{brackets:[
+        {id:"null",objective:{progress:null,target:5}},
+        {id:"missing",objective:{target:5}},
+        {id:"absent"}
+      ],scoring:{cappedScorings:[{cap:10},{soFar:null,cap:5},{soFar:"0",cap:8}]}}}}},
+  {id:"event-empty",name:"Réponse vide",type:"milestone",expected:/Progression non fournie par Scopely/,
+    response:{data:{id:"event-empty",name:"Réponse vide",type:"milestone",
+      milestone:{brackets:[],scoring:{cappedScorings:[]},tiers:[],claimableTiers:[]}}}},
+  {id:"event-nested",name:"Structure imbriquée inhabituelle",type:"milestone",expected:/Actuel 3 \/ cible 7 · 43%/,
+    // `milestones` et l'enveloppe data.data sont traités comme cas de robustesse,
+    // pas comme structures Scopely confirmées.
+    response:{data:{data:{id:"event-nested",name:"Structure imbriquée inhabituelle",type:"milestone",
+      milestones:[{id:"nested",brackets:[{id:"default",objective:{progress:3,target:7}}],
+        scoring:{cappedScorings:[{id:"nested-shared",soFar:2,cap:9},{id:"nested-shared",soFar:2,cap:9}]},
+        completedTier:1,tiers:[{tier:1},{tier:2}],claimableTiers:[{tier:2}]}]}}}},
+  {id:"event-raid",name:"Raid d’appréhension — l’Épreuve du Crépuscule",type:"raid",expected:/Actuel 0 \/ cible 500 · 0%/,
+    // Raid progression fields are intentionally hypothetical fixture data.
+    response:{data:{id:"event-raid",name:"Raid d’appréhension — l’Épreuve du Crépuscule",type:"raid",
+      milestone:{type:"alliance",brackets:[{id:"default",objective:{progress:0,target:500}}],
+        scoring:{cappedScorings:[{id:"raid-score",soFar:0,cap:1000}]}}}}},
+  {id:"event-slow",name:"Détail retardé",type:"milestone",expected:/Actuel 4 \/ cible 8 · 50%/,
+    response:{data:{id:"event-slow",name:"Détail retardé",type:"milestone",
+      milestone:{brackets:[{id:"default",objective:{progress:4,target:8}}]}}}}
+];
+
+// The large-list case uses a clearly synthetic padding property solely to
+// exercise the 170–175 KB transport/render path. It is not a claimed API field.
+const listEvents=[...scenarios.map(({id,name,type})=>({id,name,type})),
+  ...Array.from({length:120-scenarios.length},(_,i)=>({id:`catalog-${i+1}`,name:`Événement fictif ${i+1}`,type:i%5===0?"raid":"milestone"}))];
+for(const event of listEvents)event.fixturePadding="x".repeat(1650);
+const firstPage=listEvents.slice(0,100);
+let firstPageBytes=Buffer.byteLength(JSON.stringify({meta:{page:1,perPage:100,perTotal:listEvents.length},data:firstPage}));
+firstPage[0].fixturePadding+="x".repeat(Math.max(0,173_564-firstPageBytes));
+firstPageBytes=Buffer.byteLength(JSON.stringify({meta:{page:1,perPage:100,perTotal:listEvents.length},data:firstPage}));
+
 const {jwk,jwt}=await accessCredentials();
-const upstreamCalls=[];
+const upstreamCalls=[],pageBytes=[];
+let releaseSlow,slowStartedResolve;
+const slowGate=new Promise(resolve=>releaseSlow=resolve);
+const slowStarted=new Promise(resolve=>slowStartedResolve=resolve);
 const env={PERSONAL_EVENT_LAB_ENABLED:"true",PERSONAL_EVENT_LAB_ADMIN_EMAIL:"owner@example.test",
   MSF_ADMIN_ENABLED:"true",MSF_ADMIN_EMAILS:"owner@example.test",CF_ACCESS_TEAM_DOMAIN:ACCESS_DOMAIN,
   CF_ACCESS_AUD:ACCESS_AUD,CAPTAIN_SESSIONS_ENABLED:"true",CAPTAIN_ENCRYPTION_KEY_HEX:"c".repeat(64),
@@ -38,12 +101,18 @@ async function fixtureFetch(input){
   const url=new URL(String(input));
   if(url.hostname===ACCESS_DOMAIN)return Response.json({keys:[jwk]});
   upstreamCalls.push(url.pathname);
-  if(url.pathname==="/player/v1/events")return Response.json({meta:{page:1,perPage:100,perTotal:1},data:[
-    {id:"event-fixture",name:"Événement de test"}
-  ]});
-  if(url.pathname==="/player/v1/events/event-fixture")return Response.json({data:{id:"event-fixture",
-    name:"Détail de test",score:125,milestone:{brackets:[{id:"bracket",name:"Objectif test",
-      objective:{progress:5,target:10}}]}}});
+  if(url.pathname==="/player/v1/events"){
+    const page=Number(url.searchParams.get("page")||1);
+    const events=listEvents.slice((page-1)*100,page*100);
+    const body={meta:{page,perPage:100,perTotal:listEvents.length},data:events};
+    const bytes=Buffer.byteLength(JSON.stringify(body));pageBytes.push(bytes);
+    return Response.json(body);
+  }
+  const eventId=decodeURIComponent(url.pathname.split("/").at(-1));
+  if(eventId==="event-slow")slowStartedResolve();
+  if(eventId==="event-slow")await slowGate;
+  const scenario=scenarios.find(row=>row.id===eventId);
+  if(scenario)return Response.json(scenario.response);
   return new Response("not found",{status:404});
 }
 
@@ -68,12 +137,11 @@ const browser=await webkit.launch({headless:true});
 try{
   await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
   const address=server.address();
-  const context=await browser.newContext({extraHTTPHeaders:{
-    "Cf-Access-Jwt-Assertion":jwt
-  }});
+  const context=await browser.newContext({extraHTTPHeaders:{"Cf-Access-Jwt-Assertion":jwt}});
   const page=await context.newPage();
-  const runtimeErrors=[],failedScripts=[],scriptResponses=[];
+  const runtimeErrors=[],consoleErrors=[],failedScripts=[],scriptResponses=[];
   page.on("pageerror",error=>runtimeErrors.push(error.message));
+  page.on("console",message=>{if(message.type()==="error")consoleErrors.push(message.text());});
   page.on("response",response=>{
     if(/personal-event-lab\/(client|progress-analysis)\.js/.test(response.url())){
       scriptResponses.push({url:response.url(),status:response.status()});
@@ -91,7 +159,8 @@ try{
     });
   });
   await page.goto("http://127.0.0.1:"+address.port+"/admin/personal-event-lab",{waitUntil:"networkidle"});
-  assert.equal(await page.locator("#progress-analysis").count(),1,"one progress panel in served HTML");
+  const panel=page.locator("#progress-analysis");
+  assert.equal(await panel.count(),1,"one analysis panel in served HTML");
   assert.equal(await page.locator('script[src="/admin/personal-event-lab/client.js"]').count(),1);
   assert.equal(await page.locator('script[src="/admin/personal-event-lab/progress-analysis.js"]').count(),1);
   await page.waitForFunction(()=>typeof window.__personalEventLabRenderProgress==="function");
@@ -100,22 +169,63 @@ try{
   assert.match(await page.locator("#connection").innerText(),/Connecté/);
 
   await page.locator("#query").click();
-  await page.waitForFunction(()=>document.querySelector("#events-select")?.options.length===2);
-  assert.equal(upstreamCalls.length,1,"list request makes one upstream call");
-  await page.locator("#events-select").selectOption("event-fixture");
-  await page.locator("#progress-analysis").getByRole("heading",{name:/Événement de test/}).waitFor();
-  assert.equal(upstreamCalls.length,1,"selecting an event runs analysis locally");
+  await page.waitForFunction(()=>document.querySelector("#events-select")?.options.length===121);
+  assert.ok(firstPageBytes>=170_000&&firstPageBytes<=175_000,`synthetic first page size was ${firstPageBytes} bytes`);
+  assert.equal(pageBytes.length,2,"the 120-event list is paginated over two responses");
+  assert.equal(upstreamCalls.length,2,"the events list made two expected mocked calls");
+  assert.ok((await page.locator("#response").innerText()).length>170_000,"large list is visible in raw response section");
 
+  const select=page.locator("#events-select");
+  for(const scenario of scenarios.slice(0,-1)){
+    const before=upstreamCalls.length;
+    await select.selectOption(scenario.id);
+    await page.waitForFunction(id=>document.querySelector("#progress-analysis")?.innerText().includes(id),scenario.id);
+    assert.equal(upstreamCalls.length,before,`selecting ${scenario.id} must be local`);
+    assert.equal(await panel.getAttribute("data-analysis-error"),null,`caught analysis error for ${scenario.id}`);
+    assert.doesNotMatch(await panel.innerText(),/Erreur locale pendant l’analyse/);
+    await page.locator("#query").click();
+    await page.waitForFunction(id=>document.querySelector("#response")?.innerText().includes(id),scenario.id);
+    await page.waitForFunction(({id,expectation})=>{
+      const root=document.querySelector("#progress-analysis");
+      return root?.innerText().includes(id)&&root.innerText().match(new RegExp(expectation));
+    },{id:scenario.id,expectation:scenario.expected.source});
+    const text=await panel.innerText();
+    assert.match(text,scenario.expected,scenario.id);
+    assert.equal(await panel.getAttribute("data-analysis-error"),null,`analysis error flag for ${scenario.id}`);
+    assert.doesNotMatch(text,/Erreur locale pendant l’analyse/);
+    if(scenario.id==="event-tiers"){
+      assert.equal(await panel.locator(".progress-card").count(),2,"duplicate capped scoring identity appears once");
+      assert.equal(await panel.getByText(/Points partagés/).count(),1);
+    }
+    assert.equal(upstreamCalls.length,before+1,`one detail request for ${scenario.id}`);
+  }
+
+  // Change the selected event while a detail request is still in flight.
+  // The arriving detail must be analyzed against its own returned event ID,
+  // never filtered using the newer selection.
+  await select.selectOption("event-slow");
+  const beforeSlow=upstreamCalls.length;
   await page.locator("#query").click();
-  await page.locator("#progress-analysis").getByRole("heading",{name:/Détail de test/}).waitFor();
-  await page.locator("#progress-analysis").getByText(/Actuel 5 \/ cible 10/).waitFor();
-  assert.deepEqual(upstreamCalls,["/player/v1/events","/player/v1/events/event-fixture"]);
-  assert.equal(await page.locator("#progress-analysis").count(),1);
+  await slowStarted;
+  await select.selectOption("event-zero");
+  assert.equal(upstreamCalls.length,beforeSlow+1,"selection changes do not start a request");
+  releaseSlow();
+  await page.waitForFunction(()=>document.querySelector("#response")?.innerText().includes("event-slow"));
+  await page.locator("#progress-analysis").getByRole("heading",{name:/Détail retardé/}).waitFor();
+  const delayedText=await panel.innerText();
+  assert.match(delayedText,/Actuel 4 \/ cible 8 · 50%/);
+  assert.doesNotMatch(delayedText,/Objectif à zéro/);
+  assert.equal(await panel.getAttribute("data-analysis-error"),null);
+
+  assert.equal(await panel.count(),1);
   assert.deepEqual(runtimeErrors,[],"no unhandled WebKit page errors");
-  assert.deepEqual(failedScripts,[],"both served scripts load");
+  assert.deepEqual(consoleErrors,[],"no WebKit console errors");
+  assert.deepEqual(failedScripts,[],"both served scripts load successfully");
   assert.deepEqual(await page.evaluate(()=>window.__labUnhandled),[],"no script errors or unhandled rejections");
   console.log(JSON.stringify({browser:"WebKit",version:browser.version(),result:"passed",
-    upstreamCalls:upstreamCalls.length,progressText:await page.locator("#progress-analysis").innerText()}));
+    detailScenarios:scenarios.length,listEvents:listEvents.length,listPageBytes:pageBytes,
+    upstreamCalls:upstreamCalls.length,progressionCases:scenarios.slice(0,-1).length,
+    delayedDetail:"passed",progressText:delayedText}));
   await context.close();
 }finally{
   await browser.close();
