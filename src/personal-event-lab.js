@@ -238,7 +238,7 @@ function labDocument(){return `<!doctype html><html lang="fr"><head><meta charse
 
 export function labClientJs(){return `(()=>{
 const $=id=>document.getElementById(id);
-let latest=null,before=null,after=null;
+let latest=null,latestEvents=null,before=null,after=null;
 const show=(id,value)=>$(id).textContent=typeof value==="string"?value:JSON.stringify(value,null,2);
 const compare=(a,b,path="",out=[])=>{
   if(Object.is(a,b))return out;
@@ -280,6 +280,7 @@ async function query(){
     const r=await fetch("/admin/personal-event-lab/api/query",{method:"POST",cache:"no-store",credentials:"same-origin",
       headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
     const data=await r.json();latest={data,receivedAt:new Date().toISOString()};
+    if(data.resource==="events"&&data.status==="ok")latestEvents=data;
     let selectedEventId=$("events-select").value||null;
     if(data.resource==="events"&&Array.isArray(data.data?.data)){
       const sel=$("events-select"),previous=selectedEventId;
@@ -323,13 +324,20 @@ $("snapshot-before").addEventListener("click",()=>snapshot("before"));
 $("snapshot-after").addEventListener("click",()=>snapshot("after"));
 $("check").addEventListener("click",status);
 $("clear").addEventListener("click",()=>{
-  latest=before=after=null;window.__personalEventLabLatest=null;
+  latest=latestEvents=before=after=null;window.__personalEventLabLatest=null;
   show("response","Aucune réponse pour l’instant.");show("diff","Relevés effacés.");$("metrics").replaceChildren();
   const root=$("progress-analysis");if(root){root.dataset.analysisError="";root.textContent="Interroge ou sélectionne un événement.";}
 });
 $("events-select").addEventListener("change",event=>{
   const selectedEventId=event.target.value||null;
-  if(latest)publishAnalysis(latest.data,selectedEventId);
+  if(latest){
+    let response=latest.data;
+    if(response?.resource==="detail"&&selectedEventId){
+      const detailId=response.data?.data?.id??response.data?.id;
+      if(detailId!=null&&String(detailId)!==String(selectedEventId)&&latestEvents)response=latestEvents;
+    }
+    publishAnalysis(response,selectedEventId);
+  }
   if(selectedEventId){
     $("resource").value="detail";$("params").value=JSON.stringify({lang:"fr",objRewards:"full"},null,2);
     $("event-id").value=selectedEventId;
