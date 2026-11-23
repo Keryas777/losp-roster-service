@@ -61,7 +61,7 @@ test("same Worker serves a private no-store lab and reuses the existing Scopely 
   assert.match(page.headers.get("Cache-Control"),/no-store/);
   const html=await page.text();
   assert.equal((html.match(/id="progress-analysis"/g)||[]).length,1,"one analysis panel in the DOM");
-  assert.equal((html.match(/progress-analysis\\.js/g)||[]).length,1,"one analysis module script");
+  assert.equal((html.match(/progress-analysis\.js/g)||[]).length,1,"one analysis module script");
   const analysis=await handlePersonalEventLab(await request("/admin/personal-event-lab/progress-analysis.js"),env,
     mockFetch(async()=>{throw Error("analysis must not fetch Scopely");}));
   assert.equal(analysis.status,200);
