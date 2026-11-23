@@ -179,12 +179,12 @@ try{
   for(const scenario of scenarios.slice(0,-1)){
     const before=upstreamCalls.length;
     await select.selectOption(scenario.id);
-    await page.waitForFunction(id=>document.querySelector("#progress-analysis")?.innerText().includes(id),scenario.id);
+    await page.waitForFunction(id=>document.querySelector("#progress-analysis")?.innerText.includes(id),scenario.id);
     assert.equal(upstreamCalls.length,before,`selecting ${scenario.id} must be local`);
     assert.equal(await panel.getAttribute("data-analysis-error"),null,`caught analysis error for ${scenario.id}`);
     assert.doesNotMatch(await panel.innerText(),/Erreur locale pendant l’analyse/);
     await page.locator("#query").click();
-    await page.waitForFunction(id=>document.querySelector("#response")?.innerText().includes(id),scenario.id);
+    await page.waitForFunction(id=>document.querySelector("#response")?.innerText.includes(id),scenario.id);
     await page.waitForFunction(({id,expectation})=>{
       const root=document.querySelector("#progress-analysis");
       return root?.innerText.includes(id)&&root.innerText.match(new RegExp(expectation));
@@ -210,7 +210,7 @@ try{
   await select.selectOption("event-zero");
   assert.equal(upstreamCalls.length,beforeSlow+1,"selection changes do not start a request");
   releaseSlow();
-  await page.waitForFunction(()=>document.querySelector("#response")?.innerText().includes("event-slow"));
+  await page.waitForFunction(()=>document.querySelector("#response")?.innerText.includes("event-slow"));
   await page.locator("#progress-analysis").getByRole("heading",{name:/Détail retardé/}).waitFor();
   const delayedText=await panel.innerText();
   assert.match(delayedText,/Actuel 4 \/ cible 8 · 50%/);
