@@ -1,0 +1,38 @@
+name: Event planner tests
+
+on:
+  pull_request:
+    paths:
+      - "src/event-planner-*.js"
+      - "src/personal-event-progress.js"
+      - "src/oauth-callback.js"
+      - "src/index.js"
+      - "public/event-planner/**"
+      - "tests/event-planner/**"
+      - "tests/event-planner-api.test.mjs"
+      - "tests/event-planner-page.test.mjs"
+      - "tests/captain-persistence.test.mjs"
+      - ".github/workflows/event-planner-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Test the Maddoxx engine and Worker adapters
+        run: >-
+          node --test tests/event-planner/*.test.js
+          tests/event-planner-api.test.mjs
+          tests/event-planner-page.test.mjs
+          tests/personal-event-progress.test.mjs
+          tests/personal-event-analysis.test.mjs
+          tests/personal-event-lab.test.mjs
+          tests/captain-persistence.test.mjs

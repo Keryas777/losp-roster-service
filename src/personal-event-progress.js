@@ -2,6 +2,7 @@
 import {captainConfigReady} from "./captain-vault.js";
 import {captainSessionKey} from "./captain-vault.js";
 import {API_KEY} from "./player-card.js";
+import {handleEventPlannerCache} from "./event-planner-cache.js";
 
 const ROOT="https://api.marvelstrikeforce.com";
 const COOKIE="__Host-losp_captain_session";
@@ -168,6 +169,8 @@ export async function handlePersonalEventProgress(request,env,fetchImpl=fetch,no
 export class PersonalEventProgressCache {
   constructor(ctx,env){this.ctx=ctx;this.env=env;this.inflight=new Map();}
   async fetch(request,fetchImpl=fetch){
+    if(request.method==="POST"&&new URL(request.url).pathname==="/planner")
+      return handleEventPlannerCache.call(this,request,fetchImpl);
     if(request.method!=="POST"||new URL(request.url).pathname!=="/progress")
       return json({error:"not-found"},404);
     let input;

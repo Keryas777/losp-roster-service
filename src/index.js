@@ -40,6 +40,8 @@ import {runGameDifferentialFailureAuditTick} from "./game-differential-failure-a
 import {runGameDifferentialComparisonAuditTick} from "./game-differential-comparison-audit.js";
 import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
 import {handlePersonalEventLab} from "./personal-event-lab.js";
+import {handleEventPlannerApi} from "./event-planner-api.js";
+import {handleEventPlannerPage} from "./event-planner-page.js";
 
 const SCOPELY_AUTH_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/auth";
 const APP_ORIGIN = "https://losp-roster-service.deliriousfan7.workers.dev";
@@ -90,13 +92,15 @@ async function startLogin(request, env, url) {
     });
   }
 
-  if (url.pathname === "/login/captain" && captainConfigReady(env)) {
+  const plannerReturn=url.pathname==="/login/captain"&&url.searchParams.get("returnTo")==="events-planner";
+  const forceCaptainConsent=plannerReturn&&url.searchParams.get("reauthorize")==="1";
+  if (url.pathname === "/login/captain" && captainConfigReady(env) && !forceCaptainConsent) {
     // A returning captain must not be sent through the emailed-code OAuth flow.
     const status=await handleCaptainSession(request,env);
     if(status.ok) {
       const previous=await status.json();
       if(previous.status==="connected"){
-        const redirect=Response.redirect(origin+"/captain",302);
+        const redirect=Response.redirect(origin+(plannerReturn?"/captain/events-planner":"/captain"),302);
         // Extend the sliding browser lease only when the Worker confirmed
         // the opaque session. No token is ever sent to the browser.
         const headers=new Headers(redirect.headers);
@@ -165,6 +169,7 @@ async function startLogin(request, env, url) {
   if (collectionProbe) headers.append("Set-Cookie", "__Host-losp_oauth_collection_test=" + state + "; " + attributes);
   if (rosterViewerMode) headers.append("Set-Cookie", "__Host-losp_oauth_roster_viewer=" + state + "; " + attributes);
   if (captainMode) headers.append("Set-Cookie", "__Host-losp_oauth_captain=" + state + "; " + attributes);
+  if (plannerReturn) headers.append("Set-Cookie", "__Host-losp_oauth_captain_return=" + state + "; " + attributes);
   if (scopeProbe) headers.append("Set-Cookie", scopeProbe.cookie + "=" + state + "; " + attributes);
   if (inventoryProbe) headers.append("Set-Cookie", "__Host-losp_oauth_inventory_test=" + state + "; " + attributes);
   if (profilesProbe) headers.append("Set-Cookie", "__Host-losp_oauth_profiles_test=" + state + "; " + attributes);
@@ -530,6 +535,10 @@ export default {
     if(url.pathname==="/admin/personal-event-lab"||url.pathname.startsWith("/admin/personal-event-lab/"))return handlePersonalEventLab(request,env);
     if(url.pathname==="/captain/api/events")
       return handlePersonalEventProgress(request,env);
+    if(url.pathname==="/captain/api/event-planner")
+      return handleEventPlannerApi(request,env);
+    if(url.pathname==="/captain/events-planner"||url.pathname.startsWith("/captain/events-planner/"))
+      return handleEventPlannerPage(request,env);
     if(url.pathname==="/captain/events")
       return handlePersonalEventProgress(request,env);
     if(url.pathname==="/api/public/events")

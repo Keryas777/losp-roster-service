@@ -1,5 +1,7 @@
 # Progression personnelle des événements — contrat v1
 
+> Mise à jour de la branche d’intégration Maddoxx : le planificateur privé, le port du moteur et les adaptations de données manquantes sont décrits dans [event-planner-maddoxx-integration.md](event-planner-maddoxx-integration.md). Les sections datées ci-dessous restent l’audit initial de la progression personnelle.
+
 Le Worker expose une lecture privée à la demande sous `/captain/api/events` (alias lisible `/captain/events`). Le service réutilise la session capitaine existante. Le parcours `/login/captain` standard demande les scopes déclarés par le service, dont `m3p.f.pr.act`, `m3p.f.pr.ros` et `m3p.f.pr.inv`; le laboratoire n’ajoute aucune route OAuth. Les callbacks n’appellent ni les collecteurs de roster ni les routes d’archive.
 
 ## Requêtes
