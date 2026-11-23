@@ -68,6 +68,66 @@ function labHtml(){
 function labScript(){return new Response(labClientJs(),{headers:{"Content-Type":"text/javascript; charset=utf-8",
   "Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff","X-Robots-Tag":"noindex"}});}
 
+function progressAnalysisModule(){return `const object=${object.toString()};
+const finite=${finite.toString()};
+const firstNumber=${firstNumber.toString()};
+const label=${label.toString()};
+const stable=${stable.toString()};
+const eventsFrom=${eventsFrom.toString()};
+const eventMilestones=${eventMilestones.toString()};
+const progressFact=${progressFact.toString()};
+export const analyzePersonalEventResponse=${analyzePersonalEventResponse.toString()};
+function renderPersonalEventAnalysis(input){
+  const root=document.getElementById("progress-analysis");
+  if(!root)return;
+  try{
+    const response=input?.response??input;
+    let selectedId=input?.selectedEventId??document.getElementById("events-select")?.value??null;
+    if(!selectedId&&response?.resource==="detail")selectedId=eventsFrom(response)[0]?.id??null;
+    if(response?.resource==="events"&&!selectedId){
+      root.textContent="Sélectionne un événement reçu pour afficher son analyse.";
+      return;
+    }
+    const rows=analyzePersonalEventResponse(response,selectedId);
+    root.replaceChildren();
+    if(!rows.length){
+      root.textContent=response?.resource==="detail"?"Progression non fournie par Scopely":"Sélectionne un événement reçu.";
+      return;
+    }
+    for(const event of rows){
+      const h=document.createElement("h3");h.textContent=event.name+" · "+event.id;root.append(h);
+      const summary=document.createElement("p");
+      summary.textContent="Score : "+(event.score??"inconnu")+" · Jalons : "+event.milestoneCount+
+        " · Objectifs connus / inconnus / absents : "+event.knownObjectives+" / "+event.unknownObjectives+" / "+event.absentObjectives;
+      root.append(summary);
+      for(const fact of event.facts){
+        const card=document.createElement("article");card.className="progress-card";
+        const title=document.createElement("strong");title.textContent=fact.label+" · "+fact.state;card.append(title);
+        const text=document.createElement("p");
+        text.textContent="Actuel "+(fact.value??"inconnu")+" / cible "+(fact.target??"inconnue")+
+          (fact.percent===null?"":" · "+Math.round(fact.percent)+"%");card.append(text);
+        if(fact.percent!==null){const bar=document.createElement("progress");bar.max=100;bar.value=fact.percent;
+          bar.setAttribute("aria-label",fact.label);card.append(bar);}
+        root.append(card);
+      }
+      const tiers=document.createElement("p");
+      tiers.textContent="Paliers terminés prouvés : "+(event.completedTiers.map(x=>x.tier).join(", ")||"aucun")+
+        " · Réclamables : "+(event.claimableTiers.map(x=>x.tier).join(", ")||"aucun");root.append(tiers);
+      if(!event.facts.some(fact=>fact.value!==null)){
+        const empty=document.createElement("p");empty.textContent="Progression non fournie par Scopely";root.append(empty);
+      }
+    }
+    delete root.dataset.analysisError;
+  }catch(error){
+    root.replaceChildren();root.dataset.analysisError="true";
+    root.textContent="Erreur locale pendant l’analyse des progressions ("+(error?.name||"JavaScript")+"). Réessaie ou recharge le laboratoire.";
+  }
+}
+window.__personalEventLabRenderProgress=renderPersonalEventAnalysis;
+document.addEventListener("personal-event-response",event=>renderPersonalEventAnalysis(event.detail));
+document.addEventListener("personal-event-selection",event=>renderPersonalEventAnalysis(event.detail));
+if(window.__personalEventLabLatest)renderPersonalEventAnalysis(window.__personalEventLabLatest);`}
+
 async function requestScopely(request,env,fetchImpl){
   if(request.method!=="POST")return json({error:"method-not-allowed"},405);
   if(request.headers.get("Origin")!==APP_ORIGIN)return json({error:"forbidden"},403);
@@ -150,8 +210,7 @@ export async function handlePersonalEventLab(request,env,fetchImpl=fetch){
   if(url.pathname==="/admin/personal-event-lab"&&request.method==="GET")return labHtml();
   if(url.pathname==="/admin/personal-event-lab/client.js"&&request.method==="GET")return labScript();
   if(url.pathname==="/admin/personal-event-lab/progress-analysis.js"&&request.method==="GET")return new Response(
-    `${object.toString()}\n${finite.toString()}\n${firstNumber.toString()}\n${label.toString()}\n${stable.toString()}\n${eventsFrom.toString()}\n${eventMilestones.toString()}\n${progressFact.toString()}\nexport const analyzePersonalEventResponse=${analyzePersonalEventResponse.toString()};
-document.addEventListener("personal-event-response",e=>{const root=document.getElementById("progress-analysis");const selected=document.getElementById("events-select")?.value||null;if(e.detail?.resource==="events"&&!selected){root.textContent="Sélectionne un événement reçu pour afficher son analyse.";return;}const rows=analyzePersonalEventResponse(e.detail,selected);root.replaceChildren();if(!rows.length){root.textContent="Sélectionne un événement reçu.";return;}for(const event of rows){const h=document.createElement("h3");h.textContent=event.name+" · "+event.id;root.append(h);const summary=document.createElement("p");summary.textContent="Score : "+(event.score??"inconnu")+" · Jalons : "+event.milestoneCount+" · Objectifs connus / inconnus / absents : "+event.knownObjectives+" / "+event.unknownObjectives+" / "+event.absentObjectives;root.append(summary);for(const fact of event.facts){const card=document.createElement("article");card.className="progress-card";const title=document.createElement("strong");title.textContent=fact.label+" · "+fact.state;card.append(title);const text=document.createElement("p");text.textContent="Actuel "+(fact.value??"inconnu")+" / cible "+(fact.target??"inconnue")+(fact.percent===null?"":" · "+Math.round(fact.percent)+"%");card.append(text);if(fact.percent!==null){const bar=document.createElement("progress");bar.max=100;bar.value=fact.percent;bar.setAttribute("aria-label",fact.label);card.append(bar);}root.append(card);}const tiers=document.createElement("p");tiers.textContent="Paliers terminés prouvés : "+(event.completedTiers.map(x=>x.tier).join(", ")||"aucun")+" · Réclamables : "+(event.claimableTiers.map(x=>x.tier).join(", ")||"aucun");root.append(tiers);if(!event.facts.some(fact=>fact.value!==null)){const empty=document.createElement("p");empty.textContent="Progression non fournie par Scopely";root.append(empty);}});document.addEventListener("personal-event-selection",e=>{document.dispatchEvent(new CustomEvent("personal-event-response",{detail:e.detail}));});if(window.__personalEventLabLatest)document.dispatchEvent(new CustomEvent("personal-event-response",{detail:window.__personalEventLabLatest}));`,
+    progressAnalysisModule(),
     {headers:{"Content-Type":"text/javascript; charset=utf-8","Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff","X-Robots-Tag":"noindex"}});
   if(url.pathname==="/admin/personal-event-lab/api/query")return requestScopely(request,env,fetchImpl);
   if(url.pathname==="/admin/personal-event-lab/api/status"&&request.method==="GET"){
@@ -168,4 +227,104 @@ document.addEventListener("personal-event-response",e=>{const root=document.getE
 function labDocument(){return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Laboratoire privé — événements MSF</title><style>
 :root{font:16px system-ui,sans-serif;color:#eef2ff;background:#101827}body{margin:0}main{max-width:1100px;margin:auto;padding:1rem}h1{font-size:1.5rem}p,small{color:#b7c3d8}.grid{display:grid;gap:.75rem;grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}section{background:#182337;border:1px solid #34425a;border-radius:12px;padding:1rem;margin:.8rem 0}label{display:block;margin:.5rem 0;color:#dce6f5}input,select,textarea,button{font:inherit;border-radius:8px;border:1px solid #52627c;padding:.65rem;background:#0e1726;color:#fff;max-width:100%}textarea{width:100%;min-height:5rem;box-sizing:border-box}button{background:#1769aa;border:0;margin:.25rem .3rem .25rem 0;cursor:pointer}button.secondary{background:#44546a}pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:55vh;overflow:auto;background:#0a111d;padding:.8rem;border-radius:8px;font-size:.8rem}.metrics{display:flex;gap:.5rem;flex-wrap:wrap}.metric{background:#263650;padding:.5rem .7rem;border-radius:8px}.error{color:#ffc8c8}.ok{color:#b4f4cb}.warning{border-left:4px solid #f4b942;padding:.5rem}.row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}#events-select{min-width:min(100%,24rem)}.progress-card{margin:.6rem 0;padding:.7rem;background:#101827;border-radius:8px}progress{width:100%;height:1.2rem}</style><script src="/admin/personal-event-lab/client.js" defer></script><script type="module" src="/admin/personal-event-lab/progress-analysis.js"></script></head><body><main><h1>Laboratoire privé — données personnelles MSF</h1><p>Lectures immédiates à la demande. Les réponses brutes restent uniquement dans la mémoire de cet onglet et ne sont pas enregistrées.</p><p class="warning">Vérifie que le compte Scopely connecté est ton compte volontaire. Ne copie pas les réponses personnelles dans un dépôt public.</p><section><div id="connection">Vérification de la session…</div><div class="row"><a href="/login/captain"><button>Ouvrir la connexion Scopely existante</button></a><button class="secondary" id="check">Vérifier la session</button></div></section><section><h2>Requête immédiate</h2><div class="grid"><label>Ressource<select id="resource"><option value="events">Liste événements</option><option value="detail">Détail événement</option><option value="roster">Roster</option><option value="inventory">Inventaire</option></select></label><label>Événement ciblé<input id="event-id" autocomplete="off" placeholder="eventId (détail seulement)"></label><label>Paramètres JSON<textarea id="params">{"lang":"fr","eventInfo":"full","objRewards":"full","perPage":"100"}</textarea></label><label><input id="all-pages" type="checkbox" checked> Pagination complète (liste événements)</label></div><p><button id="query">Interroger Scopely sans cache</button><button class="secondary" id="snapshot-before">Enregistrer comme AVANT</button><button class="secondary" id="snapshot-after">Enregistrer comme APRÈS</button><button class="secondary" id="clear">Effacer les relevés mémoire</button></p><div id="metrics" class="metrics"></div><p id="message" aria-live="polite"></p><label>Événements reçus<select id="events-select"><option value="">Aucune liste chargée</option></select></label><pre id="response">Aucune réponse pour l’instant.</pre></section><section><h2>Analyse des progressions</h2><p>Calcul local sur les réponses déjà reçues; aucun appel Scopely supplémentaire.</p><div id="progress-analysis">Interroge ou sélectionne un événement.</div></section><section><h2>Comparaison A/B avant / après</h2><p>Les relevés sont conservés uniquement en mémoire dans cet onglet jusqu’à fermeture ou effacement.</p><div id="diff"></div></section></main></body></html>`;}
 
-export function labClientJs(){return `(()=>{const $=id=>document.getElementById(id);let latest=null,before=null,after=null;const show=(id,value)=>$(id).textContent=typeof value==="string"?value:JSON.stringify(value,null,2);const compare=(a,b,path="",out=[])=>{if(Object.is(a,b))return out;if(a&&b&&typeof a==="object"&&typeof b==="object"){const keys=new Set([...Object.keys(a),...Object.keys(b)]);for(const key of keys)compare(a[key],b[key],Array.isArray(a)?path+"["+key+"]":(path?path+".":"")+key,out);return out;}out.push({path:path||"$",before:a??"<absent>",after:b??"<absent>"});return out;};async function status(){try{const r=await fetch("/admin/personal-event-lab/api/status",{cache:"no-store",credentials:"same-origin"});const j=await r.json();show("connection",j.status==="connected"?"Connecté · scopes : "+(j.scopes||[]).join(", "):j.status==="scope-insufficient"?"Scopes manquants : "+(j.missingScopes||[]).join(", ")+" · utilise la connexion capitaine existante pour les autoriser.":"Session Scopely absente ou indisponible · "+(j.reason||"connexion requise"));}catch{show("connection","Service de session indisponible.");}}async function query(){let params;try{params=JSON.parse($("params").value||"{}");}catch{show("message","Paramètres JSON invalides.");return;}const body={resource:$("resource").value,params,allPages:$("all-pages").checked};if(body.resource==="detail")body.eventId=$("event-id").value.trim();show("message","Interrogation à la demande…");$("query").disabled=true;const t=performance.now();try{const r=await fetch("/admin/personal-event-lab/api/query",{method:"POST",cache:"no-store",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});const data=await r.json();latest={data,receivedAt:new Date().toISOString()};window.__personalEventLabLatest=data;document.dispatchEvent(new CustomEvent("personal-event-response",{detail:data}));show("response",data);$("metrics").replaceChildren(...["HTTP "+r.status,"Requête navigateur "+Math.round(performance.now()-t)+" ms","Scopely "+(data.durationMs??"—")+" ms","Appels "+(data.requestCount??data.calls?.length??0)].map(x=>{const n=document.createElement("span");n.className="metric";n.textContent=x;return n;}));show("message",data.status==="ok"?"Réponse reçue; aucun cache applicatif consulté ou alimenté.":"Erreur explicite : "+(data.error||"requête refusée"));if(data.resource==="events"&&Array.isArray(data.data?.data)){const sel=$("events-select");sel.replaceChildren(new Option("Choisir un événement", ""));for(const e of data.data.data){const o=new Option((e.name||e.id)+" · "+e.id,e.id);sel.add(o);}}}catch{show("message","Erreur de transport vers le laboratoire.");}finally{$("query").disabled=false;}}function snapshot(which){if(!latest){show("message","Interroge d’abord Scopely.");return;}const copy=structuredClone(latest.data);if(which==="before")before=copy;else after=copy;const changes=before&&after?compare(before,after):[];show("diff",before&&after?{beforeCaptured:true,afterCaptured:true,changedFields:changes.length,changes}:which==="before"?"Relevé AVANT enregistré en mémoire.":"Relevé APRÈS enregistré en mémoire.");}$("resource").addEventListener("change",()=>{const defaults={events:{lang:"fr",eventInfo:"full",objRewards:"full",perPage:"100"},detail:{lang:"fr",objRewards:"full"},roster:{lang:"fr"},inventory:{lang:"none"}};$("params").value=JSON.stringify(defaults[$("resource").value],null,2);});$("query").addEventListener("click",query);$("snapshot-before").addEventListener("click",()=>snapshot("before"));$("snapshot-after").addEventListener("click",()=>snapshot("after"));$("check").addEventListener("click",status);$("clear").addEventListener("click",()=>{latest=before=after=null;show("response","Aucune réponse pour l’instant.");show("diff","Relevés effacés.");$("metrics").replaceChildren();});$("events-select").addEventListener("change",e=>{if(latest)document.dispatchEvent(new CustomEvent("personal-event-selection",{detail:latest.data}));if(e.target.value){$("resource").value="detail";$("params").value=JSON.stringify({lang:"fr",objRewards:"full"},null,2);$("event-id").value=e.target.value;}});status();})();`;}
+export function labClientJs(){return `(()=>{
+const $=id=>document.getElementById(id);
+let latest=null,before=null,after=null;
+const show=(id,value)=>$(id).textContent=typeof value==="string"?value:JSON.stringify(value,null,2);
+const compare=(a,b,path="",out=[])=>{
+  if(Object.is(a,b))return out;
+  if(a&&b&&typeof a==="object"&&typeof b==="object"){
+    const keys=new Set([...Object.keys(a),...Object.keys(b)]);
+    for(const key of keys)compare(a[key],b[key],Array.isArray(a)?path+"["+key+"]":(path?path+".":"")+key,out);
+    return out;
+  }
+  out.push({path:path||"$",before:a??"<absent>",after:b??"<absent>"});return out;
+};
+function publishAnalysis(response,selectedEventId=null){
+  const input={response,selectedEventId:selectedEventId||null};
+  window.__personalEventLabLatest=input;
+  if(typeof window.__personalEventLabRenderProgress==="function")window.__personalEventLabRenderProgress(input);
+  else document.dispatchEvent(new CustomEvent("personal-event-response",{detail:input}));
+}
+window.addEventListener("error",event=>{
+  if(String(event.filename||"").includes("/progress-analysis.js")){
+    const root=$("progress-analysis");
+    if(root){root.dataset.analysisError="true";root.textContent="Erreur JavaScript lors du chargement de l’analyse des progressions. Recharge le laboratoire.";}
+  }
+});
+async function status(){
+  try{
+    const r=await fetch("/admin/personal-event-lab/api/status",{cache:"no-store",credentials:"same-origin"});
+    const j=await r.json();
+    show("connection",j.status==="connected"?"Connecté · scopes : "+(j.scopes||[]).join(", "):
+      j.status==="scope-insufficient"?"Scopes manquants : "+(j.missingScopes||[]).join(", ")+" · utilise la connexion capitaine existante pour les autoriser.":
+      "Session Scopely absente ou indisponible · "+(j.reason||"connexion requise"));
+  }catch{show("connection","Service de session indisponible.");}
+}
+async function query(){
+  let params;
+  try{params=JSON.parse($("params").value||"{}");}catch{show("message","Paramètres JSON invalides.");return;}
+  const body={resource:$("resource").value,params,allPages:$("all-pages").checked};
+  if(body.resource==="detail")body.eventId=$("event-id").value.trim();
+  show("message","Interrogation à la demande…");$("query").disabled=true;const t=performance.now();
+  try{
+    const r=await fetch("/admin/personal-event-lab/api/query",{method:"POST",cache:"no-store",credentials:"same-origin",
+      headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    const data=await r.json();latest={data,receivedAt:new Date().toISOString()};
+    let selectedEventId=$("events-select").value||null;
+    if(data.resource==="events"&&Array.isArray(data.data?.data)){
+      const sel=$("events-select"),previous=selectedEventId;
+      sel.replaceChildren(new Option("Choisir un événement", ""));
+      for(const event of data.data.data){
+        const id=event?.id??event?.eventId;
+        if(id===undefined||id===null)continue;
+        sel.add(new Option((event.name||id)+" · "+id,String(id)));
+      }
+      selectedEventId=[...data.data.data].some(event=>String(event?.id??event?.eventId)===String(previous))?previous:null;
+      sel.value=selectedEventId||"";
+    }else if(data.resource==="detail")selectedEventId=selectedEventId||$("event-id").value.trim()||data.data?.data?.id||data.data?.id||null;
+    publishAnalysis(data,selectedEventId);
+    show("response",data);
+    $("metrics").replaceChildren(...["HTTP "+r.status,"Requête navigateur "+Math.round(performance.now()-t)+" ms",
+      "Scopely "+(data.durationMs??"—")+" ms","Appels "+(data.requestCount??data.calls?.length??0)].map(x=>{
+        const n=document.createElement("span");n.className="metric";n.textContent=x;return n;
+      }));
+    show("message",data.status==="ok"?"Réponse reçue; aucun cache applicatif consulté ou alimenté.":
+      "Erreur explicite : "+(data.error||"requête refusée"));
+  }catch(error){
+    show("message","Erreur de transport vers le laboratoire.");
+    const root=$("progress-analysis");
+    if(root){root.dataset.analysisError="true";root.textContent="Réponse non analysable : erreur locale pendant la réception ou l’analyse.";}
+  }finally{$("query").disabled=false;}
+}
+function snapshot(which){
+  if(!latest){show("message","Interroge d’abord Scopely.");return;}
+  const copy=structuredClone(latest.data);if(which==="before")before=copy;else after=copy;
+  const changes=before&&after?compare(before,after):[];
+  show("diff",before&&after?{beforeCaptured:true,afterCaptured:true,changedFields:changes.length,changes}:
+    which==="before"?"Relevé AVANT enregistré en mémoire.":"Relevé APRÈS enregistré en mémoire.");
+}
+$("resource").addEventListener("change",()=>{
+  const defaults={events:{lang:"fr",eventInfo:"full",objRewards:"full",perPage:"100"},
+    detail:{lang:"fr",objRewards:"full"},roster:{lang:"fr"},inventory:{lang:"none"}};
+  $("params").value=JSON.stringify(defaults[$("resource").value],null,2);
+});
+$("query").addEventListener("click",query);
+$("snapshot-before").addEventListener("click",()=>snapshot("before"));
+$("snapshot-after").addEventListener("click",()=>snapshot("after"));
+$("check").addEventListener("click",status);
+$("clear").addEventListener("click",()=>{
+  latest=before=after=null;window.__personalEventLabLatest=null;
+  show("response","Aucune réponse pour l’instant.");show("diff","Relevés effacés.");$("metrics").replaceChildren();
+  const root=$("progress-analysis");if(root){root.dataset.analysisError="";root.textContent="Interroge ou sélectionne un événement.";}
+});
+$("events-select").addEventListener("change",event=>{
+  const selectedEventId=event.target.value||null;
+  if(latest)publishAnalysis(latest.data,selectedEventId);
+  if(selectedEventId){
+    $("resource").value="detail";$("params").value=JSON.stringify({lang:"fr",objRewards:"full"},null,2);
+    $("event-id").value=selectedEventId;
+  }
+});
+status();
+})();`;}

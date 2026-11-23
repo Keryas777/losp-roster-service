@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {webcrypto} from "node:crypto";
 import worker from "../src/index.js";
-import {handlePersonalEventLab} from "../src/personal-event-lab.js";
+import {handlePersonalEventLab,labClientJs} from "../src/personal-event-lab.js";
 
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const DOMAIN="lab-test.cloudflareaccess.com";
@@ -41,6 +41,47 @@ function mockFetch(upstream){return async(input,init)=>{
   if(url===`https://${DOMAIN}/cdn-cgi/access/certs`)return Response.json({keys:[jwk]});
   return upstream(url,init);
 };}
+
+class LabElement{
+  constructor(tag="div"){this.tagName=tag.toUpperCase();this.children=[];this.listeners={};this.dataset={};this.textContent="";this.value="";this.checked=false;this.disabled=false;this.attributes={};}
+  addEventListener(type,callback){(this.listeners[type]??=[]).push(callback);}
+  async emit(type){const event={type,target:this};for(const callback of this.listeners[type]||[])await callback(event);}
+  replaceChildren(...children){this.children=children;this.textContent="";if(this.tagName==="SELECT")this.value=children[0]?.value||"";}
+  append(...children){this.children.push(...children);}
+  add(child){this.children.push(child);}
+  setAttribute(name,value){this.attributes[name]=value;}
+  get renderedText(){return this.textContent+this.children.map(child=>child.renderedText??child.textContent??"").join("");}
+}
+class LabDocument{
+  constructor(){this.nodes=new Map();this.listeners={};for(const id of ["resource","events-select","params","all-pages","query","snapshot-before","snapshot-after","check","clear","connection","message","metrics","response","diff","progress-analysis","event-id"])this.nodes.set(id,new LabElement(id.includes("select")||id==="resource"?"select":id==="query"||id==="check"||id==="clear"||id.startsWith("snapshot")?"button":"div"));
+    this.nodes.get("resource").value="events";this.nodes.get("all-pages").checked=true;this.nodes.get("params").value=JSON.stringify({lang:"fr",eventInfo:"full",objRewards:"full",perPage:"100"});}
+  getElementById(id){return this.nodes.get(id)||null;}
+  addEventListener(type,callback){(this.listeners[type]??=[]).push(callback);}
+  dispatchEvent(event){for(const callback of this.listeners[event.type]||[])callback(event);return true;}
+  createElement(tag){if(this.failCreateElement){this.failCreateElement=false;throw new Error("simulated DOM rendering failure");}return new LabElement(tag);}
+}
+class LabOption extends LabElement{constructor(text,value){super("option");this.textContent=text;this.value=value;}}
+class LabCustomEvent{constructor(type,{detail}={}){this.type=type;this.detail=detail;}}
+
+async function bootLabClientAndModule(env,provider){
+  const moduleResponse=await handlePersonalEventLab(await request("/admin/personal-event-lab/progress-analysis.js"),env,
+    mockFetch(async()=>{throw Error("analysis module must not call Scopely");}));
+  const moduleText=await moduleResponse.text();
+  assert.equal(moduleResponse.status,200);
+  assert.match(moduleText,/export const analyzePersonalEventResponse=/);
+  const compiled=moduleText.replace("export const analyzePersonalEventResponse=","const analyzePersonalEventResponse=");
+  const document=new LabDocument(),window={listeners:{},addEventListener(type,callback){(this.listeners[type]??=[]).push(callback);}};
+  new Function("document","window","CustomEvent",compiled)(document,window,LabCustomEvent);
+  const statuses=[];
+  const browserFetch=async(path,init={})=>{
+    const url=new URL(path,ORIGIN),body=init.body?JSON.parse(init.body):undefined;
+    const req=await request(url.pathname,{method:init.method||"GET",body});
+    const response=await handlePersonalEventLab(req,env,mockFetch(provider));statuses.push(response.status);return response;
+  };
+  new Function("document","window","CustomEvent","fetch","Option","performance","structuredClone",labClientJs())(
+    document,window,LabCustomEvent,browserFetch,LabOption,performance,structuredClone);
+  return {document,window,statuses};
+}
 
 test("the lab is disabled by default, and requires both Access admin and the exact owner identity",async()=>{
   const noConfig=await handlePersonalEventLab(new Request(ORIGIN+"/admin/personal-event-lab"),{},async()=>{throw Error("no fetch");});
@@ -127,4 +168,45 @@ test("the lab follows pagination and reads both inventory families in parallel",
   const invBody=await inv.json();assert.equal(invBody.requestCount,2);
   assert.deepEqual(Object.keys(invBody.data.itemTypes).sort(),["CONSUMABLE","ISOITEM"]);
   assert.equal(seen.filter(x=>x.startsWith("inventory:")).length,2);
+});
+
+test("HTTP 200 list to selected event to wrapped detail renders locally without an extra Scopely call",async()=>{
+  const env=envFor(),seen=[];
+  const app=await bootLabClientAndModule(env,async url=>{
+    const parsed=new URL(url);seen.push(parsed.pathname);
+    if(parsed.pathname==="/player/v1/events")return Response.json({meta:{page:1,perPage:100,perTotal:1},data:[{id:"event-1",name:"Événement de liste"}]});
+    assert.equal(parsed.pathname,"/player/v1/events/event-1");
+    return Response.json({data:{id:"event-1",name:"Événement détaillé",milestone:{brackets:[
+      {id:"bracket-1",objective:{name:"Objectif témoin",progress:5,target:10}}
+    ]}}});
+  });
+  const {document,statuses}=app;
+  await document.getElementById("query").emit("click");
+  assert.equal(statuses.at(-1),200);
+  assert.deepEqual(seen,["/player/v1/events"]);
+  const select=document.getElementById("events-select");
+  assert.equal(select.children[1].value,"event-1");
+  select.value="event-1";
+  await select.emit("change");
+  assert.match(document.getElementById("progress-analysis").renderedText,/Événement de liste/);
+  assert.deepEqual(seen,["/player/v1/events"],"selection analysis must not request Scopely");
+  assert.equal(document.getElementById("resource").value,"detail");
+  await document.getElementById("query").emit("click");
+  assert.equal(statuses.at(-1),200);
+  assert.deepEqual(seen,["/player/v1/events","/player/v1/events/event-1"]);
+  const rendered=document.getElementById("progress-analysis").renderedText;
+  assert.match(rendered,/Événement détaillé/);
+  assert.match(rendered,/Actuel 5 \/ cible 10/);
+  assert.doesNotMatch(rendered,/Interroge ou sélectionne un événement/);
+});
+
+test("a local render exception is shown in the analysis panel instead of preserving its initial placeholder",async()=>{
+  const env=envFor(),app=await bootLabClientAndModule(env,async()=>{throw Error("unexpected provider call");});
+  const root=app.document.getElementById("progress-analysis");
+  app.document.failCreateElement=true;
+  app.window.__personalEventLabRenderProgress({response:{resource:"detail",data:{data:{
+    id:"event-1",name:"Événement témoin",milestone:{brackets:[]}
+  }}},selectedEventId:"event-1"});
+  assert.match(root.textContent,/Erreur locale pendant l’analyse des progressions/);
+  assert.equal(root.dataset.analysisError,"true");
 });
