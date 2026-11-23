@@ -176,18 +176,27 @@ try{
   assert.ok((await page.locator("#response").innerText()).length>170_000,"large list is visible in raw response section");
 
   const select=page.locator("#events-select");
+  async function waitForPanelEvent(id){
+    await page.waitForFunction(id=>{
+      const root=document.querySelector("#progress-analysis");
+      return root&&(root.innerText.includes(id)||root.dataset.analysisError==="true"||root.innerText.includes("Erreur locale pendant l’analyse"));
+    },id);
+    const text=await panel.innerText();
+    assert.ok(text.includes(id),`selection ${id} did not render its event; panel: ${text}`);
+    assert.notEqual(await panel.getAttribute("data-analysis-error"),"true",`captured analysis exception on selection ${id}: ${text}`);
+    assert.doesNotMatch(text,/Erreur locale pendant l’analyse/,`local error message on selection ${id}`);
+  }
   for(const scenario of scenarios.slice(0,-1)){
     const before=upstreamCalls.length;
     await select.selectOption(scenario.id);
-    await page.waitForFunction(id=>document.querySelector("#progress-analysis")?.innerText.includes(id),scenario.id);
+    await waitForPanelEvent(scenario.id);
     assert.equal(upstreamCalls.length,before,`selecting ${scenario.id} must be local`);
-    assert.equal(await panel.getAttribute("data-analysis-error"),null,`caught analysis error for ${scenario.id}`);
-    assert.doesNotMatch(await panel.innerText(),/Erreur locale pendant l’analyse/);
     await page.locator("#query").click();
     await page.waitForFunction(id=>document.querySelector("#response")?.innerText.includes(id),scenario.id);
     await page.waitForFunction(({id,expectation})=>{
       const root=document.querySelector("#progress-analysis");
-      return root?.innerText.includes(id)&&root.innerText.match(new RegExp(expectation));
+      return root&&(root.innerText.includes(id)&&root.innerText.match(new RegExp(expectation))||
+        root.dataset.analysisError==="true"||root.innerText.includes("Erreur locale pendant l’analyse"));
     },{id:scenario.id,expectation:scenario.expected.source});
     const text=await panel.innerText();
     assert.match(text,scenario.expected,scenario.id);
