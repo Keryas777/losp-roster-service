@@ -4,7 +4,7 @@
 import {verifiedAdminEmail} from "./admin-auth.js";
 import {getPersonalEventGrant} from "./personal-event-progress.js";
 import {API_KEY} from "./player-card.js";
-import {analyzePersonalEventResponse} from "./personal-event-analysis.js";
+import {object,finite,firstNumber,label,stable,eventsFrom,eventMilestones,progressFact,analyzePersonalEventResponse} from "./personal-event-analysis.js";
 
 const API="https://api.marvelstrikeforce.com";
 const APP_ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";

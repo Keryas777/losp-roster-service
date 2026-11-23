@@ -1,14 +1,14 @@
 // Pure, local-only projection of Scopely event responses. Missing progress is unknown.
-const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
-const finite = value => typeof value === "number" && Number.isFinite(value);
-const firstNumber = (value, keys) => {
+export const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
+export const finite = value => typeof value === "number" && Number.isFinite(value);
+export const firstNumber = (value, keys) => {
   for (const key of keys) if (finite(value?.[key])) return value[key];
   return null;
 };
-const label = (value, fallback) => typeof value === "string" && value.trim() ? value : fallback;
-const stable = value => JSON.stringify(value, Object.keys(value || {}).sort());
+export const label = (value, fallback) => typeof value === "string" && value.trim() ? value : fallback;
+export const stable = value => JSON.stringify(value, Object.keys(value || {}).sort());
 
-function eventsFrom(response) {
+export function eventsFrom(response) {
   let value = response;
   for (let i=0;i<4;i++) {
     if (object(value) && Array.isArray(value.data)) { value=value.data; break; }
@@ -20,12 +20,12 @@ function eventsFrom(response) {
   return value.filter(object);
 }
 
-function eventMilestones(event) {
+export function eventMilestones(event) {
   const value = event.milestones ?? event.milestone ?? [];
   return Array.isArray(value) ? value.filter(object) : object(value) ? [value] : [];
 }
 
-function progressFact(kind, source, context, labelText) {
+export function progressFact(kind, source, context, labelText) {
   const value = finite(source) ? source : firstNumber(source, ["progress", "soFar", "value", "current", "contribution"]);
   const target = firstNumber(source, ["target", "required", "goal", "cap", "max", "total"]);
   const explicitComplete = source?.completed === true || source?.isComplete === true;
