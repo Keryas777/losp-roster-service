@@ -208,7 +208,7 @@ try{
     assert.equal(await panel.getAttribute("data-analysis-error"),null,`analysis error flag for ${scenario.id}`);
     assert.doesNotMatch(text,/Erreur locale pendant l’analyse/);
     if(scenario.id==="event-tiers"){
-      assert.equal(await panel.locator(".progress-card").count(),2,"duplicate capped scoring identity appears once");
+      assert.equal(await panel.locator(".progress-card").count(),3,"objective and two distinct scoring facts render");
       assert.equal(await panel.getByText(/Points partagés/).count(),1);
     }
     assert.equal(upstreamCalls.length,before+1,`one detail request for ${scenario.id}`);
