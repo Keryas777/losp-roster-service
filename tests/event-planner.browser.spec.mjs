@@ -64,7 +64,7 @@ try{
     return route.fulfill({status:200,contentType:"application/json",body:JSON.stringify(body),headers:{"Access-Control-Allow-Origin":"*"}});
   });
   await page.goto(`http://127.0.0.1:${address.port}/captain/events-planner`,{waitUntil:"networkidle"});
-  await page.getByRole("heading",{name:"Événement de test Maddoxx"}).waitFor();
+  await page.locator("#selected-event h2").filter({hasText:"Événement de test Maddoxx"}).waitFor();
   await page.getByText("Terminé confirmé").waitFor();
   await page.getByText("Faisable gratuitement").waitFor();
   await page.getByRole("tab",{name:"Objectifs"}).click();
