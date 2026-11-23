@@ -51,6 +51,9 @@ const server=createServer(async(incoming,outgoing)=>{
   try{
     const chunks=[];for await(const chunk of incoming)chunks.push(chunk);
     const headers=new Headers(incoming.headers);
+    // Browsers correctly refuse __Host- cookies over plain HTTP. Inject this
+    // fake captain session at the local test server boundary instead.
+    headers.set("Cookie","__Host-losp_captain_session="+SESSION);
     if(incoming.url?.includes("/api/query"))headers.set("Origin",APP_ORIGIN);
     const request=new Request("http://127.0.0.1"+(incoming.url||"/"),{
       method:incoming.method,headers,...(chunks.length?{body:Buffer.concat(chunks)}:{})
@@ -66,11 +69,17 @@ try{
   await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
   const address=server.address();
   const context=await browser.newContext({extraHTTPHeaders:{
-    "Cf-Access-Jwt-Assertion":jwt,"Cookie":"__Host-losp_captain_session="+SESSION
+    "Cf-Access-Jwt-Assertion":jwt
   }});
   const page=await context.newPage();
-  const runtimeErrors=[],failedScripts=[];
+  const runtimeErrors=[],failedScripts=[],scriptResponses=[];
   page.on("pageerror",error=>runtimeErrors.push(error.message));
+  page.on("response",response=>{
+    if(/personal-event-lab\/(client|progress-analysis)\.js/.test(response.url())){
+      scriptResponses.push({url:response.url(),status:response.status()});
+      if(!response.ok())failedScripts.push(response.url()+" HTTP "+response.status());
+    }
+  });
   page.on("requestfailed",request=>{
     if(/personal-event-lab\/(client|progress-analysis)\.js/.test(request.url()))failedScripts.push(request.url()+" "+request.failure()?.errorText);
   });
@@ -85,6 +94,9 @@ try{
   assert.equal(await page.locator("#progress-analysis").count(),1,"one progress panel in served HTML");
   assert.equal(await page.locator('script[src="/admin/personal-event-lab/client.js"]').count(),1);
   assert.equal(await page.locator('script[src="/admin/personal-event-lab/progress-analysis.js"]').count(),1);
+  await page.waitForFunction(()=>typeof window.__personalEventLabRenderProgress==="function");
+  assert.equal(scriptResponses.length,2,"both actual Worker-served scripts returned a response");
+  assert.ok(scriptResponses.every(response=>response.status===200));
   assert.match(await page.locator("#connection").innerText(),/Connecté/);
 
   await page.locator("#query").click();
