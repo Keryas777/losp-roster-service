@@ -78,9 +78,11 @@ const eventMilestones=${eventMilestones.toString()};
 const progressFact=${progressFact.toString()};
 export const analyzePersonalEventResponse=${analyzePersonalEventResponse.toString()};
 function renderPersonalEventAnalysis(input){
-  const root=document.getElementById("progress-analysis");
-  if(!root)return;
+  let root=null,stage="initialisation";
   try{
+    root=document.getElementById("progress-analysis");
+    if(!root)return;
+    stage="normalisation de la réponse";
     const response=input?.response??input;
     let selectedId=input?.selectedEventId??document.getElementById("events-select")?.value??null;
     if(!selectedId&&response?.resource==="detail")selectedId=eventsFrom(response)[0]?.id??null;
@@ -88,7 +90,9 @@ function renderPersonalEventAnalysis(input){
       root.textContent="Sélectionne un événement reçu pour afficher son analyse.";
       return;
     }
+    stage="calcul de progression";
     const rows=analyzePersonalEventResponse(response,selectedId);
+    stage="rendu du panneau";
     root.replaceChildren();
     if(!rows.length){
       root.textContent=response?.resource==="detail"?"Progression non fournie par Scopely":"Sélectionne un événement reçu.";
@@ -119,8 +123,13 @@ function renderPersonalEventAnalysis(input){
     }
     delete root.dataset.analysisError;
   }catch(error){
+    if(!root)return;
     root.replaceChildren();root.dataset.analysisError="true";
-    root.textContent="Erreur locale pendant l’analyse des progressions ("+(error?.name||"JavaScript")+"). Réessaie ou recharge le laboratoire.";
+    const message=String(error?.message||"");
+    const missing=message.match(/Can't find variable:\\s*([\\w$]+)/)?.[1]||
+      message.match(/([\\w$]+)\\s+is not defined/)?.[1];
+    root.textContent="Erreur locale pendant l’analyse ("+(error?.name||"JavaScript")+") à l’étape « "+stage+" »"+
+      (missing?" · symbole absent : "+missing:"")+". Réessaie ou recharge le laboratoire.";
   }
 }
 window.__personalEventLabRenderProgress=renderPersonalEventAnalysis;

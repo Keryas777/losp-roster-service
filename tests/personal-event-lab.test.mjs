@@ -58,7 +58,7 @@ class LabDocument{
   getElementById(id){return this.nodes.get(id)||null;}
   addEventListener(type,callback){(this.listeners[type]??=[]).push(callback);}
   dispatchEvent(event){for(const callback of this.listeners[event.type]||[])callback(event);return true;}
-  createElement(tag){if(this.failCreateElement){this.failCreateElement=false;throw new Error("simulated DOM rendering failure");}return new LabElement(tag);}
+  createElement(tag){if(this.failCreateElement){this.failCreateElement=false;throw new ReferenceError("Can't find variable: MissingRenderHelper");}return new LabElement(tag);}
 }
 class LabOption extends LabElement{constructor(text,value){super("option");this.textContent=text;this.value=value;}}
 class LabCustomEvent{constructor(type,{detail}={}){this.type=type;this.detail=detail;}}
@@ -69,9 +69,10 @@ async function bootLabClientAndModule(env,provider){
   const moduleText=await moduleResponse.text();
   assert.equal(moduleResponse.status,200);
   assert.match(moduleText,/export const analyzePersonalEventResponse=/);
-  const compiled=moduleText.replace("export const analyzePersonalEventResponse=","const analyzePersonalEventResponse=");
   const document=new LabDocument(),window={listeners:{},addEventListener(type,callback){(this.listeners[type]??=[]).push(callback);}};
-  new Function("document","window","CustomEvent",compiled)(document,window,LabCustomEvent);
+  const previous={document:globalThis.document,window:globalThis.window,CustomEvent:globalThis.CustomEvent};
+  globalThis.document=document;globalThis.window=window;globalThis.CustomEvent=LabCustomEvent;
+  await import("data:text/javascript;base64,"+Buffer.from(moduleText).toString("base64")+"#"+crypto.randomUUID());
   const statuses=[];
   const browserFetch=async(path,init={})=>{
     const url=new URL(path,ORIGIN),body=init.body?JSON.parse(init.body):undefined;
@@ -80,7 +81,9 @@ async function bootLabClientAndModule(env,provider){
   };
   new Function("document","window","CustomEvent","fetch","Option","performance","structuredClone",labClientJs())(
     document,window,LabCustomEvent,browserFetch,LabOption,performance,structuredClone);
-  return {document,window,statuses};
+  return {document,window,statuses,cleanup(){
+    for(const key of Object.keys(previous)){if(previous[key]===undefined)delete globalThis[key];else globalThis[key]=previous[key];}
+  }};
 }
 
 test("the lab is disabled by default, and requires both Access admin and the exact owner identity",async()=>{
@@ -198,6 +201,7 @@ test("HTTP 200 list to selected event to wrapped detail renders locally without 
   assert.match(rendered,/Événement détaillé/);
   assert.match(rendered,/Actuel 5 \/ cible 10/);
   assert.doesNotMatch(rendered,/Interroge ou sélectionne un événement/);
+  app.cleanup();
 });
 
 test("a local render exception is shown in the analysis panel instead of preserving its initial placeholder",async()=>{
@@ -207,6 +211,9 @@ test("a local render exception is shown in the analysis panel instead of preserv
   app.window.__personalEventLabRenderProgress({response:{resource:"detail",data:{data:{
     id:"event-1",name:"Événement témoin",milestone:{brackets:[]}
   }}},selectedEventId:"event-1"});
-  assert.match(root.textContent,/Erreur locale pendant l’analyse des progressions/);
+  assert.match(root.textContent,/Erreur locale pendant l’analyse/);
+  assert.match(root.textContent,/symbole absent : MissingRenderHelper/);
+  assert.match(root.textContent,/rendu du panneau/);
   assert.equal(root.dataset.analysisError,"true");
+  app.cleanup();
 });
