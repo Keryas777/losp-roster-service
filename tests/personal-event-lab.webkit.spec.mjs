@@ -187,7 +187,7 @@ try{
     await page.waitForFunction(id=>document.querySelector("#response")?.innerText().includes(id),scenario.id);
     await page.waitForFunction(({id,expectation})=>{
       const root=document.querySelector("#progress-analysis");
-      return root?.innerText().includes(id)&&root.innerText().match(new RegExp(expectation));
+      return root?.innerText.includes(id)&&root.innerText.match(new RegExp(expectation));
     },{id:scenario.id,expectation:scenario.expected.source});
     const text=await panel.innerText();
     assert.match(text,scenario.expected,scenario.id);
