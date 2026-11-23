@@ -59,6 +59,9 @@ test("same Worker serves a private no-store lab and reuses the existing Scopely 
   const page=await handlePersonalEventLab(await request("/admin/personal-event-lab"),env,mockFetch(async()=>{throw Error("unexpected");}));
   assert.equal(page.status,200);
   assert.match(page.headers.get("Cache-Control"),/no-store/);
+  const html=await page.text();
+  assert.equal((html.match(/id="progress-analysis"/g)||[]).length,1,"one analysis panel in the DOM");
+  assert.equal((html.match(/progress-analysis\\.js/g)||[]).length,1,"one analysis module script");
   assert.match(await page.text(),/connexion Scopely existante/i);
   let calls=0;
   const response=await handlePersonalEventLab(await request("/admin/personal-event-lab/api/query",{method:"POST",
