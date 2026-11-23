@@ -119,28 +119,6 @@ test("captain consent sets only HttpOnly cookie after successful encrypted stora
   assert.doesNotMatch(JSON.stringify([...landing.headers]),/PRIVATE_REFRESH/);
 });
 
-test("dedicated personal event consent persists the event grant without alliance collection",async()=>{
-  const {env,bucket}=setup();
-  const issued="openid m3p.f.pr.pro m3p.f.pr.act offline";
-  let providerReads=0;
-  const response=await handleCallback(new Request(origin+"/oauth/callback?state="+"c".repeat(43)+"&code=auth",{
-    headers:{Cookie:"__Host-losp_oauth_state="+"c".repeat(43)+
-      "; __Host-losp_oauth_verifier="+"d".repeat(43)+
-      "; __Host-losp_oauth_personal_events="+"c".repeat(43)}
-  }),{...env,SCOPELY_CLIENT_ID:"test-client",SCOPELY_CLIENT_SECRET:"test-secret"},async url=>{
-    providerReads++;
-    assert.ok(url.endsWith("/oauth2/token"));
-    return Response.json({access_token:"EVENT_ACCESS",refresh_token:"EVENT_REFRESH",
-      expires_in:3600,scope:issued,token_type:"Bearer"});
-  });
-  assert.equal(response.status,303);assert.equal(response.headers.get("location"),origin+"/captain/events");
-  assert.equal(response.headers.getSetCookie().length,1);
-  assert.equal(providerReads,1,"callback must not fetch roster, inventory or alliance data");
-  assert.equal(captainSessionCount(bucket),1);
-  const encrypted=[...bucket.map.values()].find(x=>x.includes('"data"'));
-  assert.ok(encrypted);assert.doesNotMatch(encrypted,/EVENT_ACCESS|EVENT_REFRESH/);
-});
-
 test("external captain login archives SELF roster only; never requests another member",async()=>{
   const calls=[];
   const {env,bucket}=setup();

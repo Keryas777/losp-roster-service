@@ -9,7 +9,7 @@ export const CAPTAIN_COOKIE_AGE = 180 * 86400;
 const TOKEN = value => typeof value === "string" && value.length > 0 && value.length <= 16384;
 const hasPersistentReadScope=scope=>{
   const scopes=new Set(typeof scope==="string"?scope.split(/\s+/):[]);
-  return scopes.has("offline")&&(scopes.has("m3p.f.ar.ros")||scopes.has("m3p.f.pr.act"));
+  return scopes.has("offline")&&scopes.has("m3p.f.ar.ros");
 };
 const b64 = bytes => btoa(String.fromCharCode(...bytes)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/g,"");
 function fromB64(s) {

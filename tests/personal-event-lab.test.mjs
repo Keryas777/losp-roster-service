@@ -43,25 +43,25 @@ function mockFetch(upstream){return async(input,init)=>{
 };}
 
 test("the lab is disabled by default, and requires both Access admin and the exact owner identity",async()=>{
-  const noConfig=await handlePersonalEventLab(new Request(ORIGIN+"/captain/lab"),{},async()=>{throw Error("no fetch");});
+  const noConfig=await handlePersonalEventLab(new Request(ORIGIN+"/admin/personal-event-lab"),{},async()=>{throw Error("no fetch");});
   assert.equal(noConfig.status,404);
   const env=envFor();
-  const denied=await handlePersonalEventLab(await request("/captain/lab",{email:"other-admin@example.test"}),env,
+  const denied=await handlePersonalEventLab(await request("/admin/personal-event-lab",{email:"other-admin@example.test"}),env,
     mockFetch(async()=>{throw Error("must not call provider");}));
   assert.equal(denied.status,403);
-  const notAdmin=await handlePersonalEventLab(new Request(ORIGIN+"/captain/lab"),env,
+  const notAdmin=await handlePersonalEventLab(new Request(ORIGIN+"/admin/personal-event-lab"),env,
     mockFetch(async()=>{throw Error("must not call provider");}));
   assert.equal(notAdmin.status,403);
 });
 
 test("same Worker serves a private no-store lab and reuses the existing Scopely session",async()=>{
   const env=envFor();
-  const page=await handlePersonalEventLab(await request("/captain/lab"),env,mockFetch(async()=>{throw Error("unexpected");}));
+  const page=await handlePersonalEventLab(await request("/admin/personal-event-lab"),env,mockFetch(async()=>{throw Error("unexpected");}));
   assert.equal(page.status,200);
   assert.match(page.headers.get("Cache-Control"),/no-store/);
   assert.match(await page.text(),/connexion Scopely existante/i);
   let calls=0;
-  const response=await handlePersonalEventLab(await request("/captain/lab/api/query",{method:"POST",
+  const response=await handlePersonalEventLab(await request("/admin/personal-event-lab/api/query",{method:"POST",
     body:{resource:"events",allPages:false,params:{lang:"fr",eventInfo:"full",objRewards:"full",perPage:"100"}}}),env,
     mockFetch(async(url,init)=>{
       calls++;assert.equal(init.cache,"no-store");
@@ -78,20 +78,20 @@ test("same Worker serves a private no-store lab and reuses the existing Scopely 
 
 test("scope insufficiency is explicit and blocks Scopely calls; status lists existing grant scopes",async()=>{
   const env=envFor("m3p.f.pr.act offline");
-  const invalid=await handlePersonalEventLab(await request("/captain/lab/api/query",{method:"POST",
+  const invalid=await handlePersonalEventLab(await request("/admin/personal-event-lab/api/query",{method:"POST",
     body:{resource:"detail",eventId:"e1",params:{page:"2"}}}),env,mockFetch(async()=>{throw Error("unexpected");}));
   assert.equal(invalid.status,400);
-  const roster=await handlePersonalEventLab(await request("/captain/lab/api/query",{method:"POST",
+  const roster=await handlePersonalEventLab(await request("/admin/personal-event-lab/api/query",{method:"POST",
     body:{resource:"roster",params:{lang:"fr"}}}),env,mockFetch(async()=>{throw Error("unexpected");}));
   assert.equal(roster.status,403);assert.equal((await roster.json()).requiredScope,"m3p.f.pr.ros");
-  const status=await handlePersonalEventLab(await request("/captain/lab/api/status"),env,mockFetch(async()=>{throw Error("unexpected");}));
+  const status=await handlePersonalEventLab(await request("/admin/personal-event-lab/api/status"),env,mockFetch(async()=>{throw Error("unexpected");}));
   assert.deepEqual(await status.json(),{status:"scope-insufficient",scopes:["m3p.f.pr.act","offline"],
     missingScopes:["m3p.f.pr.ros","m3p.f.pr.inv"]});
 });
 
 test("the same Worker route adds no OAuth or session flow and preserves existing session routes",async()=>{
   const env=envFor();
-  const routed=await worker.fetch(await request("/captain/lab"),env);
+  const routed=await worker.fetch(await request("/admin/personal-event-lab"),env);
   assert.equal(routed.status,200);
   const inventedLogin=await worker.fetch(new Request(ORIGIN+"/login/events-lab"),env);
   assert.equal(inventedLogin.status,404);
@@ -101,7 +101,7 @@ test("the same Worker route adds no OAuth or session flow and preserves existing
 
 test("the lab follows pagination and reads both inventory families in parallel",async()=>{
   const env=envFor();const seen=[];
-  const list=await handlePersonalEventLab(await request("/captain/lab/api/query",{method:"POST",
+  const list=await handlePersonalEventLab(await request("/admin/personal-event-lab/api/query",{method:"POST",
     body:{resource:"events",params:{lang:"fr",page:"1",perPage:"2"},allPages:true}}),env,
     mockFetch(async url=>{
       const page=Number(new URL(url).searchParams.get("page"));seen.push("events:"+page);
@@ -109,7 +109,7 @@ test("the lab follows pagination and reads both inventory families in parallel",
     }));
   const listBody=await list.json();assert.equal(listBody.requestCount,2);assert.equal(listBody.data.data.length,3);
   assert.deepEqual(seen,["events:1","events:2"]);
-  const inv=await handlePersonalEventLab(await request("/captain/lab/api/query",{method:"POST",
+  const inv=await handlePersonalEventLab(await request("/admin/personal-event-lab/api/query",{method:"POST",
     body:{resource:"inventory",params:{lang:"none"}}}),env,mockFetch(async url=>{
       const type=new URL(url).searchParams.get("itemType");seen.push("inventory:"+type);
       return Response.json({meta:{asOf:"sample"},data:[{item:type,quantity:4}]});

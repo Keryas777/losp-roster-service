@@ -17,7 +17,7 @@ function isToken(s){return typeof s==="string" && s.length>0 && s.length<=16384;
 function validExpiry(value){return Number.isInteger(value) && value>=60 && value<=30*86400;}
 function hasPersistentReadScope(scope){
   const scopes=new Set(typeof scope==="string"?scope.split(/\s+/):[]);
-  return scopes.has("offline")&&(scopes.has("m3p.f.ar.ros")||scopes.has("m3p.f.pr.act"));
+  return scopes.has("offline")&&scopes.has("m3p.f.ar.ros");
 }
 function basicAuth(env){
   const id=env.SCOPELY_CLIENT_ID, secret=env.SCOPELY_CLIENT_SECRET;
