@@ -69,7 +69,7 @@ test("same Worker serves a private no-store lab and reuses the existing Scopely 
   assert.match(moduleText,/personal-event-selection/);
   assert.match(moduleText,/__personalEventLabLatest/);
   assert.match(moduleText,/Progression non fournie par Scopely/);
-  assert.match(await page.text(),/connexion Scopely existante/i);
+  assert.match(html,/connexion Scopely existante/i);
   let calls=0;
   const response=await handlePersonalEventLab(await request("/admin/personal-event-lab/api/query",{method:"POST",
     body:{resource:"events",allPages:false,params:{lang:"fr",eventInfo:"full",objRewards:"full",perPage:"100"}}}),env,
