@@ -177,10 +177,15 @@ try{
 
   const select=page.locator("#events-select");
   async function waitForPanelEvent(id){
-    await page.waitForFunction(id=>{
-      const root=document.querySelector("#progress-analysis");
-      return root&&(root.innerText.includes(id)||root.dataset.analysisError==="true"||root.innerText.includes("Erreur locale pendant l’analyse"));
-    },id);
+    try{
+      await page.waitForFunction(id=>{
+        const root=document.querySelector("#progress-analysis");
+        return root&&(root.innerText.includes(id)||root.dataset.analysisError==="true"||root.innerText.includes("Erreur locale pendant l’analyse"));
+      },id,{timeout:3000});
+    }catch{
+      const current=await panel.innerText(),selected=await select.inputValue();
+      throw new Error(`selection ${id} did not update (selected=${selected}); panel: ${current}`);
+    }
     const text=await panel.innerText();
     assert.ok(text.includes(id),`selection ${id} did not render its event; panel: ${text}`);
     assert.notEqual(await panel.getAttribute("data-analysis-error"),"true",`captured analysis exception on selection ${id}: ${text}`);
