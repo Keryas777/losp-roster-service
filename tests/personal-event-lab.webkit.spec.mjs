@@ -82,7 +82,7 @@ const listEvents=[...scenarios.map(({id,name,type})=>({id,name,type})),
 for(const event of listEvents)event.fixturePadding="x".repeat(1650);
 const firstPage=listEvents.slice(0,100);
 let firstPageBytes=Buffer.byteLength(JSON.stringify({meta:{page:1,perPage:100,perTotal:listEvents.length},data:firstPage}));
-firstPage[0].fixturePadding+="x".repeat(Math.max(0,173_564-firstPageBytes));
+firstPage[0].fixturePadding="x".repeat(Math.max(0,firstPage[0].fixturePadding.length+173_564-firstPageBytes));
 firstPageBytes=Buffer.byteLength(JSON.stringify({meta:{page:1,perPage:100,perTotal:listEvents.length},data:firstPage}));
 
 const {jwk,jwt}=await accessCredentials();
