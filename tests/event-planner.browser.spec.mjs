@@ -65,8 +65,8 @@ try{
   });
   await page.goto(`http://127.0.0.1:${address.port}/captain/events-planner`,{waitUntil:"networkidle"});
   await page.locator("#selected-event h2").filter({hasText:"Événement de test Maddoxx"}).waitFor();
-  await page.getByText("Terminé confirmé").waitFor();
-  await page.getByText("Faisable gratuitement").waitFor();
+  await page.locator("#selected-event").getByText("Terminé confirmé").first().waitFor();
+  await page.locator("#selected-event").getByText("Faisable gratuitement").first().waitFor();
   await page.getByRole("tab",{name:"Objectifs"}).click();
   await page.getByRole("heading",{name:"Terminés confirmés"}).waitFor();
   await page.getByRole("tab",{name:"Planification"}).click();
