@@ -85,6 +85,7 @@ try{
   await page.getByRole("tab",{name:"Événements"}).click();
   await page.getByRole("button",{name:"Actualiser"}).click();
   await page.getByText("Diagnostic technique · propriétaire").waitFor();
+  await page.locator(".planner-diagnostic summary").click();
   assert.equal(await page.getByText("/player/v1/events",{exact:true}).count(),1);
   await page.getByText("event-list-unavailable",{exact:true}).waitFor();
   assert.doesNotMatch(await page.locator(".planner-diagnostic").textContent(),/private-test-token|Bearer/);
