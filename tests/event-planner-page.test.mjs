@@ -72,7 +72,7 @@ test("every shipped planner JavaScript module is served through the authenticate
 
   for(const modulePath of modules){
     const code=await readFile(join(PLANNER_ASSET_ROOT,modulePath),"utf8");
-    const imports=code.matchAll(/^\\s*(?:import|export)\\s+[^;\\n]*?\\s+from\\s*["']([^"']+)["']/gm);
+    const imports=code.matchAll(/^\s*(?:import|export)\s+[^;\n]*?\s+from\s*["']([^"']+)["']/gm);
     for(const match of imports){
       if(!match[1].startsWith("."))continue;
       const dependency=normalize(join(dirname(modulePath),match[1])).replaceAll("\\\\","/");
