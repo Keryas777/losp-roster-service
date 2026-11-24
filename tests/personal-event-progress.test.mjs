@@ -32,7 +32,7 @@ const event={id:"e1",type:"milestone",milestone:{brackets:[{id:"default",objecti
 
 test("no Scopely session returns explicit not-connected without provider call",async()=>{
   const f=harness(()=>{throw Error("must not call provider");});
-  const res=await handlePersonalEventProgress(new Request(ORIGIN+"/captain/api/events"),f.env);
+  const res=await handlePersonalEventProgress(new Request(ORIGIN+"/captain/api/events",{headers:{"Cf-Access-Jwt-Assertion":OWNER_JWT}}),f.env);
   assert.equal(res.status,401);assert.equal((await res.json()).error,"not-connected");
 });
 test("Discord-only or insufficient OAuth scope is rejected before any event GET",async()=>{
