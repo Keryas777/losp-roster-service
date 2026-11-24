@@ -35,6 +35,8 @@ test("connected same-origin session receives the page with private no-store head
   assert.equal(response.status,200);assert.match(await response.text(),/Planner asset/);
   assert.equal(f.assetCalls(),1);assert.equal(response.headers.get("X-Robots-Tag"),"noindex");
   assert.match(response.headers.get("Content-Security-Policy"),/connect-src 'self' https:\/\/keryas777\.github\.io/);
+  assert.match(response.headers.get("Content-Security-Policy"),/style-src 'self' https:\/\/keryas777\.github\.io/);
+  assert.match(response.headers.get("Content-Security-Policy"),/img-src 'self' https:\/\/assets\.marvelstrikeforce\.com https:\/\/keryas777\.github\.io/);
 });
 
 test("planner asset path traversal and unsupported files are denied",async()=>{
