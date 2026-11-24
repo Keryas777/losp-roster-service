@@ -56,7 +56,10 @@ test("a LoSP member with an active Scopely cookie is denied before session or AP
   const f=setup();
   const page=await worker.fetch(request("/admin/events-planner",{session:true}),f.env);
   const api=await worker.fetch(request("/admin/api/event-planner?resource=status",{session:true}),f.env);
+  const progress=await worker.fetch(request("/captain/api/events",{session:true}),f.env);
+  const progressAlias=await worker.fetch(request("/captain/events",{session:true}),f.env);
   assert.equal(page.status,403);assert.equal(api.status,403);
+  assert.equal(progress.status,403);assert.equal(progressAlias.status,403);
   assert.deepEqual(f.calls,{sessions:0,cache:0,assets:0,scopely:0});
 });
 
