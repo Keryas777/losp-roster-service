@@ -1,6 +1,7 @@
 // On-demand personal event progression. No scheduled work and no public archive.
 import {captainConfigReady} from "./captain-vault.js";
 import {captainSessionKey} from "./captain-vault.js";
+import {eventPlannerAccessStatus,eventPlannerAccessResponse} from "./event-planner-auth.js";
 import {API_KEY} from "./player-card.js";
 import {handleEventPlannerCache} from "./event-planner-cache.js";
 
