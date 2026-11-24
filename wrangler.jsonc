@@ -14,6 +14,8 @@
     "CAPTAIN_SESSIONS_ENABLED": "true",
     "CAPTAIN_COVERAGE_ENABLED": "false",
     "MSF_ADMIN_ENABLED": "true",
+    "PERSONAL_EVENT_LAB_ENABLED": "false",
+    "EVENT_PLANNER_ENABLED": "true",
     "ROSTER_AUTO_ENABLED": "true",
     "ROSTER_FULL_COLLECTION_ENABLED": "true",
     "MEMBER_INFO_AUTO_ENABLED": "true",
@@ -30,7 +32,8 @@
   },
   "assets": {
     "directory": "./public",
-    "html_handling": "none"
+    "html_handling": "none",
+    "run_worker_first": ["/event-planner", "/event-planner/*"]
   },
   "r2_buckets": [
     { "binding": "CAPTAIN_BUCKET", "bucket_name": "losp-roster-sessions" }
@@ -41,12 +44,14 @@
   "durable_objects": {
     "bindings": [
       { "name": "CAPTAIN_REFRESH_COORDINATOR", "class_name": "CaptainRefreshCoordinator" },
-      { "name": "ROSTER_BATCH_LOCK", "class_name": "RosterBatchLock" }
+      { "name": "ROSTER_BATCH_LOCK", "class_name": "RosterBatchLock" },
+      { "name": "PERSONAL_EVENT_CACHE", "class_name": "PersonalEventProgressCache" }
     ]
   },
   "migrations": [
     { "tag": "captain-oauth-v1", "new_sqlite_classes": ["CaptainRefreshCoordinator"] },
-    { "tag": "roster-batch-v1", "new_sqlite_classes": ["RosterBatchLock"] }
+    { "tag": "roster-batch-v1", "new_sqlite_classes": ["RosterBatchLock"] },
+    { "tag": "personal-event-cache-v1", "new_sqlite_classes": ["PersonalEventProgressCache"] }
   ],
   "triggers": {
     "crons": ["15 * * * *", "15 3 * * *", "* 2-3,14-15 * * *", "* * * * *"]

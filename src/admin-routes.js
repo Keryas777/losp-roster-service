@@ -1,4 +1,5 @@
 import {diagnoseAdminAuth,adminReady} from "./admin-auth.js";
+import {eventPlannerAccessStatus} from "./event-planner-auth.js";
 import {handleAdminPlayerLinks} from "./player-identity-links.js";
 import {manageEventReference} from "./game-events-reference.js";
 import {rosterSyncPreflight,saveRosterSyncApprovals,approveOneRosterAlliance} from "./roster-sync-preflight.js";
@@ -357,7 +358,10 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   }
   const pathname=new URL(request.url).pathname;
   if(pathname==="/admin"||pathname==="/admin/"){
-    return new Response(html,{headers:{
+    const plannerEntry=await eventPlannerAccessStatus(request,env,fetchImpl)==="allowed"
+      ?html.replace("<main>","<main><section id=\"event-planner-entry\"><h2>Planificateur personnel</h2><p>Analyse privée des événements avec les données de ton compte.</p><p><a href=\"/admin/events-planner\" role=\"button\">Planifier avec mon roster</a></p></section>")
+      :html;
+    return new Response(plannerEntry,{headers:{
       "Content-Type":"text/html; charset=utf-8",
       "Cache-Control":"private, no-store","Referrer-Policy":"no-referrer",
       "X-Robots-Tag":"noindex, nofollow, noarchive","X-Frame-Options":"DENY",

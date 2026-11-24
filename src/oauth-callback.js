@@ -39,10 +39,11 @@ function equalStates(left, right) {
   return diff === 0;
 }
 
-function clearOAuthCookies(headers) {
+function clearOAuthCookies(headers, plannerReturn = false) {
   const attributes = "; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax";
   headers.append("Set-Cookie", COOKIE_STATE + "=" + attributes);
   headers.append("Set-Cookie", COOKIE_VERIFIER + "=" + attributes);
+  if(plannerReturn)headers.append("Set-Cookie", "__Host-losp_oauth_captain_return=" + attributes);
 }
 
 function backToStatus(result, status = 303) {
@@ -113,6 +114,8 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     readCookie(cookies, "__Host-losp_oauth_roster_viewer"), expectedState);
   const captainMode = equalStates(
     readCookie(cookies, "__Host-losp_oauth_captain"), expectedState);
+  const eventPlannerReturn = captainMode && equalStates(
+    readCookie(cookies, "__Host-losp_oauth_captain_return"), expectedState);
   const scopeProbe = ALLIANCE_SCOPE_PROBES.find(probe =>
     equalStates(readCookie(cookies, probe.cookie), expectedState)) || null;
   const inventoryMode = equalStates(
@@ -141,6 +144,7 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
           failure === "access_denied" ? "access-denied" : "oauth-error"
       });
     }
+
     return backToStatus("denied");
   }
 
@@ -254,6 +258,18 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
           !Number.isInteger(result.expires_in) || result.expires_in < 60) {
           persistence = "missing-refresh-token";
         } else saveToken = true;
+      }
+      if(eventPlannerReturn&&saveToken){
+        try{
+          const redirect=new Response(null,{status:303,headers:{Location:APP_ORIGIN+"/admin/events-planner",
+            "Cache-Control":"no-store","Referrer-Policy":"no-referrer","X-Robots-Tag":"noindex"}});
+          const saved=await saveCaptainConsent(redirect,result,env,request,fetchImpl);
+          const headers=new Headers(saved.headers);
+          clearOAuthCookies(headers,true);
+          return new Response(null,{status:saved.status,headers});
+        }catch{
+          return backToStatus("captain-session-unavailable");
+        }
       }
       // A captain from an OUTSIDE alliance must never trigger even an
       // ephemeral co-member roster preview on the OAuth callback.

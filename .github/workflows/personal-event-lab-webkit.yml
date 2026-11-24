@@ -1,0 +1,31 @@
+name: Personal event lab WebKit
+
+on:
+  pull_request:
+    paths:
+      - "src/personal-event-lab.js"
+      - "src/personal-event-analysis.js"
+      - "src/personal-event-progress.js"
+      - "src/admin-auth.js"
+      - "tests/personal-event-lab.webkit.spec.mjs"
+      - ".github/workflows/personal-event-lab-webkit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  webkit-lab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install temporary Playwright tooling
+        run: npm install --no-save --no-package-lock playwright@1.56.1
+      - name: Install WebKit browser
+        run: npx playwright install --with-deps webkit
+      - name: Run the served laboratory in WebKit
+        run: node tests/personal-event-lab.webkit.spec.mjs

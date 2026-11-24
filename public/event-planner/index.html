@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b0c0d">
+  <meta name="referrer" content="no-referrer">
+  <title>Planificateur d’événements — LoSP</title>
+  <link rel="stylesheet" href="/admin/events-planner/styles.css">
+  <script type="module" src="/admin/events-planner/app.js"></script>
+</head>
+<body>
+  <main class="planner-app">
+    <header class="planner-header">
+      <a class="back-link" href="https://keryas777.github.io/msf/evenements.html">‹ Calendrier LoSP</a>
+      <p class="eyebrow">LoSP · outils personnels</p>
+      <h1>Planificateur d’événements</h1>
+      <p class="intro">Les calculs reprennent le moteur Maddoxx. Tes données Scopely sont demandées à la volée et restent privées.</p>
+    </header>
+
+    <section id="connection" class="connection" aria-live="polite">Vérification de la session…</section>
+
+    <nav class="planner-tabs" role="tablist" aria-label="Sections du planificateur">
+      <button type="button" role="tab" id="tab-events" aria-controls="panel-events" aria-selected="true" data-tab="events">Événements</button>
+      <button type="button" role="tab" id="tab-objectives" aria-controls="panel-objectives" aria-selected="false" data-tab="objectives">Objectifs</button>
+      <button type="button" role="tab" id="tab-plan" aria-controls="panel-plan" aria-selected="false" data-tab="plan">Planification</button>
+      <button type="button" role="tab" id="tab-stock" aria-controls="panel-stock" aria-selected="false" data-tab="stock">Mon stock</button>
+    </nav>
+
+    <section id="panel-events" class="tab-panel" role="tabpanel" aria-labelledby="tab-events">
+      <div class="section-heading"><div><h2>Événements en cours</h2><p id="event-count" class="muted">Chargement…</p></div><button type="button" class="button button-secondary" id="refresh">Actualiser</button></div>
+      <div id="events-list" class="event-list"></div>
+      <details class="skipped-wrap"><summary>Événements ignorés</summary><div id="skipped-list"></div></details>
+      <article id="selected-event" class="selected-event" aria-live="polite"><p class="muted">Choisis un événement pour afficher son analyse.</p></article>
+    </section>
+
+    <section id="panel-objectives" class="tab-panel" role="tabpanel" aria-labelledby="tab-objectives" hidden>
+      <h2>Objectifs terminés et restants</h2>
+      <div id="objectives-view"><p class="muted">Choisis un événement dans l’onglet Événements.</p></div>
+    </section>
+
+    <section id="panel-plan" class="tab-panel" role="tabpanel" aria-labelledby="tab-plan" hidden>
+      <h2>Planification</h2>
+      <div id="plan-view"><p class="muted">Choisis un événement dans l’onglet Événements.</p></div>
+    </section>
+
+    <section id="panel-stock" class="tab-panel" role="tabpanel" aria-labelledby="tab-stock" hidden>
+      <div class="section-heading"><div><h2>Mon stock</h2><p class="muted">Inventaire Scopely quand il est autorisé; sinon tes déclarations sur cet appareil.</p></div><button type="button" class="button button-secondary" id="refresh-stock">Actualiser les relevés</button></div>
+      <div id="stock-view"><p class="muted">Chargement des ressources utilisées…</p></div>
+    </section>
+
+    <footer><a href="/captain">Session Scopely</a><span>·</span><a href="/logout">Révoquer l’autorisation</a></footer>
+  </main>
+</body>
+</html>

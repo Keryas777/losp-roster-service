@@ -46,6 +46,7 @@ jobs:
           const c = JSON.parse(fs.readFileSync("wrangler.jsonc", "utf8"));
           assert.equal(c.name, "losp-roster-service");
           assert.equal(c.vars?.PERSONAL_EVENT_LAB_ENABLED, "false");
+          assert.ok(c.vars?.EVENT_PLANNER_ENABLED === "true" || c.vars?.EVENT_PLANNER_ENABLED === "false");
           assert.ok(c.durable_objects?.bindings?.some(
             b => b.name === "PERSONAL_EVENT_CACHE" && b.class_name === "PersonalEventProgressCache"
           ));
@@ -61,7 +62,7 @@ jobs:
           assert.ok(c.services?.some(
             s => s.binding === "LOSP_AUTH" && s.service === "losp-auth"
           ));
-          console.log("Commit, Worker name, lab flag, DO binding/migration, R2/service bindings and cron schedule set verified.");
+          console.log("Commit, Worker name, feature flags, DO binding/migration, R2/service bindings and cron schedule set verified.");
           NODE
 
       - name: Deploy with Wrangler

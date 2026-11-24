@@ -1,3 +1,4 @@
+import {accessJwt,accessFetch,ACCESS_OWNER} from "./event-planner/access-fixtures.mjs";
 import { test } from "node:test";
 import {AUDIT_PREFIX,auditCaptainEvent} from "../src/captain-audit.js";
 import assert from "node:assert/strict";
@@ -117,6 +118,45 @@ test("captain consent sets only HttpOnly cookie after successful encrypted stora
   const landing=await handleCaptainLanding(req("/captain",id),env);
   assert.match(await landing.text(),/Autorisation Scopely maintenue automatiquement/);
   assert.doesNotMatch(JSON.stringify([...landing.headers]),/PRIVATE_REFRESH/);
+});
+
+test("planner reauthorization is owner-only and round-trips only opaque session cookies",async()=>{
+  const {env,bucket}=setup();
+  Object.assign(env,{EVENT_PLANNER_ENABLED:"true",PERSONAL_EVENT_LAB_ADMIN_EMAIL:ACCESS_OWNER,
+    MSF_ADMIN_ENABLED:"true",CF_ACCESS_TEAM_DOMAIN:"planner-test.cloudflareaccess.com",CF_ACCESS_AUD:"a".repeat(32),
+    MSF_ADMIN_EMAILS:ACCESS_OWNER});
+  const prior=newCaptainSessionId();await store(env,prior);
+  const ownerJwt=await accessJwt(ACCESS_OWNER);
+  const previousFetch=globalThis.fetch;globalThis.fetch=accessFetch();
+  let start;
+  try{start=await worker.fetch(req("/admin/login/captain?returnTo=events-planner&reauthorize=1",prior,{
+    "Cf-Access-Jwt-Assertion":ownerJwt}),env);}finally{globalThis.fetch=previousFetch;}
+  assert.equal(start.status,302);
+  const authorize=new URL(start.headers.get("location"));
+  assert.equal(authorize.hostname,"hydra-public.prod.m3.scopelypv.com");
+  assert.match(authorize.searchParams.get("scope"),/m3p\.f\.pr\.act/);
+  assert.match(authorize.searchParams.get("scope"),/m3p\.f\.pr\.ros/);
+  assert.match(authorize.searchParams.get("scope"),/m3p\.f\.pr\.inv/);
+  const state=authorize.searchParams.get("state"),cookies=start.headers.getSetCookie();
+  const cookieValue=name=>cookies.find(value=>value.startsWith(name+"="))?.split(";",1)[0];
+  const callbackCookies=["__Host-losp_oauth_state","__Host-losp_oauth_verifier","__Host-losp_oauth_captain","__Host-losp_oauth_captain_return"]
+    .map(name=>cookieValue(name)).concat("__Host-losp_captain_session="+prior).join("; ");
+  assert.ok(callbackCookies.includes("__Host-losp_oauth_captain_return="+state));
+  const callback=await handleCallback(new Request(origin+"/oauth/callback?state="+state+"&code=PRIVATE_CODE",{
+    headers:{Cookie:callbackCookies}
+  }),env,async url=>{
+    if(url.endsWith("/oauth2/token"))return fakeResponse({...token("PRIVATE_PLANNER_ACCESS","PRIVATE_PLANNER_REFRESH"),
+      scope:scopes+" m3p.f.pr.act m3p.f.pr.inv"});
+    if(url.endsWith("/player/v1/alliance/card"))return fakeResponse({data:{id:"test-alliance",name:"Test Alliance"}});
+    if(url.endsWith("/player/v1/alliance/members"))return fakeResponse({data:[]});
+    throw Error("Unexpected provider request");
+  });
+  assert.equal(callback.status,303);assert.equal(callback.headers.get("location"),origin+"/admin/events-planner");
+  const responseCookies=callback.headers.getSetCookie();
+  assert.ok(responseCookies.some(value=>value.startsWith("__Host-losp_captain_session=")));
+  assert.ok(responseCookies.some(value=>value.startsWith("__Host-losp_oauth_captain_return=; Max-Age=0")));
+  assert.doesNotMatch(JSON.stringify([...callback.headers]),/PRIVATE_PLANNER_(ACCESS|REFRESH)|PRIVATE_CODE/);
+  assert.equal(captainSessionCount(bucket),1); // replacement keeps one active consent
 });
 
 test("external captain login archives SELF roster only; never requests another member",async()=>{

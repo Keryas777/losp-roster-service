@@ -1,0 +1,61 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { analyzeMilestoneEvent } from "../../public/event-planner/lib/event-analysis.js";
+
+const characters=[{id:"CaptainAmerica",nameEn:"Captain America",nameFr:"Captain America",portrait:"",traits:["Avenger"]}];
+const roster=[{id:"CaptainAmerica",activeYellow:7,activeRed:0,gearTier:20,level:90,iso8:{active:"raider",raider:10}}];
+const event=(progress,soFar)=>({id:"event-1",type:"milestone",startTime:1,endTime:2_000_000_000,
+  milestone:{type:"solo",scoring:{methods:[],cappedScorings:[{cap:20,...(soFar===undefined?{}:{soFar}),methods:[{description:"Play Blitz with Captain America at 7 Yellow Stars",points:5}]}]},
+    brackets:[{id:"default",objective:{...(progress===undefined?{}:{progress}),tiers:{1:{goal:20},2:{goal:40}}}}]}});
+
+test("Maddoxx analysis uses confirmed progress, roster requirements, completed goals and tiers",()=>{
+  const result=analyzeMilestoneEvent({eventEn:event({points:20,completedTier:1,claimableTiers:[2]},20),eventFr:event({points:20,completedTier:1,claimableTiers:[2]},20),roster,characters,now:1_900_000_000});
+  assert.equal(result.supported,true);
+  assert.equal(result.event.points,20);
+  assert.equal(result.event.completedTierKnown,true);
+  assert.equal(result.actions[0].status,"done");
+  assert.equal(result.actions[0].remaining,0);
+  assert.equal(result.plan.secure.tier,1);
+});
+
+test("missing personal progress and capped counters remain unknown, never zero or completed",()=>{
+  const result=analyzeMilestoneEvent({eventEn:event(undefined,undefined),eventFr:event(undefined,undefined),roster,characters,now:1_900_000_000});
+  assert.equal(result.supported,true);
+  assert.equal(result.event.points,null);
+  assert.equal(result.event.currentTier,null);
+  assert.equal(result.actions[0].status,"unknown");
+  assert.equal(result.actions[0].remaining,null);
+  assert.equal(result.plan.status,"unavailable");
+});
+
+test("Maddoxx fallback estimates a total only when all capped counters are available",()=>{
+  const complete=analyzeMilestoneEvent({eventEn:event(undefined,20),eventFr:event(undefined,20),roster,characters,now:1_900_000_000});
+  assert.equal(complete.event.progressState,"estimated");
+  assert.equal(complete.event.points,20);
+  assert.equal(complete.event.currentTier,null);
+  assert.equal(complete.plan.display,"nextTierBlocked");
+  const incomplete=event(undefined,20);
+  incomplete.milestone.scoring.cappedScorings.push({cap:10,methods:[{description:"Daily Login",points:1}]});
+  const partial=analyzeMilestoneEvent({eventEn:incomplete,eventFr:incomplete,roster,characters,now:1_900_000_000});
+  assert.equal(partial.event.progressState,"partial");
+  assert.equal(partial.event.reportedActionPoints,20);
+  assert.equal(partial.event.points,null);
+  assert.equal(partial.plan.status,"unavailable");
+});
+
+test("known total score does not turn a missing capped counter into zero",()=>{
+  const result=analyzeMilestoneEvent({eventEn:event({points:10},undefined),eventFr:event({points:10},undefined),roster,characters,now:1_900_000_000});
+  assert.equal(result.event.progressState,"available");
+  assert.equal(result.actions[0].progressState,"unknown");
+  assert.equal(result.actions[0].status,"unknown");
+  assert.equal(result.actions[0].remaining,null);
+  assert.notEqual(result.plan.status,"unavailable");
+});
+
+test("missing roster keeps character action feasibility unknown without blocking the rest of the analysis",()=>{
+  const result=analyzeMilestoneEvent({eventEn:event({points:10,completedTier:0,claimableTiers:[]},5),eventFr:event({points:10,completedTier:0,claimableTiers:[]},5),roster:[],rosterKnown:false,characters,now:1_900_000_000});
+  assert.equal(result.supported,true);
+  assert.equal(result.actions[0].status,"unknown");
+  assert.equal(result.actions[0].reason.code,"rosterUnavailable");
+  assert.equal(result.event.progressState,"available");
+});

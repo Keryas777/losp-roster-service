@@ -1,0 +1,1362 @@
+{
+ "_doc": "Lignes d’objectif réelles des événements à jalons (textes EN et FR seulement), relevées le 2026-11-17 ; expected = classement attendu, relu.",
+ "capturedAt": "2026-11-17",
+ "objectives": [
+  {
+   "en": "",
+   "fr": "",
+   "capped": true,
+   "expected": {
+    "kind": "unknown",
+    "reasonCode": "noText"
+   }
+  },
+  {
+   "en": "Get points by completing the Daily Web Exclusive Milestone",
+   "fr": "Gagnez des points en terminant les phases quotidiennes exclusives du web.",
+   "capped": false,
+   "expected": {
+    "kind": "meta"
+   }
+  },
+  {
+   "en": "Claim a free offer.",
+   "fr": "Récoltez une offre gratuite.",
+   "capped": true,
+   "expected": {
+    "kind": "free"
+   }
+  },
+  {
+   "en": "Make a purchase from the Web Store.",
+   "fr": "Effectuez un achat dans la boutique du web.",
+   "capped": true,
+   "expected": {
+    "kind": "external",
+    "reasonCode": "purchase"
+   }
+  },
+  {
+   "en": "Make a Strike Store purchase.",
+   "fr": "Effectuez un achat sur la boutique du Strike",
+   "capped": true,
+   "expected": {
+    "kind": "external",
+    "reasonCode": "purchase"
+   }
+  },
+  {
+   "en": "Spend Power Cores",
+   "fr": "Dépensez des noyaux d’énergie",
+   "capped": true,
+   "expected": {
+    "kind": "spend",
+    "resource": "CORE"
+   }
+  },
+  {
+   "en": "Spend 1 Power Core",
+   "fr": "Dépenser 1 noyau d'énergie",
+   "capped": false,
+   "expected": {
+    "kind": "spend",
+    "resource": "CORE"
+   }
+  },
+  {
+   "en": "Daily Login",
+   "fr": "Se connecter quotidiennement",
+   "capped": true,
+   "expected": {
+    "kind": "login"
+   }
+  },
+  {
+   "en": "Play Blitz with Jocasta",
+   "fr": "Combattre en choc avec Jocaste",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Jocasta at 7 Yellow Stars",
+   "fr": "Combattre en choc avec Jocaste à 7 étoiles jaunes",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Jocasta at GT21",
+   "fr": "Combattre en choc avec Jocaste au palier d’équipement 21",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Hawkeye (Robot)",
+   "fr": "Combattre en choc avec Hawkeye (Robot)",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Hawkeye (Robot) at 7 Yellow Stars",
+   "fr": "Combattre en choc avec Hawkeye (Robot) à 7 étoiles jaunes",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Hawkeye (Robot) at GT21",
+   "fr": "Combattre en choc avec Hawkeye (Robot) au palier d'équipement 21",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Human Torch (Jim)",
+   "fr": "Combattre en choc avec la Torche humaine (Jim)",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Human Torch (Jim) at 7 Yellow Stars",
+   "fr": "Combattre en choc avec la Torche humaine (Jim) à 7 étoiles jaunes",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Human Torch (Jim) at GT21",
+   "fr": "Combattre en choc avec la Torche humaine (Jim) au palier d’équipement 21",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Vision",
+   "fr": "Combattre en choc avec Vision",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Vision at 7 Yellow Stars",
+   "fr": "Combattre en choc avec Vision à 7 étoiles jaunes",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Vision at GT21",
+   "fr": "Combattre en choc avec Vision au palier d’équipement 21",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Ultron",
+   "fr": "Combattre en choc avec Ultron",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Ultron at 7 Yellow Stars",
+   "fr": "Combattre en choc avec Ultron à 7 étoiles jaunes",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Ultron at GT21",
+   "fr": "Combattre en choc avec Ultron au palier d’équipement 21",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Whiplash",
+   "fr": "Combattre en choc avec Whiplash",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Whiplash at 7 Yellow Stars",
+   "fr": "Combattre en choc avec Whiplash à 7 étoiles jaunes",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Whiplash at GT21",
+   "fr": "Combattre en choc avec Whiplash au palier d’équipement 21",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Ulysses Klaue",
+   "fr": "Combattre en choc avec Ulysses Klaue",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Ulysses Klaue at 7 Yellow Stars",
+   "fr": "Combattre en choc avec Ulysses Klaue à 7 étoiles jaunes",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Ulysses Klaue at GT21",
+   "fr": "Combattre en choc avec Ulysses Klaue au palier d'équipement 21",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Iron Monger",
+   "fr": "Combattre en choc avec Iron Monger",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Iron Monger at 7 Yellow Stars",
+   "fr": "Combattre en choc avec Iron Monger à 7 étoiles jaunes",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Iron Monger at GT21",
+   "fr": "Combattre en choc avec Iron Monger au palier d’équipement 21",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Crossbones",
+   "fr": "Combattre en choc avec Crossbones",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Crossbones at 7 Yellow Stars",
+   "fr": "Combattre en choc avec Crossbones à 7 étoiles jaunes",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Crossbones at GT21",
+   "fr": "Combattre en choc avec Crossbones au palier d'équipement 21",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Yellowjacket",
+   "fr": "Combattre en choc avec Yellowjacket",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Yellowjacket at 7 Yellow Stars",
+   "fr": "Combattre en choc avec Yellowjacket à 7 étoiles jaunes",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Yellowjacket at GT21",
+   "fr": "Combattre en choc avec Yellowjacket au palier d'équipement 21",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Upgrade any character Level to 101",
+   "fr": "Faire monter n'importe quel personnage au niveau 101",
+   "capped": false,
+   "expected": {
+    "kind": "upgrade"
+   }
+  },
+  {
+   "en": "Upgrade any character Level to 110",
+   "fr": "Faire monter n'importe quel personnage au niveau 110",
+   "capped": false,
+   "expected": {
+    "kind": "upgrade"
+   }
+  },
+  {
+   "en": "Upgrade any character to Gear Tier 19",
+   "fr": "Faire monter n'importe quel personnage au palier d’équipement 19",
+   "capped": false,
+   "expected": {
+    "kind": "upgrade"
+   }
+  },
+  {
+   "en": "Upgrade any character to Gear Tier 21",
+   "fr": "Faire monter n'importe quel personnage au palier d’équipement 21",
+   "capped": false,
+   "expected": {
+    "kind": "upgrade"
+   }
+  },
+  {
+   "en": "Upgrade any character to T4 Level 3 Iso-8",
+   "fr": "Améliorer n'importe quel personnage à l’iso-8 P4 niveau 3",
+   "capped": false,
+   "expected": {
+    "kind": "upgrade"
+   }
+  },
+  {
+   "en": "Open an Orange Mega Orb",
+   "fr": "Ouvrir un méga orbe orange",
+   "capped": false,
+   "expected": {
+    "kind": "external",
+    "reasonCode": "orb"
+   }
+  },
+  {
+   "en": "Open an A.I. Avengers Mega Orb",
+   "fr": "Ouvrir un méga orbe des Avengers I.A.",
+   "capped": false,
+   "expected": {
+    "kind": "external",
+    "reasonCode": "orb"
+   }
+  },
+  {
+   "en": "Open an Iron Raiders Mega Orb",
+   "fr": "Ouvrir un méga orbe des Fantassins de fer",
+   "capped": false,
+   "expected": {
+    "kind": "external",
+    "reasonCode": "orb"
+   }
+  },
+  {
+   "en": "Earn Cyber Breach Milestone Points in select Offers",
+   "fr": "Gagner des points de phase Faille cybernétique dans des offres sélectionnées",
+   "capped": false,
+   "expected": {
+    "kind": "external",
+    "reasonCode": "purchase"
+   }
+  },
+  {
+   "en": "Collect 1 Designed to Sting Milestone Point from the Wasp (Janet) Battle Passes and Offers",
+   "fr": "Obtenir 1 point de phase Faite pour piquer dans les Battle Pass de la Guêpe (Janet) et les offres",
+   "capped": false,
+   "expected": {
+    "kind": "external",
+    "reasonCode": "battlePass"
+   }
+  },
+  {
+   "en": "Collect 1 Founding Force Milestone Point from the Wasp (Janet) Battle Passes",
+   "fr": "Obtenir 1 point de phase Force fondatrice dans les Battle Pass de la Guêpe (Janet)",
+   "capped": false,
+   "expected": {
+    "kind": "external",
+    "reasonCode": "battlePass"
+   }
+  },
+  {
+   "en": "Battle with Cyclops (Mighty)",
+   "fr": "Combattre avec Cyclope (Puissant)",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Battle with Savage Land characters",
+   "fr": "Combattre avec des personnages Terre Sauvage",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "trait"
+   }
+  },
+  {
+   "en": "Battle with Sabretooth (Breaker)",
+   "fr": "Combattre avec Dents-de-sabre (Briseur)",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Battle with all Menace together",
+   "fr": "Combattre avec tous les membres de Menace",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "team"
+   }
+  },
+  {
+   "en": "Battle with all Nightreaver together",
+   "fr": "Combattre avec tous les membres de Nightreaver",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "team"
+   }
+  },
+  {
+   "en": "Battle with all A.I. Avenger together",
+   "fr": "Combattre avec tous les membres des Avengers I.A.",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "team"
+   }
+  },
+  {
+   "en": "Battle with all Iron Raider together",
+   "fr": "Combattre avec tous les membres des Fantassins de fer",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "team"
+   }
+  },
+  {
+   "en": "Login for 14 Days",
+   "fr": "Se connecter pendant 14 jours",
+   "capped": true,
+   "expected": {
+    "kind": "login"
+   }
+  },
+  {
+   "en": "Battle with Rogue at Gear Tier 20",
+   "fr": "Combattre avec Malicia au palier d’équipement 20",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Battle with X-23 at Gear Tier 20",
+   "fr": "Combattre avec X-23 au palier d’équipement 20",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Battle with Cyclops (Mighty) at Gear Tier 20",
+   "fr": "Combattre avec Cyclope (Puissant) au palier d'équipement 20",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Log in",
+   "fr": "Se connecter",
+   "capped": true,
+   "expected": {
+    "kind": "login"
+   }
+  },
+  {
+   "en": "Spend 1 Tier 2 Level 1 Ion",
+   "fr": "Dépenser 1 ion palier 2 niveau 1",
+   "capped": true,
+   "expected": {
+    "kind": "spend",
+    "resource": "ION_P2_L1"
+   }
+  },
+  {
+   "en": "Spend 1 Tier 2 Level 4 Ion",
+   "fr": "Dépenser 1 ion palier 2 niveau 4",
+   "capped": true,
+   "expected": {
+    "kind": "spend",
+    "resource": "ION_P2_L4"
+   }
+  },
+  {
+   "en": "Spend 1 Tier 2 Level 5 Ion",
+   "fr": "Dépenser 1 ion palier 2 niveau 5",
+   "capped": true,
+   "expected": {
+    "kind": "spend",
+    "resource": "ION_P2_L5"
+   }
+  },
+  {
+   "en": "Spend Gold",
+   "fr": "Dépenser de l’or",
+   "capped": true,
+   "expected": {
+    "kind": "spend",
+    "resource": "GOLD"
+   }
+  },
+  {
+   "en": "Spend L4 Training Modules",
+   "fr": "Dépenser des modules d'entraînement N4",
+   "capped": true,
+   "expected": {
+    "kind": "spend",
+    "resource": "TRAINING_MODULE_L4"
+   }
+  },
+  {
+   "en": "Spend 1 Tier 3 Level 1 Ion",
+   "fr": "Dépenser 1 ion palier 3 niveau 1",
+   "capped": false,
+   "expected": {
+    "kind": "spend",
+    "resource": "ION_P3_L1"
+   }
+  },
+  {
+   "en": "Spend 1 Tier 3 Level 4 Ion",
+   "fr": "Dépenser 1 ion palier 3 niveau 4",
+   "capped": false,
+   "expected": {
+    "kind": "spend",
+    "resource": "ION_P3_L4"
+   }
+  },
+  {
+   "en": "Spend 1 Tier 3 Level 5 Ion",
+   "fr": "Dépenser 1 ion palier 3 niveau 5",
+   "capped": false,
+   "expected": {
+    "kind": "spend",
+    "resource": "ION_P3_L5"
+   }
+  },
+  {
+   "en": "Spend 1 Tier 4 Level 1 Ion",
+   "fr": "Dépenser 1 ion palier 4 niveau 1",
+   "capped": false,
+   "expected": {
+    "kind": "spend",
+    "resource": "ION_P4_L1"
+   }
+  },
+  {
+   "en": "Upgrade any character to T3 Level 5 Iso-8",
+   "fr": "Améliorer n'importe quel personnage à l’iso-8 P3 niveau 5",
+   "capped": false,
+   "expected": {
+    "kind": "upgrade"
+   }
+  },
+  {
+   "en": "Earn ISO Fest Milestone Points in select Offers",
+   "fr": "Gagner des points de phase Fête de l’iso dans des offres sélectionnées",
+   "capped": false,
+   "expected": {
+    "kind": "external",
+    "reasonCode": "purchase"
+   }
+  },
+  {
+   "en": "Play with Cyclops (Mighty)",
+   "fr": "Jouer avec Cyclope (Puissant)",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Cyclops (Mighty) at Gear Tier 12",
+   "fr": "Jouer avec Cyclope (Puissant) au palier d'équipement 12",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Cyclops (Mighty) at Gear Tier 13",
+   "fr": "Jouer avec Cyclope (Puissant) au palier d'équipement 13",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Cyclops (Mighty) at Gear Tier 14",
+   "fr": "Jouer avec Cyclope (Puissant) au palier d'équipement 14",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Cyclops (Mighty) at Gear Tier 15",
+   "fr": "Jouer avec Cyclope (Puissant) au palier d'équipement 15",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Cyclops (Mighty) at Gear Tier 16",
+   "fr": "Jouer avec Cyclope (Puissant) au palier d'équipement 16",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Cyclops (Mighty) at Gear Tier 17",
+   "fr": "Jouer avec Cyclope (Puissant) au palier d'équipement 17",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Cyclops (Mighty) at Gear Tier 18",
+   "fr": "Jouer avec Cyclope (Puissant) au palier d'équipement 18",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Cyclops (Mighty) at Gear Tier 19",
+   "fr": "Jouer avec Cyclope (Puissant) au palier d'équipement 19",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Cyclops (Mighty) at Gear Tier 20",
+   "fr": "Jouer avec Cyclope (Puissant) au palier d'équipement 20",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Cyclops (Mighty) at Gear Tier 21",
+   "fr": "Jouer avec Cyclope (Puissant) au palier d'équipement 21",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Cyclops (Mighty) at 5 Yellow Stars and Gear Tier 19",
+   "fr": "Jouer avec Cyclope (Puissant) à 5 étoiles jaunes et au palier d'équipement 19",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Cyclops (Mighty) at 6 Yellow Stars and Gear Tier 20",
+   "fr": "Jouer avec Cyclope (Puissant) à 6 étoiles jaunes et au palier d'équipement 20",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Cyclops (Mighty) at 7 Yellow Stars and Gear Tier 21",
+   "fr": "Jouer avec Cyclope (Puissant) à 7 étoiles jaunes et au palier d'équipement 21",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Sabretooth (Breaker)",
+   "fr": "Jouer avec Dents-de-sabre (Briseur)",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Sabretooth (Breaker) at Gear Tier 12",
+   "fr": "Jouer avec Dents-de-sabre (Briseur) au palier d'équipement 12",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Sabretooth (Breaker) at Gear Tier 13",
+   "fr": "Jouer avec Dents-de-sabre (Briseur) au palier d'équipement 13",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Sabretooth (Breaker) at Gear Tier 14",
+   "fr": "Jouer avec Dents-de-sabre (Briseur) au palier d'équipement 14",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Sabretooth (Breaker) at Gear Tier 15",
+   "fr": "Jouer avec Dents-de-sabre (Briseur) au palier d'équipement 15",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Sabretooth (Breaker) at Gear Tier 16",
+   "fr": "Jouer avec Dents-de-sabre (Briseur) au palier d'équipement 16",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Sabretooth (Breaker) at Gear Tier 17",
+   "fr": "Jouer avec Dents-de-sabre (Briseur) au palier d'équipement 17",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Sabretooth (Breaker) at Gear Tier 18",
+   "fr": "Jouer avec Dents-de-sabre (Briseur) au palier d'équipement 18",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Sabretooth (Breaker) at Gear Tier 19",
+   "fr": "Jouer avec Dents-de-sabre (Briseur) au palier d'équipement 19",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Sabretooth (Breaker) at Gear Tier 20",
+   "fr": "Jouer avec Dents-de-sabre (Briseur) au palier d'équipement 20",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play with Sabretooth (Breaker) at Gear Tier 21",
+   "fr": "Jouer avec Dents-de-sabre (Briseur) au palier d'équipement 21",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Collect Dreadmarks",
+   "fr": "Récupérer des marques d’effroi",
+   "capped": true,
+   "expected": {
+    "kind": "earn"
+   }
+  },
+  {
+   "en": "Spend Energy (Campaign, Iso, Incursion)",
+   "fr": "Dépenser de l’énergie (campagne, iso ou incursion)",
+   "capped": true,
+   "expected": {
+    "kind": "spendEnergy",
+    "resource": "ENERGY_CAMPAIGN_ISO_INCURSION"
+   }
+  },
+  {
+   "en": "Play Arena, War, RTA, or Crucible",
+   "fr": "Jouer dans l’arène, en guerre, en arène en temps réel ou dans l’Épreuve",
+   "capped": true,
+   "expected": {
+    "kind": "mode",
+    "modes": [
+     "arena",
+     "war",
+     "rta",
+     "crucible"
+    ]
+   }
+  },
+  {
+   "en": "Spend Prehistoric Energy in the Savage Land Campaign",
+   "fr": "Dépenser de l'énergie préhistorique dans la campagne Terre Sauvage",
+   "capped": true,
+   "expected": {
+    "kind": "spendEnergy",
+    "resource": "ENERGY_PREHISTORIC"
+   }
+  },
+  {
+   "en": "Battle with Any Character at Gear Tier 21",
+   "fr": "Combattre avec n’importe quel personnage au palier d’équipement 21",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "any"
+   }
+  },
+  {
+   "en": "Play a Battle with A.I. Avenger characters",
+   "fr": "Combattre avec des personnages Avenger I.A.",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "trait"
+   }
+  },
+  {
+   "en": "Play a Battle with Iron Raider characters",
+   "fr": "Combattre avec des personnages Fantassin de fer",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "trait"
+   }
+  },
+  {
+   "en": "Play a Battle with any Tower Challenger IV characters",
+   "fr": "Combattre avec des personnages Combattant de la tour IV",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "trait"
+   }
+  },
+  {
+   "en": "Clear Waves in Battleworld",
+   "fr": "Éliminer des vagues sur Battleworld",
+   "capped": true,
+   "expected": {
+    "kind": "mode",
+    "modes": [
+     "battleworld"
+    ]
+   }
+  },
+  {
+   "en": "Spend Prehistoric Energy in Savage Land Campaign",
+   "fr": "Dépenser de l'énergie préhistorique dans la campagne Terre Sauvage",
+   "capped": true,
+   "expected": {
+    "kind": "spendEnergy",
+    "resource": "ENERGY_PREHISTORIC"
+   }
+  },
+  {
+   "en": "Battle with Ultron at Gear Tier 19",
+   "fr": "Combattre avec Ultron au palier d’équipement 19",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Battle with Yellowjacket at Gear Tier 19",
+   "fr": "Combattre avec Yellowjacket au palier d'équipement 19",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Battle with Ultron at Gear Tier 20",
+   "fr": "Combattre avec Ultron au palier d’équipement 20",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Battle with Yellowjacket at Gear Tier 20",
+   "fr": "Combattre avec Yellowjacket au palier d'équipement 20",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Battle with Ultron at Gear Tier 21",
+   "fr": "Combattre avec Ultron au palier d’équipement 21",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Battle with Yellowjacket at Gear Tier 21",
+   "fr": "Combattre avec Yellowjacket au palier d'équipement 21",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Spend Dreadmarks",
+   "fr": "Dépenser des marques d’effroi",
+   "capped": true,
+   "expected": {
+    "kind": "spend",
+    "resource": "DREADMARK"
+   }
+  },
+  {
+   "en": "Play a Battle with Vision",
+   "fr": "Combattre avec Vision",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play a Battle with Crossbones",
+   "fr": "Combattre avec Crossbones",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Play a Battle with Black Order characters",
+   "fr": "Combattre avec des personnages de l’Ordre noir",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "trait"
+   }
+  },
+  {
+   "en": "Spend Doomsday Energy in the Doomsday: Incursion",
+   "fr": "Dépenser de l'énergie de Doomsday dans Doomsday : Incursion",
+   "capped": true,
+   "expected": {
+    "kind": "spendEnergy",
+    "resource": "ENERGY_DOOMSDAY"
+   }
+  },
+  {
+   "en": "Earn Echo of Survival from Echoes of Dystopia",
+   "fr": "Gagner l’écho de survie dans Échos de Dystopia",
+   "capped": true,
+   "expected": {
+    "kind": "earn"
+   }
+  },
+  {
+   "en": "Battle with Jocasta at Gear Tier 19",
+   "fr": "Combattre avec Jocaste au palier d’équipement 19",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Battle with Ulysses Klaue at Gear Tier 19",
+   "fr": "Combattre avec Ulysses Klaue au palier d'équipement 19",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Battle with Jocasta at Gear Tier 20",
+   "fr": "Combattre avec Jocaste au palier d’équipement 20",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Battle with Ulysses Klaue at Gear Tier 20",
+   "fr": "Combattre avec Ulysses Klaue au palier d'équipement 20",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Battle with Jocasta at Gear Tier 21",
+   "fr": "Combattre avec Jocaste au palier d’équipement 21",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Battle with Ulysses Klaue at Gear Tier 21",
+   "fr": "Combattre avec Ulysses Klaue au palier d'équipement 21",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named"
+   }
+  },
+  {
+   "en": "Open 1 Shadow Diamond Orb",
+   "fr": "Ouvrir 1 orbe de losange de l’ombre",
+   "capped": false,
+   "expected": {
+    "kind": "external",
+    "reasonCode": "orb"
+   }
+  },
+  {
+   "en": "Battle in War with Shadow Conclave",
+   "fr": "Combattre en guerre avec le Conclave de l’ombre",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "war"
+    ]
+   }
+  },
+  {
+   "en": "Play 1 Arena Battle",
+   "fr": "Jouer 1 combat d’arène",
+   "capped": true,
+   "expected": {
+    "kind": "mode",
+    "modes": [
+     "arena"
+    ]
+   }
+  },
+  {
+   "en": "Open 1 Shadow Rising Orb",
+   "fr": "Ouvrir 1 orbe L’essor de l’ombre",
+   "capped": false,
+   "expected": {
+    "kind": "external",
+    "reasonCode": "orb"
+   }
+  },
+  {
+   "en": "Open 1 Daring Warrior Diamond Orb",
+   "fr": "Ouvrir 1 orbe de losange des Guerriers audacieux",
+   "capped": false,
+   "expected": {
+    "kind": "external",
+    "reasonCode": "orb"
+   }
+  },
+  {
+   "en": "Battle in Cosmic Crucible with Daring Warriors",
+   "fr": "Combattre dans l'Épreuve cosmique avec les Guerriers audacieux",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "crucible"
+    ]
+   }
+  },
+  {
+   "en": "Play Blitz with Daring Warriors",
+   "fr": "Combattre en choc avec les Guerriers audacieux",
+   "capped": true,
+   "expected": {
+    "kind": "fight",
+    "subject": "named",
+    "modes": [
+     "blitz"
+    ]
+   }
+  },
+  {
+   "en": "Open 1 Daring Warriors Rise Orb",
+   "fr": "Ouvrir 1 orbe Avènement des Guerriers audacieux",
+   "capped": false,
+   "expected": {
+    "kind": "external",
+    "reasonCode": "orb"
+   }
+  },
+  {
+   "en": "Battle in War",
+   "fr": "Combattre en guerre",
+   "capped": true,
+   "expected": {
+    "kind": "mode",
+    "modes": [
+     "war"
+    ]
+   }
+  },
+  {
+   "en": "Battle in Raid",
+   "fr": "Combattre en raid",
+   "capped": true,
+   "expected": {
+    "kind": "mode",
+    "modes": [
+     "raid"
+    ]
+   }
+  },
+  {
+   "en": "Earn Alliance XP by donating to your Alliance",
+   "fr": "Obtenez de l’EXP d’alliance en faisant des dons à votre alliance",
+   "capped": true,
+   "expected": {
+    "kind": "earn"
+   }
+  },
+  {
+   "en": "Earn 1 War Token",
+   "fr": "Obtenir 1 jeton de guerre",
+   "capped": true,
+   "expected": {
+    "kind": "earn"
+   }
+  },
+  {
+   "en": "Earn 1 Allied Supply XIII Orb Fragment",
+   "fr": "Obtenir 1 fragment d'orbe de ravitaillement allié XIII",
+   "capped": false,
+   "expected": {
+    "kind": "earn"
+   }
+  },
+  {
+   "en": "Complete Premium Milestones by buying points in select offers",
+   "fr": "Terminer les phases supérieures en achetant des points dans une sélection d'offres",
+   "capped": false,
+   "expected": {
+    "kind": "external",
+    "reasonCode": "purchase"
+   }
+  },
+  {
+   "en": "Spend 1 CAMPAIGN ENERGY",
+   "fr": "Dépensez 1 point d’énergie de campagne",
+   "capped": false,
+   "expected": {
+    "kind": "spendEnergy",
+    "resource": "ENERGY_CAMPAIGN"
+   }
+  }
+ ]
+}

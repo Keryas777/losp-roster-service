@@ -1,0 +1,219 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {webcrypto} from "node:crypto";
+import worker from "../src/index.js";
+import {handlePersonalEventLab,labClientJs} from "../src/personal-event-lab.js";
+
+const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
+const DOMAIN="lab-test.cloudflareaccess.com";
+const AUD="a".repeat(32);
+const b64=value=>Buffer.from(typeof value==="string"?value:JSON.stringify(value)).toString("base64url");
+let pair,jwk;
+async function accessJwt(email="owner@example.test"){
+  if(!pair){
+    pair=await webcrypto.subtle.generateKey({name:"RSASSA-PKCS1-v1_5",modulusLength:2048,
+      publicExponent:new Uint8Array([1,0,1]),hash:"SHA-256"},true,["sign","verify"]);
+    jwk=await webcrypto.subtle.exportKey("jwk",pair.publicKey);
+    jwk.kid="lab-test-key";jwk.alg="RS256";jwk.use="sig";
+  }
+  const h=b64({alg:"RS256",kid:jwk.kid,typ:"JWT"});
+  const p=b64({iss:"https://"+DOMAIN,aud:[AUD],email,
+    iat:Math.floor(Date.now()/1000)-1,exp:Math.floor(Date.now()/1000)+300});
+  const signed=await webcrypto.subtle.sign("RSASSA-PKCS1-v1_5",pair.privateKey,
+    new TextEncoder().encode(h+"."+p));
+  return h+"."+p+"."+Buffer.from(signed).toString("base64url");
+}
+const envFor=(scope="m3p.f.pr.act m3p.f.pr.ros m3p.f.pr.inv offline")=>({
+  PERSONAL_EVENT_LAB_ENABLED:"true",PERSONAL_EVENT_LAB_ADMIN_EMAIL:"owner@example.test",
+  MSF_ADMIN_ENABLED:"true",CF_ACCESS_TEAM_DOMAIN:DOMAIN,CF_ACCESS_AUD:AUD,
+  MSF_ADMIN_EMAILS:"owner@example.test,other-admin@example.test",
+  CAPTAIN_SESSIONS_ENABLED:"true",CAPTAIN_ENCRYPTION_KEY_HEX:"c".repeat(64),
+  CAPTAIN_BUCKET:{put:async()=>{},get:async()=>null,delete:async()=>{}},
+  CAPTAIN_REFRESH_COORDINATOR:{idFromName:key=>key,get:()=>({fetch:async()=>Response.json({
+    status:"active",accessToken:"fake-token",scope})})}
+});
+const request=async(path,{method="GET",body,cookie="__Host-losp_captain_session="+"x".repeat(43),email="owner@example.test"}={})=>new Request(ORIGIN+path,{method,
+  headers:{"Cf-Access-Jwt-Assertion":await accessJwt(email),"Cookie":cookie,
+    ...(body?{"Content-Type":"application/json","Origin":ORIGIN}: {})},
+  ...(body?{body:JSON.stringify(body)}:{})});
+function mockFetch(upstream){return async(input,init)=>{
+  const url=String(input);
+  if(url===`https://${DOMAIN}/cdn-cgi/access/certs`)return Response.json({keys:[jwk]});
+  return upstream(url,init);
+};}
+
+class LabElement{
+  constructor(tag="div"){this.tagName=tag.toUpperCase();this.children=[];this.listeners={};this.dataset={};this.textContent="";this.value="";this.checked=false;this.disabled=false;this.attributes={};}
+  addEventListener(type,callback){(this.listeners[type]??=[]).push(callback);}
+  async emit(type){const event={type,target:this};for(const callback of this.listeners[type]||[])await callback(event);}
+  replaceChildren(...children){this.children=children;this.textContent="";if(this.tagName==="SELECT")this.value=children[0]?.value||"";}
+  append(...children){this.children.push(...children);}
+  add(child){this.children.push(child);}
+  setAttribute(name,value){this.attributes[name]=value;}
+  get renderedText(){return this.textContent+this.children.map(child=>child.renderedText??child.textContent??"").join("");}
+}
+class LabDocument{
+  constructor(){this.nodes=new Map();this.listeners={};for(const id of ["resource","events-select","params","all-pages","query","snapshot-before","snapshot-after","check","clear","connection","message","metrics","response","diff","progress-analysis","event-id"])this.nodes.set(id,new LabElement(id.includes("select")||id==="resource"?"select":id==="query"||id==="check"||id==="clear"||id.startsWith("snapshot")?"button":"div"));
+    this.nodes.get("resource").value="events";this.nodes.get("all-pages").checked=true;this.nodes.get("params").value=JSON.stringify({lang:"fr",eventInfo:"full",objRewards:"full",perPage:"100"});}
+  getElementById(id){return this.nodes.get(id)||null;}
+  addEventListener(type,callback){(this.listeners[type]??=[]).push(callback);}
+  dispatchEvent(event){for(const callback of this.listeners[event.type]||[])callback(event);return true;}
+  createElement(tag){if(this.failCreateElement){this.failCreateElement=false;throw new ReferenceError("Can't find variable: MissingRenderHelper");}return new LabElement(tag);}
+}
+class LabOption extends LabElement{constructor(text,value){super("option");this.textContent=text;this.value=value;}}
+class LabCustomEvent{constructor(type,{detail}={}){this.type=type;this.detail=detail;}}
+
+async function bootLabClientAndModule(env,provider){
+  const moduleResponse=await handlePersonalEventLab(await request("/admin/personal-event-lab/progress-analysis.js"),env,
+    mockFetch(async()=>{throw Error("analysis module must not call Scopely");}));
+  const moduleText=await moduleResponse.text();
+  assert.equal(moduleResponse.status,200);
+  assert.match(moduleText,/export const analyzePersonalEventResponse=/);
+  const document=new LabDocument(),window={listeners:{},addEventListener(type,callback){(this.listeners[type]??=[]).push(callback);}};
+  const previous={document:globalThis.document,window:globalThis.window,CustomEvent:globalThis.CustomEvent};
+  globalThis.document=document;globalThis.window=window;globalThis.CustomEvent=LabCustomEvent;
+  await import("data:text/javascript;base64,"+Buffer.from(moduleText).toString("base64")+"#"+crypto.randomUUID());
+  const statuses=[];
+  const browserFetch=async(path,init={})=>{
+    const url=new URL(path,ORIGIN),body=init.body?JSON.parse(init.body):undefined;
+    const req=await request(url.pathname,{method:init.method||"GET",body});
+    const response=await handlePersonalEventLab(req,env,mockFetch(provider));statuses.push(response.status);return response;
+  };
+  new Function("document","window","CustomEvent","fetch","Option","performance","structuredClone",labClientJs())(
+    document,window,LabCustomEvent,browserFetch,LabOption,performance,structuredClone);
+  return {document,window,statuses,cleanup(){
+    for(const key of Object.keys(previous)){if(previous[key]===undefined)delete globalThis[key];else globalThis[key]=previous[key];}
+  }};
+}
+
+test("the lab is disabled by default, and requires both Access admin and the exact owner identity",async()=>{
+  const noConfig=await handlePersonalEventLab(new Request(ORIGIN+"/admin/personal-event-lab"),{},async()=>{throw Error("no fetch");});
+  assert.equal(noConfig.status,404);
+  const env=envFor();
+  const denied=await handlePersonalEventLab(await request("/admin/personal-event-lab",{email:"other-admin@example.test"}),env,
+    mockFetch(async()=>{throw Error("must not call provider");}));
+  assert.equal(denied.status,403);
+  const notAdmin=await handlePersonalEventLab(new Request(ORIGIN+"/admin/personal-event-lab"),env,
+    mockFetch(async()=>{throw Error("must not call provider");}));
+  assert.equal(notAdmin.status,403);
+});
+
+test("same Worker serves a private no-store lab and reuses the existing Scopely session",async()=>{
+  const env=envFor();
+  const page=await handlePersonalEventLab(await request("/admin/personal-event-lab"),env,mockFetch(async()=>{throw Error("unexpected");}));
+  assert.equal(page.status,200);
+  assert.match(page.headers.get("Cache-Control"),/no-store/);
+  const html=await page.text();
+  assert.equal((html.match(/id="progress-analysis"/g)||[]).length,1,"one analysis panel in the DOM");
+  assert.equal((html.match(/progress-analysis\.js/g)||[]).length,1,"one analysis module script");
+  const analysis=await handlePersonalEventLab(await request("/admin/personal-event-lab/progress-analysis.js"),env,
+    mockFetch(async()=>{throw Error("analysis must not fetch Scopely");}));
+  assert.equal(analysis.status,200);
+  const moduleText=await analysis.text();
+  assert.match(moduleText,/personal-event-selection/);
+  assert.match(moduleText,/__personalEventLabLatest/);
+  assert.match(moduleText,/Progression non fournie par Scopely/);
+  assert.match(html,/connexion Scopely existante/i);
+  let calls=0;
+  const response=await handlePersonalEventLab(await request("/admin/personal-event-lab/api/query",{method:"POST",
+    body:{resource:"events",allPages:false,params:{lang:"fr",eventInfo:"full",objRewards:"full",perPage:"100"}}}),env,
+    mockFetch(async(url,init)=>{
+      calls++;assert.equal(init.cache,"no-store");
+      assert.equal(new URL(url).searchParams.get("objRewards"),"full");
+      return Response.json({meta:{page:1,perPage:100,perTotal:1},data:[{id:"sample",milestone:{}}]});
+    }));
+  assert.equal(response.status,200);
+  assert.match(response.headers.get("Cache-Control"),/no-store/);
+  const data=await response.json();
+  assert.equal(calls,1);assert.equal(data.requestCount,1);
+  assert.equal(data.data.data[0].id,"sample");
+  assert.doesNotMatch(JSON.stringify(data),/fake-token/);
+});
+
+test("scope insufficiency is explicit and blocks Scopely calls; status lists existing grant scopes",async()=>{
+  const env=envFor("m3p.f.pr.act offline");
+  const invalid=await handlePersonalEventLab(await request("/admin/personal-event-lab/api/query",{method:"POST",
+    body:{resource:"detail",eventId:"e1",params:{page:"2"}}}),env,mockFetch(async()=>{throw Error("unexpected");}));
+  assert.equal(invalid.status,400);
+  const roster=await handlePersonalEventLab(await request("/admin/personal-event-lab/api/query",{method:"POST",
+    body:{resource:"roster",params:{lang:"fr"}}}),env,mockFetch(async()=>{throw Error("unexpected");}));
+  assert.equal(roster.status,403);assert.equal((await roster.json()).requiredScope,"m3p.f.pr.ros");
+  const status=await handlePersonalEventLab(await request("/admin/personal-event-lab/api/status"),env,mockFetch(async()=>{throw Error("unexpected");}));
+  assert.deepEqual(await status.json(),{status:"scope-insufficient",scopes:["m3p.f.pr.act","offline"],
+    missingScopes:["m3p.f.pr.ros","m3p.f.pr.inv"]});
+});
+
+test("the same Worker route adds no OAuth or session flow and preserves existing session routes",async()=>{
+  const env=envFor();
+  const routed=await worker.fetch(await request("/admin/personal-event-lab"),env);
+  assert.equal(routed.status,200);
+  const inventedLogin=await worker.fetch(new Request(ORIGIN+"/login/events-lab"),env);
+  assert.equal(inventedLogin.status,404);
+  const home=await worker.fetch(new Request(ORIGIN+"/health"),env);
+  assert.equal(home.status,200);
+});
+
+test("the lab follows pagination and reads both inventory families in parallel",async()=>{
+  const env=envFor();const seen=[];
+  const list=await handlePersonalEventLab(await request("/admin/personal-event-lab/api/query",{method:"POST",
+    body:{resource:"events",params:{lang:"fr",page:"1",perPage:"2"},allPages:true}}),env,
+    mockFetch(async url=>{
+      const page=Number(new URL(url).searchParams.get("page"));seen.push("events:"+page);
+      return Response.json({meta:{page,perPage:2,perTotal:3},data:page===1?[{id:"one"},{id:"two"}]:[{id:"three"}]});
+    }));
+  const listBody=await list.json();assert.equal(listBody.requestCount,2);assert.equal(listBody.data.data.length,3);
+  assert.deepEqual(seen,["events:1","events:2"]);
+  const inv=await handlePersonalEventLab(await request("/admin/personal-event-lab/api/query",{method:"POST",
+    body:{resource:"inventory",params:{lang:"none"}}}),env,mockFetch(async url=>{
+      const type=new URL(url).searchParams.get("itemType");seen.push("inventory:"+type);
+      return Response.json({meta:{asOf:"sample"},data:[{item:type,quantity:4}]});
+    }));
+  const invBody=await inv.json();assert.equal(invBody.requestCount,2);
+  assert.deepEqual(Object.keys(invBody.data.itemTypes).sort(),["CONSUMABLE","ISOITEM"]);
+  assert.equal(seen.filter(x=>x.startsWith("inventory:")).length,2);
+});
+
+test("HTTP 200 list to selected event to wrapped detail renders locally without an extra Scopely call",async()=>{
+  const env=envFor(),seen=[];
+  const app=await bootLabClientAndModule(env,async url=>{
+    const parsed=new URL(url);seen.push(parsed.pathname);
+    if(parsed.pathname==="/player/v1/events")return Response.json({meta:{page:1,perPage:100,perTotal:1},data:[{id:"event-1",name:"Événement de liste"}]});
+    assert.equal(parsed.pathname,"/player/v1/events/event-1");
+    return Response.json({data:{id:"event-1",name:"Événement détaillé",milestone:{brackets:[
+      {id:"bracket-1",objective:{name:"Objectif témoin",progress:5,target:10}}
+    ]}}});
+  });
+  const {document,statuses}=app;
+  await document.getElementById("query").emit("click");
+  assert.equal(statuses.at(-1),200);
+  assert.deepEqual(seen,["/player/v1/events"]);
+  const select=document.getElementById("events-select");
+  assert.equal(select.children[1].value,"event-1");
+  select.value="event-1";
+  await select.emit("change");
+  assert.match(document.getElementById("progress-analysis").renderedText,/Événement de liste/);
+  assert.deepEqual(seen,["/player/v1/events"],"selection analysis must not request Scopely");
+  assert.equal(document.getElementById("resource").value,"detail");
+  await document.getElementById("query").emit("click");
+  assert.equal(statuses.at(-1),200);
+  assert.deepEqual(seen,["/player/v1/events","/player/v1/events/event-1"]);
+  const rendered=document.getElementById("progress-analysis").renderedText;
+  assert.match(rendered,/Événement détaillé/);
+  assert.match(rendered,/Actuel 5 \/ cible 10/);
+  assert.doesNotMatch(rendered,/Interroge ou sélectionne un événement/);
+  app.cleanup();
+});
+
+test("a local render exception is shown in the analysis panel instead of preserving its initial placeholder",async()=>{
+  const env=envFor(),app=await bootLabClientAndModule(env,async()=>{throw Error("unexpected provider call");});
+  const root=app.document.getElementById("progress-analysis");
+  app.document.failCreateElement=true;
+  app.window.__personalEventLabRenderProgress({response:{resource:"detail",data:{data:{
+    id:"event-1",name:"Événement témoin",milestone:{brackets:[]}
+  }}},selectedEventId:"event-1"});
+  assert.match(root.textContent,/Erreur locale pendant l’analyse/);
+  assert.match(root.textContent,/symbole absent : MissingRenderHelper/);
+  assert.match(root.textContent,/rendu du panneau/);
+  assert.equal(root.dataset.analysisError,"true");
+  app.cleanup();
+});
