@@ -15,7 +15,6 @@ import { readApproval } from "./roster-sync-preflight.js";
 import { ALLIANCE_SCOPE_PROBES, auditAllianceScopeProbe, renderAllianceScopeProbe } from "./alliance-scope-probes.js";
 import { getPlayerCard, showEphemeralPlayerCard } from "./player-card.js";
 
-
 // First OAuth callback validation: tokens are deliberately not persisted.
 // This allows an end-to-end authorization test without a token database.
 const APP_ORIGIN = "https://losp-roster-service.deliriousfan7.workers.dev";
@@ -98,7 +97,6 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
 
   const url = new URL(request.url);
   if (url.origin !== APP_ORIGIN) return new Response("Not Found", { status: 404 });
-  const statusRedirect=(result,status=303)=>backToStatus(result,status);
 
   const cookies = request.headers.get("Cookie") || "";
   const expectedState = readCookie(cookies, COOKIE_STATE);
@@ -135,7 +133,7 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
 
   // Check CSRF even when Scopely returned a denied-consent error.
   if (!equalStates(expectedState, suppliedState) || !verifier) {
-    return statusRedirect("invalid");
+    return backToStatus("invalid");
   }
 
   if (url.searchParams.has("error")) {
@@ -147,11 +145,11 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
       });
     }
 
-    return statusRedirect("denied");
+    return backToStatus("denied");
   }
 
   const code = url.searchParams.get("code");
-  if (!code || code.length > 8192) return statusRedirect("invalid");
+  if (!code || code.length > 8192) return backToStatus("invalid");
 
   const clientId = env?.SCOPELY_CLIENT_ID;
   const clientSecret = env?.SCOPELY_CLIENT_SECRET;
@@ -191,7 +189,7 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
       signal: AbortSignal.timeout(10000)
     };
   } catch {
-    return statusRedirect("exchange-local-error");
+    return backToStatus("exchange-local-error");
   }
 
   let tokenResponse;
@@ -199,12 +197,12 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     tokenResponse = await fetchImpl(TOKEN_URL, tokenRequest);
   } catch (error) {
     if (error && (error.name === "TimeoutError" || error.name === "AbortError")) {
-      return statusRedirect("exchange-timeout");
+      return backToStatus("exchange-timeout");
     }
     if (error instanceof TypeError || (error && error.name === "TypeError")) {
-      return statusRedirect("exchange-fetch-type-error");
+      return backToStatus("exchange-fetch-type-error");
     }
-    return statusRedirect("exchange-fetch-error");
+    return backToStatus("exchange-fetch-error");
   }
 
   try {
@@ -212,25 +210,25 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     // Do not follow it and do not display any Location header.
     if ((tokenResponse.status >= 300 && tokenResponse.status < 400) ||
         tokenResponse.type === "opaqueredirect") {
-      return statusRedirect("exchange-redirect");
+      return backToStatus("exchange-redirect");
     }
     if (!tokenResponse.ok) {
       const failure = await classifyTokenFailure(tokenResponse);
       if (scopeProbe) return renderAllianceScopeProbe(scopeProbe, {
         status: failure === "exchange-invalid-scope" ? "invalid-scope" : "oauth-error"
       });
-      return statusRedirect(failure);
+      return backToStatus(failure);
     }
 
     let result;
     try {
       result = await tokenResponse.json();
     } catch {
-      return statusRedirect("exchange-unexpected-response");
+      return backToStatus("exchange-unexpected-response");
     }
     if (!result || typeof result.access_token !== "string" ||
         !result.access_token || String(result.token_type).toLowerCase() !== "bearer") {
-      return statusRedirect("exchange-unexpected-response");
+      return backToStatus("exchange-unexpected-response");
     }
 
     // Experimental read-scope authorization test: do not fetch any player or alliance data.
@@ -270,7 +268,7 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
           clearOAuthCookies(headers,true);
           return new Response(null,{status:saved.status,headers});
         }catch{
-          return statusRedirect("captain-session-unavailable");
+          return backToStatus("captain-session-unavailable");
         }
       }
       // A captain from an OUTSIDE alliance must never trigger even an
@@ -382,15 +380,15 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
       return renderAllianceProbe(ownRoster ? { ...report, ownRoster } : report);
     }
     const profile = await getPlayerCard(result.access_token, fetchImpl);
-    if (!profile.ok) return statusRedirect(profile.status);
+    if (!profile.ok) return backToStatus(profile.status);
     return showEphemeralPlayerCard(profile.card);
   } catch {
     // No provider response data is ever reflected.
-    return statusRedirect("exchange-processing-error");
+    return backToStatus("exchange-processing-error");
   }
 }
 
-export function handleOAuthStatus(request,env) {
+export function handleOAuthStatus(request) {
   if (request.method !== "GET") {
     return new Response("Method Not Allowed", {
       status: 405,
