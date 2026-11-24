@@ -18,7 +18,7 @@ function sessionId(request){
   return COOKIE_RX.test(id)?id:null;
 }
 export async function handleEventPlannerApi(request,env,fetchImpl=fetch,now=Date.now()){
-  const access=await eventPlannerAccessStatus(request,env,fetchImpl,now);
+  const access=await eventPlannerAccessStatus(request,env,fetchImpl);
   if(access!=="allowed")return eventPlannerAccessResponse(access);
   if(request.method!=="GET")return json({error:"method-not-allowed"},405);
   const url=new URL(request.url);
