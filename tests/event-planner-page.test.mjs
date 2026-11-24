@@ -6,7 +6,7 @@ import {readFile,readdir} from "node:fs/promises";
 import {dirname,join,normalize,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
-const PLANNER_ASSET_ROOT=fileURLToPath(new URL("../public/event-planner/",import.meta.url));
+const PLANNER_ASSET_ROOT=resolve(fileURLToPath(new URL("../public/event-planner/",import.meta.url)));
 async function javascriptAssets(directory=PLANNER_ASSET_ROOT){
   const entries=await readdir(directory,{withFileTypes:true});
   const nested=await Promise.all(entries.map(entry=>{
