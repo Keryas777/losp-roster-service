@@ -8,6 +8,25 @@ const HEADERS={"Cache-Control":"private, no-store, max-age=0","CDN-Cache-Control
 const json=(value,status=200)=>Response.json(value,{status,headers:HEADERS});
 const object=value=>value!==null&&typeof value==="object"&&!Array.isArray(value);
 const requiredScope={events:"m3p.f.pr.act",detail:"m3p.f.pr.act",roster:"m3p.f.pr.ros",inventory:"m3p.f.pr.inv"};
+function providerCode(body){
+  const candidates=[body?.errorCode,body?.error_code,body?.code,
+    body?.error,body?.error?.code,body?.error?.errorCode,
+    Array.isArray(body?.errors)?body.errors[0]?.code:null];
+  for(const value of candidates){
+    const code=String(value??"");
+    if(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(code))return code;
+  }
+  return null;
+}
+function providerDiagnostic(path,params,status,error,code=null){
+  const endpoint=path.startsWith("/player/v1/events/")?"/player/v1/events/{eventId}":path;
+  const diagnostic={endpoint,httpStatus:Number.isInteger(status)?status:null,
+    providerCode:code,error};
+  if(["en","fr"].includes(params?.lang))diagnostic.lang=params.lang;
+  if(Number.isSafeInteger(Number(params?.page))&&Number(params.page)>0)diagnostic.page=Number(params.page);
+  if(["CONSUMABLE","ISOITEM"].includes(params?.itemType))diagnostic.itemType=params.itemType;
+  return diagnostic;
+}
 function unwrap(value,kind){
   let current=value;
   for(let depth=0;depth<5;depth++){
@@ -30,49 +49,73 @@ async function providerGet(token,path,params,fetchImpl){
       signal:AbortSignal.timeout(15000),headers:{Authorization:"Bearer "+token,
         "x-api-key":API_KEY,"User-Agent":"APIClient/1.0 (Server)",Accept:"application/json"}});
     const raw=await response.text();
-    if(raw.length>MAX_BYTES)return {error:"response-too-large",status:response.status};
+    if(raw.length>MAX_BYTES)return {error:"response-too-large",status:response.status,
+      diagnostic:providerDiagnostic(path,params,response.status,"response-too-large")};
     if(response.status===344){try{body=JSON.parse(raw);}catch{body=null;}}
-    else try{body=JSON.parse(raw);}catch{return {error:"invalid-provider-response",status:response.status};}
-  }catch(error){return {error:error?.name==="TimeoutError"?"provider-timeout":"provider-unavailable",status:null};}
+    else try{body=JSON.parse(raw);}catch{return {error:"invalid-provider-response",status:response.status,
+      diagnostic:providerDiagnostic(path,params,response.status,"invalid-provider-response")};}
+  }catch(error){
+    const failure=error?.name==="TimeoutError"?"provider-timeout":"provider-unavailable";
+    return {error:failure,status:null,diagnostic:providerDiagnostic(path,params,null,failure)};
+  }
   if(response.status===344)return {unchanged:true,status:344,data:body};
-  if(!response.ok)return {error:response.status===429?"rate-limited":response.status===401?"expired-oauth":
-    response.status===403||response.status===464?"scope-or-access-denied":"provider-error",status:response.status};
+  if(!response.ok){
+    const error=response.status===429?"rate-limited":response.status===401?"expired-oauth":
+      response.status===403||response.status===464?"scope-or-access-denied":"provider-error";
+    return {error,status:response.status,
+      diagnostic:providerDiagnostic(path,params,response.status,error,providerCode(body))};
+  }
   return {status:response.status,data:body};
 }
 
 async function fetchPaged(token,path,params,fetchImpl,maxPages){
-  const rows=[],calls=[];let expected=null,asOf=null;
+  const rows=[],calls=[];let expected=null,asOf=null,requestPageSize=PAGE_SIZE;
   for(let page=1;page<=maxPages;page++){
-    const reply=await providerGet(token,path,{...params,page,perPage:PAGE_SIZE},fetchImpl);
+    // Match Maddoxx's working event-list request: let Scopely choose the first
+    // page shape, then follow its returned perPage value for later pages.
+    const defaultFirstPage=path==="/player/v1/events";
+    const requestParams={...params,...(page===1&&defaultFirstPage?{}:{page,perPage:requestPageSize})};
+    const reply=await providerGet(token,path,requestParams,fetchImpl);
     calls.push({path,status:reply.status});
-    if(reply.error)return {error:reply.error,status:reply.status,calls:calls.length};
+    if(reply.error)return {error:reply.error,status:reply.status,calls:calls.length,
+      diagnostic:reply.diagnostic?{...reply.diagnostic,page}:undefined};
     if(reply.unchanged)return {unchanged:true,calls:calls.length,asOf:params.since??null};
     const pageData=unwrap(reply.data,"array");
-    if(!pageData)return {error:"invalid-provider-response",status:reply.status,calls:calls.length};
+    if(!pageData)return {error:"invalid-provider-response",status:reply.status,calls:calls.length,
+      diagnostic:providerDiagnostic(path,requestParams,reply.status,"invalid-provider-response")};
     const meta=pageData.meta;
-    if(meta.page!==undefined&&Number(meta.page)!==page)return {error:"inconsistent-page",status:reply.status,calls:calls.length};
+    if(meta.page!==undefined&&Number(meta.page)!==page)return {error:"inconsistent-page",status:reply.status,calls:calls.length,
+      diagnostic:providerDiagnostic(path,requestParams,reply.status,"inconsistent-page")};
+    const reportedPageSize=Number(meta.perPage);
+    const pageSize=Number.isSafeInteger(reportedPageSize)&&reportedPageSize>0?reportedPageSize:PAGE_SIZE;
+    requestPageSize=pageSize;
     const total=meta.perTotal??meta.total;
     if(total!==undefined){
-      if(!Number.isSafeInteger(Number(total))||Number(total)<0)return {error:"invalid-total",status:reply.status,calls:calls.length};
-      if(expected!==null&&expected!==Number(total))return {error:"inconsistent-total",status:reply.status,calls:calls.length};
+      if(!Number.isSafeInteger(Number(total))||Number(total)<0)return {error:"invalid-total",status:reply.status,calls:calls.length,
+        diagnostic:providerDiagnostic(path,requestParams,reply.status,"invalid-total")};
+      if(expected!==null&&expected!==Number(total))return {error:"inconsistent-total",status:reply.status,calls:calls.length,
+        diagnostic:providerDiagnostic(path,requestParams,reply.status,"inconsistent-total")};
       expected=Number(total);
     }
     if(meta.asOf!==undefined){
-      if(typeof meta.asOf!=="string"||(asOf!==null&&asOf!==meta.asOf))return {error:"changed-during-pagination",status:reply.status,calls:calls.length};
+      if(typeof meta.asOf!=="string"||(asOf!==null&&asOf!==meta.asOf))return {error:"changed-during-pagination",status:reply.status,calls:calls.length,
+        diagnostic:providerDiagnostic(path,requestParams,reply.status,"changed-during-pagination")};
       asOf=meta.asOf;
     }
     rows.push(...pageData.data);
     if(expected!==null&&rows.length===expected)return {data:rows,calls:calls.length,asOf};
-    if(expected!==null&&rows.length>expected)return {error:"inconsistent-total",status:reply.status,calls:calls.length};
-    if(pageData.data.length<PAGE_SIZE)return {data:rows,calls:calls.length,asOf};
+    if(expected!==null&&rows.length>expected)return {error:"inconsistent-total",status:reply.status,calls:calls.length,
+      diagnostic:providerDiagnostic(path,requestParams,reply.status,"inconsistent-total")};
+    if(pageData.data.length<pageSize)return {data:rows,calls:calls.length,asOf};
   }
-  return {error:"page-budget-exceeded",calls:calls.length};
+  return {error:"page-budget-exceeded",calls:calls.length,
+    diagnostic:providerDiagnostic(path,{...params,page:maxPages},null,"page-budget-exceeded")};
 }
 
 async function loadResource(input,fetchImpl){
   const {resource,lang="fr",eventId,itemType}=input;
   if(resource==="events"){
-    const result=await fetchPaged(input.token,"/player/v1/events",{lang,eventInfo:"full",objRewards:"full"},fetchImpl,8);
+    const result=await fetchPaged(input.token,"/player/v1/events",{lang},fetchImpl,8);
     if(result.error)return result;
     return {data:result.data,calls:result.calls,asOf:result.asOf};
   }
@@ -120,7 +163,12 @@ export async function handleEventPlannerCache(request,fetchImpl=fetch){
     if(cached&&Number.isSafeInteger(cached.expiresAt)&&cached.expiresAt>now&&!input.refresh)
       return json({...cached.response,cache:{hit:true,expiresAt:new Date(cached.expiresAt).toISOString()}});
     const loaded=await loadResource({...input,previous:cached?.response},fetchImpl);
-    if(loaded.error)return json({error:loaded.error,upstreamStatus:loaded.status??null,calls:loaded.calls||0},loaded.error==="rate-limited"?429:loaded.status===400?400:502);
+    if(loaded.error){
+      const diagnostic=loaded.diagnostic||null;
+      if(diagnostic)console.warn("event-planner-provider-failure",JSON.stringify({resource:input.resource,...diagnostic}));
+      return json({error:loaded.error,upstreamStatus:loaded.status??null,calls:loaded.calls||0,
+        ...(diagnostic?{diagnostic}:{})},loaded.error==="rate-limited"?429:loaded.status===400?400:502);
+    }
     const expiresAt=now+CACHE_MS;
     const response={status:"ok",resource:input.resource,...(input.lang?{lang:input.lang}:{}),
       ...(input.eventId?{eventId:input.eventId}:{}),...(input.itemType?{itemType:input.itemType}:{}),

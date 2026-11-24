@@ -3,28 +3,30 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#0b0c0d">
+  <meta name="theme-color" content="#070809">
   <meta name="referrer" content="no-referrer">
   <title>Planificateur d’événements — LoSP</title>
+  <link rel="stylesheet" href="https://keryas777.github.io/msf/style.css?v=4">
+  <link rel="stylesheet" href="https://keryas777.github.io/msf/evenements.css?v=24">
   <link rel="stylesheet" href="/admin/events-planner/styles.css">
   <script type="module" src="/admin/events-planner/app.js"></script>
 </head>
-<body>
-  <main class="planner-app">
-    <header class="planner-header">
-      <a class="back-link" href="https://keryas777.github.io/msf/evenements.html">‹ Calendrier LoSP</a>
-      <p class="eyebrow">LoSP · outils personnels</p>
-      <h1>Planificateur d’événements</h1>
-      <p class="intro">Les calculs reprennent le moteur Maddoxx. Tes données Scopely sont demandées à la volée et restent privées.</p>
+<body class="ev-body">
+  <main class="app ev-page planner-app" aria-label="Planificateur d’événements LoSP">
+    <header class="header ev-header planner-header" aria-label="Planificateur LoSP">
+      <a class="backBtn" href="https://keryas777.github.io/msf/evenements.html" aria-label="Retour aux événements">‹</a>
+      <h1 class="ev-header-banner"><img src="https://keryas777.github.io/msf/HeaderObjectifs.webp" alt="Résumé Objectifs"></h1>
+      <a class="homeBtn" href="https://keryas777.github.io/msf/home.html" aria-label="Accueil LoSP">⌂</a>
+      <div class="planner-heading"><h2>Planificateur d’événements</h2><p>Analyse personnelle avec ton roster</p></div>
     </header>
 
     <section id="connection" class="connection" aria-live="polite">Vérification de la session…</section>
 
-    <nav class="planner-tabs" role="tablist" aria-label="Sections du planificateur">
-      <button type="button" role="tab" id="tab-events" aria-controls="panel-events" aria-selected="true" data-tab="events">Événements</button>
-      <button type="button" role="tab" id="tab-objectives" aria-controls="panel-objectives" aria-selected="false" data-tab="objectives">Objectifs</button>
-      <button type="button" role="tab" id="tab-plan" aria-controls="panel-plan" aria-selected="false" data-tab="plan">Planification</button>
-      <button type="button" role="tab" id="tab-stock" aria-controls="panel-stock" aria-selected="false" data-tab="stock">Mon stock</button>
+    <nav class="planner-tabs ev-overview" role="tablist" aria-label="Sections du planificateur">
+      <button type="button" class="ev-stat ev-stat--current" role="tab" id="tab-events" aria-controls="panel-events" aria-selected="true" data-tab="events"><strong>◉</strong><span>Événements</span></button>
+      <button type="button" class="ev-stat ev-stat--objectives" role="tab" id="tab-objectives" aria-controls="panel-objectives" aria-selected="false" data-tab="objectives"><strong>☑</strong><span>Objectifs</span></button>
+      <button type="button" class="ev-stat ev-stat--plan" role="tab" id="tab-plan" aria-controls="panel-plan" aria-selected="false" data-tab="plan"><strong>✦</strong><span>Planifier</span></button>
+      <button type="button" class="ev-stat ev-stat--stock" role="tab" id="tab-stock" aria-controls="panel-stock" aria-selected="false" data-tab="stock"><strong>◈</strong><span>Mon stock</span></button>
     </nav>
 
     <section id="panel-events" class="tab-panel" role="tabpanel" aria-labelledby="tab-events">

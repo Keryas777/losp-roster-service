@@ -26,7 +26,24 @@ function errorText(error){
   if(error?.body?.error==="scope-insufficient")return "Cette autorisation ne donne pas accès à cette donnée.";
   if(error?.body?.reason==="not-connected"||error?.body?.reason==="consent-revoked")return "Session Scopely absente ou révoquée.";
   if(error?.body?.error==="rate-limited")return "Scopely limite temporairement les requêtes. Réessaie dans un instant.";
+  if(error?.body?.error==="scope-or-access-denied")return "Scopely a refusé cette requête. Consulte le diagnostic technique.";
+  if(error?.body?.error==="provider-error")return "Scopely a répondu avec une erreur. Consulte le diagnostic technique.";
   return "Donnée indisponible pour le moment.";
+}
+function renderDiagnostic(error){
+  const body=error?.body||{},detail=body.diagnostic||{};
+  const panel=el("details","planner-diagnostic"),summary=el("summary","","Diagnostic technique · propriétaire");
+  const list=el("dl","planner-diagnostic-list");
+  const endpoint=typeof detail.endpoint==="string"&&/^\/player\/v1\/[A-Za-z0-9_{}\/-]+$/.test(detail.endpoint)?detail.endpoint:"/player/v1/events";
+  const httpStatus=Number.isInteger(error?.status)?error.status:"non reçu";
+  const providerStatus=Number.isInteger(detail.httpStatus)?detail.httpStatus:"non reçu";
+  const rawCode=detail.providerCode||detail.error||body.error;
+  const code=typeof rawCode==="string"&&/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(rawCode)?rawCode:"non fourni";
+  const rows=[["Ressource",endpoint],["HTTP Worker",httpStatus],["HTTP Scopely",providerStatus],
+    ["Code",code],["Langue",["en","fr"].includes(detail.lang)?detail.lang:"—"],
+    ["Page",Number.isSafeInteger(detail.page)&&detail.page>0?detail.page:"—"]];
+  for(const [label,value] of rows){list.append(el("dt","",label),el("dd","",value));}
+  panel.append(summary,list);return panel;
 }
 async function api(params){
   const query=new URLSearchParams(params);
@@ -121,14 +138,25 @@ function renderEvents(){
   const list=$("events-list");list.replaceChildren();
   if(!visible.length){list.append(el("div","empty-card",events.length?"Tous les événements actifs sont ignorés.":"Aucun événement actif n’a été renvoyé par Scopely."));}
   for(const event of visible){
-    const id=String(event.id),card=el("article","event-card");card.dataset.eventId=id;card.setAttribute("aria-current",String(id===String(state.selectedId)));
-    const select=el("button","event-card__select");select.type="button";select.dataset.action="select";select.dataset.eventId=id;
-    select.append(el("h3","",displayName(getEvent(id,"fr")||event)));
-    const meta=el("div","event-meta");meta.append(el("span","tag",eventTypeLabel(getEvent(id,"fr")||event)),el("span","",`Fin ${eventDate(event.endTime)}`));
-    select.append(meta);
-    const actions=el("div","event-card__actions");
-    const skip=el("button","small-button","Ignorer");skip.type="button";skip.dataset.action="skip";skip.dataset.eventId=id;skip.setAttribute("aria-label","Ignorer "+displayName(event));
-    actions.append(skip);card.append(select,actions);list.append(card);
+    const id=String(event.id),localized=getEvent(id,"fr")||event,card=el("article","ev-card planner-event-card");
+    card.dataset.eventId=id;card.setAttribute("aria-current",String(id===String(state.selectedId)));
+    const command=event.type==="milestone"&&event.locationHints?.includes("lohub_wrapper");
+    const candidates=command?[event.icon]:[event.cardArt,event.popupArt,...(Array.isArray(event.hubArt)?event.hubArt:[]),event.icon];
+    const artwork=candidates.find(url=>typeof url==="string"&&/^https:\/\/assets\.marvelstrikeforce\.com\/(?:key_art|imgs)\/[\w.%-]+\.(?:png|jpg|jpeg|webp)$/i.test(url))||"";
+    const cover=el("div","ev-cover"+(command?" ev-cover--command":"")+(!artwork?" ev-cover--placeholder":""));
+    const fallback=el("span","ev-cover-fallback",({milestone:"🏆",episodic:"⚔️",raid:"🛡️",blitz:"⚡",battlePass:"🎖️",strikePass:"🎫",pickYourPoison:"🔥",info:"✦",raidSeason:"🛡️",warSeason:"⚔️",donation:"🤝"})[event.type]||"✦");
+    fallback.hidden=Boolean(artwork);cover.append(fallback);
+    if(artwork){const image=el("img",command?"ev-command-icon":artwork.includes("/imgs/")?"ev-icon-img":"");image.alt="";image.loading="lazy";image.decoding="async";image.src=artwork;
+      image.addEventListener("error",()=>{image.remove();fallback.hidden=false;cover.className+=" ev-cover--placeholder";},{once:true});cover.append(image);}
+    const copy=el("div","ev-card-copy"),top=el("div","ev-card-top");top.append(el("span","ev-category",eventTypeLabel(localized)));
+    if(event.type==="milestone")top.append(el("span","ev-scope",event.milestone?.type==="alliance"?"Alliance":"Solo"));
+    copy.append(top,el("h3","",displayName(localized)));
+    const subtitle=stripTags(localized.subName||localized.details||"");if(subtitle)copy.append(el("p","ev-sub",subtitle));
+    copy.append(el("div","ev-dates",`Fin ${eventDate(event.endTime)}`));
+    const actions=el("div","ev-card-actions"),select=el("button","ev-detail-btn","Analyser  ›");
+    select.type="button";select.dataset.action="select";select.dataset.eventId=id;
+    const skip=el("button","planner-skip-button","Ignorer");skip.type="button";skip.dataset.action="skip";skip.dataset.eventId=id;skip.setAttribute("aria-label","Ignorer "+displayName(event));
+    actions.append(select,skip);copy.append(actions);card.append(cover,copy);list.append(card);
   }
   const skippedList=$("skipped-list");skippedList.replaceChildren();
   const skipped=events.filter(event=>state.skipped.has(String(event.id)));
@@ -363,7 +391,7 @@ async function loadOverview(forceRefresh=false){
     fetchSafe({resource:"roster",lang:"fr"}),fetchSafe({resource:"inventory",itemType:"CONSUMABLE"}),
     fetchSafe({resource:"inventory",itemType:"ISOITEM"}),loadCatalog().then(()=>({ok:true}))
   ]);
-  if(english.error){banner("Les événements personnels sont indisponibles · "+errorText(english.error),"error");$("event-count").textContent="Événements indisponibles";$("events-list").replaceChildren(el("p","warning","Vérifie la session et les scopes d’événements."));state.refreshing=false;$("refresh").disabled=false;return;}
+  if(english.error){banner("Les événements personnels sont indisponibles · "+errorText(english.error),"error");$("event-count").textContent="Événements indisponibles";$("events-list").replaceChildren(el("p","warning","La session est active, mais Scopely n’a pas fourni la liste."),renderDiagnostic(english.error));state.refreshing=false;$("refresh").disabled=false;return;}
   state.eventsEn=Array.isArray(english.data)?english.data:[];state.eventsFr=Array.isArray(french.data)?french.data:[];
   state.roster=Array.isArray(roster.data)?roster.data:null;
   const invOk=[consumables,isoitems].some(result=>!result.error);

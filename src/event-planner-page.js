@@ -8,13 +8,13 @@ const ASSET_ROOT="/event-planner/";
 const PAGE_HEADERS={"Content-Type":"text/html; charset=utf-8","Cache-Control":"private, no-store, max-age=0",
   "CDN-Cache-Control":"no-store","X-Robots-Tag":"noindex","X-Content-Type-Options":"nosniff",
   "Referrer-Policy":"no-referrer","X-Frame-Options":"DENY","Vary":"Cookie",
-  "Content-Security-Policy":"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://keryas777.github.io; img-src 'self' https://assets.marvelstrikeforce.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"};
+  "Content-Security-Policy":"default-src 'self'; script-src 'self'; style-src 'self' https://keryas777.github.io; connect-src 'self' https://keryas777.github.io; img-src 'self' https://assets.marvelstrikeforce.com https://keryas777.github.io; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"};
 const ASSETS=new Set(["index.html","app.js","styles.css",...[
   "classify.js","event-analysis.js","index.js","ledger.js","plan.js","quantity.js","resources.js","subjects.js"
 ].map(file=>"lib/"+file)]);
 function page(html,status=200){return new Response(html,{status,headers:PAGE_HEADERS});}
 function signedInShell(message,link,linkText){
-  return page('<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Planificateur LoSP</title><link rel="stylesheet" href="/style.css"></head><body><main><p><a href="https://keryas777.github.io/msf/evenements.html">‹ Calendrier LoSP</a></p><h1>Planificateur d’événements</h1><p>'+message+'</p><p><a href="'+link+'">'+linkText+'</a></p><p>Les jetons OAuth ne sont jamais transmis au navigateur.</p></main></body></html>');
+  return page('<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="referrer" content="no-referrer"><title>Planificateur LoSP</title><link rel="stylesheet" href="https://keryas777.github.io/msf/style.css?v=4"><link rel="stylesheet" href="https://keryas777.github.io/msf/evenements.css?v=24"></head><body class="ev-body"><main class="app ev-page"><header class="header ev-header"><a class="backBtn" href="https://keryas777.github.io/msf/evenements.html" aria-label="Retour aux événements">‹</a><h1 class="ev-header-banner"><img src="https://keryas777.github.io/msf/HeaderObjectifs.webp" alt="Résumé Objectifs"></h1></header><section class="ev-section"><h2>Planificateur d’événements</h2><p>'+message+'</p><p><a href="'+link+'">'+linkText+'</a></p><p>Les jetons OAuth ne sont jamais transmis au navigateur.</p></section></main></body></html>');
 }
 export async function handleEventPlannerPage(request,env,fetchImpl=fetch){
   const access=await eventPlannerAccessStatus(request,env,fetchImpl);
