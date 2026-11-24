@@ -6,7 +6,6 @@ import { handleCaptainSession, handleCaptainLogout, handleCaptainLanding, handle
 export { CaptainRefreshCoordinator } from "./captain-refresh-coordinator.js";
 export { RosterBatchLock } from "./roster-batch-lock.js";
 export { PersonalEventProgressCache } from "./personal-event-progress.js";
-import {handlePersonalEventProgress} from "./personal-event-progress.js";
 import { buildPrivateCoverage } from "./alliance-coverage.js";
 import { handleAdmin } from "./admin-routes.js";
 import { prunePrivateRosterPilots } from "./private-roster-pilot.js";
@@ -39,13 +38,10 @@ import {dispatchGameEventsToGithub} from "./game-events-github-dispatch.js";
 import {runGameDifferentialFailureAuditTick} from "./game-differential-failure-audit.js";
 import {runGameDifferentialComparisonAuditTick} from "./game-differential-comparison-audit.js";
 import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
-import {handlePersonalEventLab} from "./personal-event-lab.js";
-import {handleEventPlannerApi} from "./event-planner-api.js";
-import {handleEventPlannerPage} from "./event-planner-page.js";
-import {eventPlannerAccessStatus} from "./event-planner-auth.js";
 
 const SCOPELY_AUTH_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/auth";
 const APP_ORIGIN = "https://losp-roster-service.deliriousfan7.workers.dev";
+const REDIRECT_URI = APP_ORIGIN + "/oauth/callback";
 const LOGIN_SCOPES = "openid m3p.f.pr.pro";
 const LOGIN_COOKIE_AGE_SECONDS = 600;
 
@@ -66,7 +62,7 @@ async function sha256Base64Url(value) {
     .replace(/=+$/g, "");
 }
 
-async function startLogin(request, env, url, fetchImpl=fetch) {
+async function startLogin(request, env, url) {
   if (request.method !== "GET") {
     return new Response("Method Not Allowed", {
       status: 405,
@@ -74,24 +70,13 @@ async function startLogin(request, env, url, fetchImpl=fetch) {
     });
   }
 
-  const origin=APP_ORIGIN;
+  // The OAuth callback is registered for this production hostname only.
+  // Do not initiate production OAuth from preview URLs or forwarded hosts.
   if (url.origin !== APP_ORIGIN) {
     return new Response("Not Found", { status: 404 });
   }
 
-  const plannerLogin=url.pathname==="/admin/login/captain";
-  if(plannerLogin&&url.searchParams.get("returnTo")!=="events-planner")
-    return new Response("Not Found",{status:404,headers:{"Cache-Control":"no-store"}});
-  const plannerReturn=plannerLogin||url.pathname==="/login/captain"&&url.searchParams.get("returnTo")==="events-planner";
-  if(plannerReturn){
-    const access=await eventPlannerAccessStatus(request,env,fetchImpl);
-    if(access!=="allowed")return new Response(access==="disabled"?"Not Found":"Forbidden",{
-      status:access==="disabled"?404:403,headers:{"Cache-Control":"private, no-store","X-Robots-Tag":"noindex"}});
-  }
-  const captainLogin=url.pathname==="/login/captain"||plannerLogin;
-  const forceCaptainConsent=plannerReturn&&url.searchParams.get("reauthorize")==="1";
-
-  if (captainLogin && env?.CAPTAIN_SESSIONS_ENABLED === "true" &&
+  if (url.pathname === "/login/captain" && env?.CAPTAIN_SESSIONS_ENABLED === "true" &&
       !captainConfigReady(env)) {
     return new Response("Captain session storage is not configured", {
       status: 503, headers: { "Cache-Control": "no-store" }
@@ -105,13 +90,13 @@ async function startLogin(request, env, url, fetchImpl=fetch) {
     });
   }
 
-  if (captainLogin && captainConfigReady(env) && !forceCaptainConsent) {
+  if (url.pathname === "/login/captain" && captainConfigReady(env)) {
     // A returning captain must not be sent through the emailed-code OAuth flow.
     const status=await handleCaptainSession(request,env);
     if(status.ok) {
       const previous=await status.json();
       if(previous.status==="connected"){
-        const redirect=Response.redirect(origin+(plannerReturn?"/admin/events-planner":"/captain"),302);
+        const redirect=Response.redirect(APP_ORIGIN+"/captain",302);
         // Extend the sliding browser lease only when the Worker confirmed
         // the opaque session. No token is ever sent to the browser.
         const headers=new Headers(redirect.headers);
@@ -137,7 +122,7 @@ async function startLogin(request, env, url, fetchImpl=fetch) {
   const authorize = new URL(SCOPELY_AUTH_URL);
   authorize.searchParams.set("response_type", "code");
   authorize.searchParams.set("client_id", clientId.trim());
-  authorize.searchParams.set("redirect_uri", origin + "/oauth/callback");
+  authorize.searchParams.set("redirect_uri", REDIRECT_URI);
   const profilesProbe = url.pathname === "/login/profiles-test";
   const coverageProbe = url.pathname === "/login/coverage-test";
   const cardTypesProbe = url.pathname === "/login/card-types-test";
@@ -148,7 +133,7 @@ async function startLogin(request, env, url, fetchImpl=fetch) {
   const allianceScopeProbe = url.pathname === "/login/alliance-scope-test";
   const collectionProbe = url.pathname === "/login/alliance-collection-test";
   const rosterViewerMode = url.pathname === "/login/rosters";
-  const captainMode = captainLogin;
+  const captainMode = url.pathname === "/login/captain";
   const scopeProbe = getAllianceScopeProbe(url.pathname);
   const allianceProbe = url.pathname === "/login/alliance-test" || rosterScopeProbe;
   const scopes = allianceProbe || allianceScopeProbe || collectionProbe || rosterViewerMode || profilesProbe || coverageProbe || cardTypesProbe || metricsProbe
@@ -180,7 +165,6 @@ async function startLogin(request, env, url, fetchImpl=fetch) {
   if (collectionProbe) headers.append("Set-Cookie", "__Host-losp_oauth_collection_test=" + state + "; " + attributes);
   if (rosterViewerMode) headers.append("Set-Cookie", "__Host-losp_oauth_roster_viewer=" + state + "; " + attributes);
   if (captainMode) headers.append("Set-Cookie", "__Host-losp_oauth_captain=" + state + "; " + attributes);
-  if (plannerReturn) headers.append("Set-Cookie", "__Host-losp_oauth_captain_return=" + state + "; " + attributes);
   if (scopeProbe) headers.append("Set-Cookie", scopeProbe.cookie + "=" + state + "; " + attributes);
   if (inventoryProbe) headers.append("Set-Cookie", "__Host-losp_oauth_inventory_test=" + state + "; " + attributes);
   if (profilesProbe) headers.append("Set-Cookie", "__Host-losp_oauth_profiles_test=" + state + "; " + attributes);
@@ -543,17 +527,6 @@ export default {
   },
   async fetch(request, env) {
     const url = new URL(request.url);
-    if(url.pathname==="/admin/personal-event-lab"||url.pathname.startsWith("/admin/personal-event-lab/"))return handlePersonalEventLab(request,env);
-    if(url.pathname==="/captain/api/events")
-      return handlePersonalEventProgress(request,env);
-    if(url.pathname==="/admin/api/event-planner")
-      return handleEventPlannerApi(request,env);
-    if(url.pathname==="/admin/events-planner"||url.pathname.startsWith("/admin/events-planner/"))
-      return handleEventPlannerPage(request,env);
-    if(url.pathname==="/event-planner"||url.pathname.startsWith("/event-planner/"))
-      return new Response("Not Found",{status:404,headers:{"Cache-Control":"no-store","X-Robots-Tag":"noindex"}});
-    if(url.pathname==="/captain/events")
-      return handlePersonalEventProgress(request,env);
     if(url.pathname==="/api/public/events")
       return publicEvents(request,env);
     if(url.pathname==="/api/public/awakened-materials")
@@ -579,8 +552,6 @@ export default {
     if(url.pathname==="/api/public/guest-season-ranks")
       return publicGuestSeasonRanks(request,env);
 
-    if(url.pathname==="/admin/login/captain")return startLogin(request,env,url);
-
     if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
       return handleAdmin(request, env);
     }
@@ -591,7 +562,7 @@ export default {
         url.pathname === "/login/alliance-scope-test" ||
         url.pathname === "/login/alliance-collection-test" ||
         url.pathname === "/login/rosters" ||
-        url.pathname === "/login/captain" || url.pathname === "/admin/login/captain" ||
+        url.pathname === "/login/captain" ||
         url.pathname === "/login/inventory-test" ||
         url.pathname === "/login/profiles-test" ||
         url.pathname === "/login/coverage-test" ||
