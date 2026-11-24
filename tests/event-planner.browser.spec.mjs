@@ -74,7 +74,7 @@ try{
   await page.locator("#selected-event").getByText("Faisable gratuitement").first().waitFor();
   await page.getByRole("tab",{name:"Objectifs"}).click();
   await page.getByRole("heading",{name:"Terminés confirmés"}).waitFor();
-  await page.getByRole("tab",{name:"Planification"}).click();
+  await page.getByRole("tab",{name:"Planifier"}).click();
   await page.getByRole("heading",{name:"Projection gratuite"}).waitFor();
   await page.getByRole("tab",{name:"Mon stock"}).click();
   await page.getByRole("heading",{name:"or",exact:true}).waitFor();
