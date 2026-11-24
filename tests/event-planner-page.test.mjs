@@ -14,7 +14,7 @@ async function javascriptAssets(directory=PLANNER_ASSET_ROOT){
     return entry.isDirectory()?javascriptAssets(path):entry.isFile()&&entry.name.endsWith(".js")
       ?Promise.resolve([path]):Promise.resolve([]);
   }));
-  return nested.flat().map(path=>path.slice(PLANNER_ASSET_ROOT.length+1).replaceAll("\\\\","/")).sort();
+  return nested.flat();
 }
 
 
@@ -63,7 +63,7 @@ test("planner asset path traversal and unsupported files are denied",async()=>{
 
 
 test("every shipped planner JavaScript module is served through the authenticated Worker route",async()=>{
-  const modules=await javascriptAssets();
+  const modules=(await javascriptAssets()).map(path=>path.slice(PLANNER_ASSET_ROOT.length+1)).sort();
   assert.ok(modules.includes("app.js"),"planner entry module exists");
   const entryHtml=await readFile(join(PLANNER_ASSET_ROOT,"index.html"),"utf8");
   const entryMatch=entryHtml.match(/<script[^>]*type=["']module["'][^>]*src=["']([^"']+)["']/i);
@@ -75,7 +75,7 @@ test("every shipped planner JavaScript module is served through the authenticate
     const imports=code.matchAll(/^\s*(?:import|export)\s+[^;\n]*?\s+from\s*["']([^"']+)["']/gm);
     for(const match of imports){
       if(!match[1].startsWith("."))continue;
-      const dependency=normalize(join(dirname(modulePath),match[1])).replaceAll("\\\\","/");
+      const dependency=normalize(join(dirname(modulePath),match[1]));
       assert.ok(modules.includes(dependency),modulePath+" imports missing module "+dependency);
     }
   }
