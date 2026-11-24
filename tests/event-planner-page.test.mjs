@@ -2,6 +2,21 @@ import {accessJwt,accessFetch,ACCESS_OWNER} from "./event-planner/access-fixture
 import test from "node:test";
 import assert from "node:assert/strict";
 import {handleEventPlannerPage} from "../src/event-planner-page.js";
+import {readFile,readdir} from "node:fs/promises";
+import {dirname,join,normalize,resolve} from "node:path";
+import {fileURLToPath} from "node:url";
+
+const PLANNER_ASSET_ROOT=resolve(fileURLToPath(new URL("../public/event-planner/",import.meta.url)));
+async function javascriptAssets(directory=PLANNER_ASSET_ROOT){
+  const entries=await readdir(directory,{withFileTypes:true});
+  const nested=await Promise.all(entries.map(entry=>{
+    const path=join(directory,entry.name);
+    return entry.isDirectory()?javascriptAssets(path):entry.isFile()&&entry.name.endsWith(".js")
+      ?Promise.resolve([path]):Promise.resolve([]);
+  }));
+  return nested.flat();
+}
+
 
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const OWNER_JWT=await accessJwt(ACCESS_OWNER);
@@ -44,4 +59,46 @@ test("planner asset path traversal and unsupported files are denied",async()=>{
   assert.equal((await handleEventPlannerPage(new Request(ORIGIN+"/admin/events-planner/../../captain-vault.js",{headers}),f.env,accessFetch())).status,404);
   assert.equal((await handleEventPlannerPage(new Request(ORIGIN+"/admin/events-planner/private.json",{headers}),f.env,accessFetch())).status,404);
   assert.equal(f.assetCalls(),0);
+});
+
+
+test("every shipped planner JavaScript module is served through the authenticated Worker route",async()=>{
+  const modules=(await javascriptAssets()).map(path=>path.slice(PLANNER_ASSET_ROOT.length+1)).sort();
+  assert.ok(modules.includes("app.js"),"planner entry module exists");
+  const entryHtml=await readFile(join(PLANNER_ASSET_ROOT,"index.html"),"utf8");
+  const entryMatch=entryHtml.match(/<script[^>]*type=["']module["'][^>]*src=["']([^"']+)["']/i);
+  assert.ok(entryMatch,"planner HTML declares its module entry");
+  assert.ok(entryMatch[1].endsWith("/app.js"),"planner HTML points to the app module");
+
+  for(const modulePath of modules){
+    const code=await readFile(join(PLANNER_ASSET_ROOT,modulePath),"utf8");
+    const imports=code.matchAll(/^\s*(?:import|export)\s+[^;\n]*?\s+from\s*["']([^"']+)["']/gm);
+    for(const match of imports){
+      if(!match[1].startsWith("."))continue;
+      const dependency=normalize(join(dirname(modulePath),match[1]));
+      assert.ok(modules.includes(dependency),modulePath+" imports missing module "+dependency);
+    }
+  }
+
+  const f=envFor("active"),headers={"Cf-Access-Jwt-Assertion":OWNER_JWT,
+    Cookie:"__Host-losp_captain_session="+SESSION};
+  f.env.ASSETS={fetch:async request=>{
+    const pathname=new URL(request.url).pathname;
+    if(!pathname.startsWith("/event-planner/"))return new Response("Not Found",{status:404});
+    const asset=pathname.slice("/event-planner/".length);
+    const file=resolve(PLANNER_ASSET_ROOT,asset);
+    if(!file.startsWith(PLANNER_ASSET_ROOT+"/"))return new Response("Not Found",{status:404});
+    try{
+      const body=await readFile(file),type=asset.endsWith(".js")?"text/javascript; charset=utf-8":
+        asset.endsWith(".css")?"text/css; charset=utf-8":"text/html; charset=utf-8";
+      return new Response(body,{headers:{"Content-Type":type}});
+    }catch{return new Response("Not Found",{status:404});}
+  }};
+
+  const paths=["index.html","styles.css",...modules];
+  for(const asset of paths){
+    const response=await handleEventPlannerPage(new Request(ORIGIN+"/admin/events-planner/"+asset,{headers}),f.env,accessFetch());
+    assert.equal(response.status,200,"Worker planner route serves "+asset);
+    assert.ok((await response.arrayBuffer()).byteLength>0,"Worker route returns bytes for "+asset);
+  }
 });
