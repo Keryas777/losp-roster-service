@@ -137,6 +137,8 @@ async function fetchEvents(token,fetchImpl=fetch,eventId=null){
 // Cookie session is checked and its current grant refreshed before each cache
 // read. The private DO stores only the response for at most five minutes.
 export async function handlePersonalEventProgress(request,env,fetchImpl=fetch,now=Date.now()){
+  const access=await eventPlannerAccessStatus(request,env,fetchImpl);
+  if(access!=="allowed")return eventPlannerAccessResponse(access);
   if(request.method!=="GET")return json({error:"method-not-allowed"},405);
   if(!captainConfigReady(env)||!env?.PERSONAL_EVENT_CACHE?.idFromName||!env?.PERSONAL_EVENT_CACHE?.get)
     return json({error:"not-configured"},503);
