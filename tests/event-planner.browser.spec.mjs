@@ -81,6 +81,7 @@ try{
   const width=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth}));
   assert.ok(width.scroll<=width.client+1,`horizontal overflow on ${browserName}: ${JSON.stringify(width)}`);
   assert.ok((await page.locator("#tab-events").getAttribute("class")).includes("ev-stat"));
+  assert.deepEqual(consoleErrors,[],`${browserName} console errors before simulated provider failure`);
   failEvents=true;
   await page.getByRole("tab",{name:"Événements"}).click();
   await page.getByRole("button",{name:"Actualiser"}).click();
@@ -93,7 +94,8 @@ try{
   assert.ok(apiCalls.some(call=>call.resource==="inventory"&&call.itemType==="CONSUMABLE"));
   assert.ok(apiCalls.filter(call=>call.resource==="detail").length>=2);
   assert.deepEqual(runtimeErrors,[],`${browserName} page errors`);
-  assert.deepEqual(consoleErrors,[],`${browserName} console errors`);
+  assert.equal(consoleErrors.length,2,`${browserName} simulated provider responses`);
+  assert.ok(consoleErrors.every(error=>error.includes("502 (Bad Gateway)")),`${browserName} unexpected console errors`);
   console.log(JSON.stringify({browser:browserName,version:browser.version(),result:"passed",apiCalls:apiCalls.length,mobileViewport:width}));
   await context.close();
 }finally{
