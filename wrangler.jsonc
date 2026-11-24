@@ -15,7 +15,7 @@
     "CAPTAIN_COVERAGE_ENABLED": "false",
     "MSF_ADMIN_ENABLED": "true",
     "PERSONAL_EVENT_LAB_ENABLED": "false",
-    "EVENT_PLANNER_ENABLED": "true",
+    "EVENT_PLANNER_ENABLED": "false",
     "ROSTER_AUTO_ENABLED": "true",
     "ROSTER_FULL_COLLECTION_ENABLED": "true",
     "MEMBER_INFO_AUTO_ENABLED": "true",
