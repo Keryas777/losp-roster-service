@@ -1,5 +1,6 @@
 import { analyzeMilestoneEvent } from "./lib/event-analysis.js";
 import { RESOURCES, classifyObjective, observeEvent, resourcesInUse, declareResource, refreshResource, estimateResource, parseQuantity } from "./lib/index.js";
+import { installCalendarSnapshot, currentCalendarGroups, mergeCalendarEvent, calendarGroups } from "./lib/calendar.js";
 
 const $=id=>document.getElementById(id);
 const API="/admin/api/event-planner";
@@ -7,7 +8,8 @@ const CATALOG_BASE="https://keryas777.github.io/msf/data/";
 const STORAGE_KEY="losp-event-planner-v1";
 const number=new Intl.NumberFormat("fr-FR");
 const date=new Intl.DateTimeFormat("fr-FR",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit",timeZone:"Europe/Paris"});
-const state={eventsEn:[],eventsFr:[],roster:null,characters:[],inventory:null,inventoryReason:null,skipped:new Set(),stock:{},history:[],details:new Map(),rewardDetails:new Map(),selectedId:null,analysis:null,observations:[],drafts:{},tab:"events",loadingStock:false,refreshing:false};
+const syncDate=new Intl.DateTimeFormat("fr-FR",{dateStyle:"medium",timeStyle:"short",timeZone:"Europe/Paris"});
+const state={eventsEn:[],eventsFr:[],calendarEvents:[],eligibleEventIds:null,calendarError:null,roster:null,characters:[],inventory:null,inventoryReason:null,inventoryTypes:{},skipped:new Set(),stock:{},history:[],details:new Map(),rewardDetails:new Map(),selectedId:null,analysis:null,observations:[],drafts:{},tab:"events",loadingStock:false,refreshing:false,detailLoading:false,listScrollY:0};
 
 function el(tag,cls,text){const node=document.createElement(tag);if(cls)node.className=cls;if(text!==undefined&&text!==null)node.textContent=String(text);return node;}
 function fmt(value){return value==null?"Données indisponibles":number.format(value);}
@@ -67,6 +69,11 @@ function saveLocal(){
 function banner(message,kind="warning"){
   const box=el("p",kind,message);$("connection").replaceChildren(box);
 }
+function scrollImmediately(top){
+  const root=document.documentElement,previous=root.style.scrollBehavior;
+  root.style.scrollBehavior="auto";window.scrollTo(0,top);
+  requestAnimationFrame(()=>{root.style.scrollBehavior=previous;});
+}
 async function loadCatalog(){
   const load=async path=>{const response=await fetch(CATALOG_BASE+path,{cache:"force-cache",mode:"cors"});if(!response.ok)throw new Error("catalog-unavailable");return response.json();};
   try{
@@ -78,6 +85,15 @@ async function loadCatalog(){
     }));
   }catch{state.characters=[];}
 }
+async function loadCalendar(){
+  try{
+    const response=await fetch(CATALOG_BASE+"evenements-snapshot.json",{cache:"no-store",mode:"cors"});
+    if(!response.ok)throw new Error("catalog-unavailable");
+    const installed=installCalendarSnapshot(await response.json());
+    state.calendarEvents=installed.events;state.eligibleEventIds=installed.eligibleEventIds;state.calendarError=null;
+    return installed;
+  }catch(error){state.calendarEvents=[];state.calendarError=error;return null;}
+}
 function setTab(name){
   state.tab=name;
   document.querySelectorAll(".planner-tabs [role=tab]").forEach(button=>{
@@ -88,7 +104,11 @@ function setTab(name){
   if(name==="plan")renderPlan();
   if(name==="stock")renderStock();
 }
-function activeEvents(){const now=Date.now()/1000;return state.eventsEn.filter(event=>Number(event?.startTime)<=now&&Number(event?.endTime)>now);}
+function calendarView(){
+  const groups=currentCalendarGroups(state.calendarEvents,state.eligibleEventIds);
+  return Object.fromEntries(Object.entries(groups).map(([key,events])=>[key,events.map(event=>mergeCalendarEvent(event,getEvent(event.id,"en")))]));
+}
+function activeEvents(){return Object.values(calendarView()).flat();}
 function rewardsFrom(event){
   const objective=milestoneObjective(event),tiers=objective?.tiers||{},rewards={};
   for(const [tier,row] of Object.entries(tiers)){
@@ -108,6 +128,25 @@ function inventoryValue(resource){
   const itemId=RESOURCES[resource]?.itemId;
   if(!state.inventory||!itemId||!Object.hasOwn(state.inventory,itemId))return null;
   return state.inventory[itemId];
+}
+function inventoryItemId(row){
+  const item=row?.item;
+  return typeof item==="string"?item:typeof item?.id==="string"?item.id:typeof row?.id==="string"?row.id:null;
+}
+function inventoryRows(row){return Array.isArray(row?.data)?row.data:[];}
+function installInventoryResult(type,result){
+  if(result?.error){
+    const previous=state.inventoryTypes[type];
+    state.inventoryTypes[type]=previous?.rows?{...previous,refreshError:result.error}:{error:result.error,rows:[],retrievedAt:null,asOf:null,cache:null};
+    return;
+  }
+  const rows=inventoryRows(result);
+  state.inventoryTypes[type]={rows,retrievedAt:result.retrievedAt||null,asOf:result.upstream?.asOf||null,
+    unchanged:Boolean(result.upstream?.unchanged),cache:result.cache||null,error:null};
+  for(const item of rows){
+    const id=inventoryItemId(item),quantity=typeof item?.quantity==="number"?item.quantity:Number(item?.quantity);
+    if(id&&Number.isFinite(quantity))state.inventory[id]=quantity;
+  }
 }
 function stockEstimate(resource){
   const ledger=state.stock[resource]?.ledger;if(!ledger)return null;
@@ -133,38 +172,48 @@ function currentAnalysis(){
   return analyzeMilestoneEvent({eventEn,eventFr,roster:state.roster||[],rosterKnown:Array.isArray(state.roster),characters:state.characters,stock:effectiveStock()});
 }
 function renderEvents(){
-  const events=activeEvents(),visible=events.filter(event=>!state.skipped.has(String(event.id)));
-  $("event-count").textContent=`${visible.length} actif${visible.length===1?"":"s"} · ${events.length-visible.length} ignoré${events.length-visible.length===1?"":"s"}`;
+  const groups=calendarView(),events=Object.values(groups).flat(),visible=events.filter(event=>!state.skipped.has(String(event.id)));
+  $("event-count").textContent=state.calendarError?"Catalogue public LoSP indisponible · liste masquée":
+    `${visible.length} événement${visible.length===1?"":"s"} affiché${visible.length===1?"":"s"} · ${events.length-visible.length} ignoré${events.length-visible.length===1?"":"s"}`;
   const list=$("events-list");list.replaceChildren();
-  if(!visible.length){list.append(el("div","empty-card",events.length?"Tous les événements actifs sont ignorés.":"Aucun événement actif n’a été renvoyé par Scopely."));}
-  for(const event of visible){
-    const id=String(event.id),localized=getEvent(id,"fr")||event,card=el("article","ev-card planner-event-card");
-    card.dataset.eventId=id;card.setAttribute("aria-current",String(id===String(state.selectedId)));
-    const command=event.type==="milestone"&&event.locationHints?.includes("lohub_wrapper");
-    const candidates=command?[event.icon]:[event.cardArt,event.popupArt,...(Array.isArray(event.hubArt)?event.hubArt:[]),event.icon];
-    const artwork=candidates.find(url=>typeof url==="string"&&/^https:\/\/assets\.marvelstrikeforce\.com\/(?:key_art|imgs)\/[\w.%-]+\.(?:png|jpg|jpeg|webp)$/i.test(url))||"";
-    const cover=el("div","ev-cover"+(command?" ev-cover--command":"")+(!artwork?" ev-cover--placeholder":""));
-    const fallback=el("span","ev-cover-fallback",({milestone:"🏆",episodic:"⚔️",raid:"🛡️",blitz:"⚡",battlePass:"🎖️",strikePass:"🎫",pickYourPoison:"🔥",info:"✦",raidSeason:"🛡️",warSeason:"⚔️",donation:"🤝"})[event.type]||"✦");
-    fallback.hidden=Boolean(artwork);cover.append(fallback);
-    if(artwork){const image=el("img",command?"ev-command-icon":artwork.includes("/imgs/")?"ev-icon-img":"");image.alt="";image.loading="lazy";image.decoding="async";image.src=artwork;
-      image.addEventListener("error",()=>{image.remove();fallback.hidden=false;cover.className+=" ev-cover--placeholder";},{once:true});cover.append(image);}
-    const copy=el("div","ev-card-copy"),top=el("div","ev-card-top");top.append(el("span","ev-category",eventTypeLabel(localized)));
-    if(event.type==="milestone")top.append(el("span","ev-scope",event.milestone?.type==="alliance"?"Alliance":"Solo"));
-    copy.append(top,el("h3","",displayName(localized)));
-    const subtitle=stripTags(localized.subName||localized.details||"");if(subtitle)copy.append(el("p","ev-sub",subtitle));
-    copy.append(el("div","ev-dates",`Fin ${eventDate(event.endTime)}`));
-    const actions=el("div","ev-card-actions"),select=el("button","ev-detail-btn","Analyser  ›");
-    select.type="button";select.dataset.action="select";select.dataset.eventId=id;
-    const skip=el("button","planner-skip-button","Ignorer");skip.type="button";skip.dataset.action="skip";skip.dataset.eventId=id;skip.setAttribute("aria-label","Ignorer "+displayName(event));
-    actions.append(select,skip);copy.append(actions);card.append(cover,copy);list.append(card);
+  if(state.calendarError){list.append(el("div","empty-card","Le catalogue utilisé par la page publique n’a pas pu être chargé. La liste personnelle non filtrée reste masquée."));}
+  else if(!visible.length){list.append(el("div","empty-card",events.length?"Tous les événements LoSP en cours sont ignorés.":"Aucun événement LoSP n’est actuellement en cours."));}
+  for(const group of calendarGroups){
+    const entries=(groups[group.key]||[]).filter(event=>!state.skipped.has(String(event.id)));
+    if(!entries.length)continue;
+    const section=el("section","ev-calendar-group"),head=el("div","ev-calendar-group-head");
+    head.append(el("h3","ev-calendar-group-title",group.icon+" "+group.label),el("span","ev-calendar-group-count",entries.length));
+    const grid=el("div","ev-grid");
+    for(const event of entries){
+      const id=String(event.id),localized=getEvent(id,"fr")||event,card=el("article","ev-card planner-event-card");
+      card.dataset.eventId=id;card.setAttribute("aria-current",String(id===String(state.selectedId)));
+      const command=event.type==="milestone"&&event.locationHints?.includes("lohub_wrapper");
+      const candidates=command?[event.icon]:[event.cardArt,event.popupArt,...(Array.isArray(event.hubArt)?event.hubArt:[]),event.icon];
+      const imageUrl=candidates.find(url=>typeof url==="string"&&/^https:\/\/assets\.marvelstrikeforce\.com\/(?:key_art|imgs)\/[\w.%-]+\.(?:png|jpg|jpeg|webp)$/i.test(url))||"";
+      const cover=el("div","ev-cover"+(command?" ev-cover--command":"")+(!imageUrl?" ev-cover--placeholder":""));
+      const fallback=el("span","ev-cover-fallback",({milestone:"🏆",episodic:"⚔️",pickYourPoison:"🔥"})[event.type]||"✦");
+      fallback.hidden=Boolean(imageUrl);cover.append(fallback);
+      if(imageUrl){const image=el("img",command?"ev-command-icon":imageUrl.includes("/imgs/")?"ev-icon-img":"");image.alt="";image.loading="lazy";image.decoding="async";image.src=imageUrl;
+        image.addEventListener("error",()=>{image.remove();fallback.hidden=false;cover.className+=" ev-cover--placeholder";},{once:true});cover.append(image);}
+      const copy=el("div","ev-card-copy"),top=el("div","ev-card-top");top.append(el("span","ev-category",group.label));
+      if(event.type==="milestone")top.append(el("span","ev-scope",event.milestone?.type==="alliance"?"Alliance":"Solo"));
+      if(event.calendarVariantKind==="tiers")top.append(el("span","ev-tier-tag",`${event.calendarVariants.length} paliers`));
+      copy.append(top,el("h3","",displayName(localized)));
+      const subtitle=stripTags(localized.subName||localized.details||"");if(subtitle)copy.append(el("p","ev-sub",subtitle));
+      const dayEnd=Math.max(0,Math.ceil((Number(event.endTime)*1000-Date.now())/86400000));
+      copy.append(el("div","ev-dates",`${eventDate(event.startTime)} → ${eventDate(event.endTime)}`));
+      const actions=el("div","ev-card-actions"),relative=el("span","ev-relative",`Fin dans ${dayEnd} j`);
+      const select=el("button","ev-detail-btn","Analyser  ›");select.type="button";select.dataset.action="select";select.dataset.eventId=id;
+      const skip=el("button","planner-skip-button","Ignorer");skip.type="button";skip.dataset.action="skip";skip.dataset.eventId=id;skip.setAttribute("aria-label","Ignorer "+displayName(event));
+      actions.append(relative,select,skip);copy.append(actions);card.append(cover,copy);grid.append(card);
+    }
+    section.append(head,grid);list.append(section);
   }
   const skippedList=$("skipped-list");skippedList.replaceChildren();
   const skipped=events.filter(event=>state.skipped.has(String(event.id)));
   if(!skipped.length){skippedList.append(el("p","muted","Aucun événement ignoré."));}
   for(const event of skipped){const row=el("div","event-card");row.append(el("span","",displayName(getEvent(event.id,"fr")||event)));const restore=el("button","small-button","Réintégrer");restore.type="button";restore.dataset.action="restore";restore.dataset.eventId=String(event.id);row.append(restore);skippedList.append(row);}
-  if(state.selectedId&&!visible.some(event=>String(event.id)===String(state.selectedId)))state.selectedId=visible[0]?.id||null;
-  if(!state.selectedId&&visible.length)state.selectedId=visible[0].id;
-  if(!state.selectedId){$("selected-event").replaceChildren(el("p","muted","Choisis un événement pour afficher son analyse."));state.analysis=null;}
+  if(state.selectedId&&!events.some(event=>String(event.id)===String(state.selectedId))){state.selectedId=null;$("selected-event").hidden=true;$("event-list-view").hidden=false;}
 }
 function statusTag(status){const labels={done:"Terminé confirmé",doable:"Faisable gratuitement",resource:"Ressource requise",blocked:"Bloqué par le roster",unknown:"Données indisponibles"};return labels[status]||"Données indisponibles";}
 function loadDetailPair(id){
@@ -182,15 +231,26 @@ function loadDetailPair(id){
   state.details.set("loading:"+key,task);return task;
 }
 async function showSelected(id){
-  state.selectedId=String(id);renderEvents();
-  const root=$("selected-event"),event=getEvent(id,"en"),fr=getEvent(id,"fr")||event;
-  if(!event)return;
-  root.replaceChildren();root.append(el("p","muted","Chargement des détails Scopely…"));
-  await loadDetailPair(id);
+  state.listScrollY=window.scrollY;state.selectedId=String(id);state.detailLoading=true;
+  const root=$("selected-event");$("event-list-view").hidden=true;root.hidden=false;root.replaceChildren();
+  const bar=el("div","planner-detail-bar"),back=el("button","planner-back","‹  Liste des événements");
+  back.type="button";back.dataset.action="back-list";bar.append(back,el("span","planner-detail-state","Chargement des détails personnels…"));
+  const loading=el("div","loading-state");loading.setAttribute("role","status");loading.setAttribute("aria-live","polite");
+  loading.append(el("span","loading-spinner"),el("span","","Récupération de la progression, des objectifs et des récompenses…"));
+  root.append(bar,loading);scrollImmediately(0);
+  const pair=await loadDetailPair(id);state.detailLoading=false;
   if(state.selectedId!==String(id))return;
+  const curated=activeEvents().find(item=>String(item.id)===String(id));
+  const event=mergeCalendarEvent(curated,pair.en||getEvent(id,"en"));
+  const fr=mergeCalendarEvent(curated,pair.fr||getEvent(id,"fr"))||event;
+  if(!event){root.replaceChildren(bar,el("p","error","Les détails de cet événement n’ont pas été reçus."));return;}
   const analysis=currentAnalysis();state.analysis=analysis;
-  renderSelected(event,fr,analysis);
+  renderSelected(event,fr,analysis,pair.error);
   if(state.tab==="objectives")renderObjectives();if(state.tab==="plan")renderPlan();if(state.tab==="stock")renderStock();
+}
+function returnToList(){
+  $("selected-event").hidden=true;$("event-list-view").hidden=false;
+  requestAnimationFrame(()=>scrollImmediately(state.listScrollY));
 }
 function addActionRow(list,action){
   const row=el("li","action-row");const name=action.label||action.character?.name||"Objectif sans libellé";
@@ -225,14 +285,18 @@ function addSafeImage(parent,url,className,alt=""){
   if(typeof url!=="string"||!/^https:\/\/assets\.marvelstrikeforce\.com\//.test(url))return;
   const image=el("img",className);image.src=url;image.alt=alt;image.loading="lazy";parent.append(image);
 }
-function renderSelected(event,fr,analysis){
-  const root=$("selected-event");root.replaceChildren();
-  const head=el("div","selected-head"),copy=el("div");copy.append(el("p","eyebrow","Analyse personnelle"),el("h2","",displayName(fr||event)));
-  copy.append(el("p","",`${eventDate(event.startTime)} → ${eventDate(event.endTime)}`));head.append(copy);
-  const image=event.cardArt||event.popupArt;
-  if(typeof image==="string"&&/^https:\/\/assets\.marvelstrikeforce\.com\//.test(image)){const img=el("img");img.alt="";img.src=image;img.loading="lazy";head.append(img);}
-  root.append(head);
-  const actions=el("div","plan-actions"),skip=el("button","button button-secondary",state.skipped.has(String(event.id))?"Réintégrer cet événement":"Ignorer cet événement");skip.type="button";skip.dataset.action=state.skipped.has(String(event.id))?"restore":"skip";skip.dataset.eventId=String(event.id);actions.append(skip);root.append(actions);
+function renderSelected(event,fr,analysis,detailError=null){
+  const host=$("selected-event");host.replaceChildren();
+  const bar=el("div","planner-detail-bar"),back=el("button","planner-back","‹  Liste des événements");
+  back.type="button";back.dataset.action="back-list";bar.append(back,el("span","planner-detail-state","Fiche d’événement"));
+  const root=el("div","planner-detail-content");host.append(bar,root);
+  const hero=el("header","planner-detail-hero"),imageUrl=event.cardArt||event.popupArt||event.icon;
+  if(typeof imageUrl==="string"&&/^https:\/\/assets\.marvelstrikeforce\.com\/(?:key_art|imgs)\/[\w.%-]+\.(?:png|jpg|jpeg|webp)$/i.test(imageUrl)){const img=el("img");img.alt="";img.src=imageUrl;img.loading="lazy";img.decoding="async";hero.append(img);}
+  const copy=el("div","planner-detail-hero-copy");copy.append(el("span","ev-category",eventTypeLabel(event)),el("h2","",displayName(fr||event)),el("p","",`Fin ${eventDate(event.endTime)}`));hero.append(copy);root.append(hero);
+  const actions=el("div","detail-action-bar"),skip=el("button","button button-secondary",state.skipped.has(String(event.id))?"Réintégrer":"Ignorer cet événement");
+  skip.type="button";skip.dataset.action=state.skipped.has(String(event.id))?"restore":"skip";skip.dataset.eventId=String(event.id);
+  const planLink=el("button","button","Planifier cet événement →");planLink.type="button";planLink.dataset.action="open-plan";actions.append(planLink,skip);root.append(actions);
+  if(detailError){const failure=el("section","panel-card");failure.append(el("p","warning","Les détails personnels complets n’ont pas été chargés. Les éléments présents dans la liste sont conservés, sans confirmer les données manquantes."),renderDiagnostic(detailError));root.append(failure);}
   if(!state.roster){root.append(el("p","warning","Roster personnel indisponible. Les conditions liées aux personnages et les actions faisables ne sont pas estimées."));}
   if(!analysis){root.append(el("p","warning","Données de scoring indisponibles pour cette réponse. Aucun objectif n’est déclaré terminé."));renderObjectives();renderPlan();return;}
   if(!analysis.supported){
@@ -292,58 +356,141 @@ function resourcePlanLabel(item){
 }
 function renderPlan(){
   const target=$("plan-view");target.replaceChildren();const analysis=state.analysis;
-  if(!analysis?.supported){target.append(el("p","warning","Analyse personnelle indisponible pour l’événement sélectionné."));return;}
+  const selected=state.selectedId&&(getEvent(state.selectedId,"fr")||getEvent(state.selectedId,"en")||activeEvents().find(item=>String(item.id)===String(state.selectedId)));
+  $("plan-event-name").textContent=selected?displayName(selected):"Aucun événement sélectionné";
+  $("plan-back").hidden=!selected;
+  if(!analysis?.supported){target.append(el("p","warning","Les données de scoring nécessaires à cette planification ne sont pas disponibles pour l’événement sélectionné."));return;}
   if(analysis.plan?.status==="unavailable"){
-    const message=analysis.event.progressState==="partial"?"Les compteurs de score sont incomplets. Le plan Maddoxx reste disponible, mais aucun total ni palier n’est calculé à partir de cette somme partielle.":"Données de score ou de paliers indisponibles. Le plan Maddoxx reste chargé, mais aucun palier ni coût n’est estimé à partir d’une valeur manquante.";
-    target.append(el("p","warning",message));
-    return;
+    const message=analysis.event.progressState==="partial"?"Une partie des compteurs manque. Le score total et la faisabilité des paliers ne sont pas déterminés à partir de ce relevé.":"Le score ou les paliers n’ont pas été fournis. Aucune quantité manquante n’est remplacée par zéro.";
+    target.append(el("p","warning",message));return;
   }
-  const plan=analysis.plan,summary=el("section","panel-card");summary.append(el("h3","","Projection gratuite"));
-  if(analysis.event.progressState==="estimated")summary.append(el("p","warning","Le score de départ est estimé en additionnant les compteurs plafonnés Maddoxx fournis; les paliers réellement réclamés restent inconnus."));
-  summary.append(el("p","",`${fmt(plan.secure.points)} points sécurisés · palier de score ${fmt(plan.secure.tier)} · ${fmt(plan.planDays)} jour(s) de planification`));
-  summary.append(el("p","row-detail",`${fmt(plan.secure.fromDoable)} pts par actions gratuites connues · ${fmt(plan.secure.fromEnergy)} pts d’énergie disponible`));
-  if(analysis.event.completedTierKnown)summary.append(el("p","row-detail",`Paliers terminés confirmés : ${fmt(analysis.event.currentTier)}`));
-  else summary.append(el("p","row-detail","Paliers terminés : données indisponibles; la projection de score ne les présente pas comme réclamés."));
+  const plan=analysis.plan,event=analysis.event,score=event.points,scoreKnown=Number.isFinite(score)&&["available","estimated"].includes(event.progressState);
+  const uncertain=event.progressState==="partial"||event.progressState==="unknown"||!Array.isArray(state.roster)||
+    analysis.unparsed.length>0||analysis.actions.some(action=>action.status==="unknown");
+  const scoreSource=event.progressState==="available"?"Progression personnelle fournie par Scopely":
+    event.progressState==="estimated"?"Estimation Maddoxx · somme des compteurs plafonnés":"Progression indisponible";
+  const nextTier=scoreKnown?analysis.tiers.filter(tier=>tier.goal>score).sort((a,b)=>a.goal-b.goal)[0]:null;
+  const summary=el("section","plan-event-card");
+  summary.append(el("h3","","Événement planifié"),el("p","plan-event-name",displayName(selected||getEvent(state.selectedId,"en")||{})));
+  const metrics=el("div","plan-score-grid");
+  const metric=(label,value)=>{const cell=el("div","plan-score");cell.append(el("span","plan-score-label",label),el("strong","",value));return cell;};
+  metrics.append(metric("Score actuel",scoreKnown?`${fmt(score)} pts`:"Données indisponibles"));
+  metrics.append(metric("Dernier palier terminé",event.completedTierKnown?fmt(event.currentTier):"Non confirmé"));
+  metrics.append(metric("Temps de planification",`${fmt(plan.planDays)} jour${plan.planDays===1?"":"s"}`));
+  metrics.append(metric("Score sécurisé projeté",`${fmt(plan.secure.points)} pts`));summary.append(metrics);
+  summary.append(el("p","stock-note",`Provenance du score : ${scoreSource}. Le score projeté ajoute ${fmt(plan.secure.fromDoable)} pts d’actions gratuites identifiées et ${fmt(plan.secure.fromEnergy)} pts d’énergie disponible.`));
+  if(nextTier){
+    const missing=Math.max(0,nextTier.goal-score),progress=Math.max(0,Math.min(100,score/nextTier.goal*100));
+    const progressWrap=el("div","plan-progress-wrap");progressWrap.append(el("p","",`Palier ${nextTier.tier} · ${fmt(nextTier.goal)} points`));
+    const track=el("div","plan-progress-track");track.setAttribute("role","progressbar");track.setAttribute("aria-label",`Progression vers le palier ${nextTier.tier}`);track.setAttribute("aria-valuemin","0");track.setAttribute("aria-valuemax",String(nextTier.goal));track.setAttribute("aria-valuenow",String(Math.min(score,nextTier.goal)));
+    const fill=el("span");fill.style.width=`${progress}%`;track.append(fill);progressWrap.append(track);
+    const label=el("div","plan-progress-label");label.append(el("span","",`${fmt(score)} / ${fmt(nextTier.goal)} pts`),el("strong","",`${fmt(missing)} pts manquants`));progressWrap.append(label);
+    if(scoreKnown){const pace=Math.ceil(missing/Math.max(1,plan.planDays));progressWrap.append(el("p","row-detail",`Rythme moyen à obtenir : ${fmt(pace)} points par jour avant la fin.`));}
+    else progressWrap.append(el("p","row-detail","Le rythme quotidien reste indisponible tant que le score actuel n’est pas confirmé."));
+    if(nextTier.rewards?.length){const rewards=el("div","plan-rewards");for(const reward of nextTier.rewards){const item=el("span","plan-reward");addSafeImage(item,reward.icon,"reward-icon");item.append(el("span","",`${fmt(reward.quantity)} ${reward.name}`));rewards.append(item);}progressWrap.append(rewards);}
+    summary.append(progressWrap);
+  }else if(scoreKnown)summary.append(el("p","ok",event.completedTierKnown?"Le score connu a dépassé les paliers fournis; le dernier palier réclamé reste celui confirmé par Scopely.":"Aucun palier suivant n’est fourni dans les données reçues."));
+  if(event.completedTierKnown)summary.append(el("p","stock-note",`Paliers terminés confirmés par Scopely : jusqu’au palier ${fmt(event.currentTier)}.`));
+  else summary.append(el("p","warning","Le nombre de paliers réclamés n’est pas fourni. Le score ne sert pas à inventer un palier terminé."));
   target.append(summary);
-  const planCard=el("section","panel-card");planCard.append(el("h3","","Prochains paliers atteignables"));
-  if(!plan.steps.length)planCard.append(el("p","ok","Le dernier palier est déjà sécurisé selon le score connu."));
+
+  const tierPanel=el("section","panel-card");tierPanel.append(el("h3","","Paliers supplémentaires envisageables"));
+  if(!plan.steps.length)tierPanel.append(el("p","muted","Aucun palier supérieur n’est présent dans les données reçues."));
   for(const step of plan.steps){
-    const box=el("div","plan-step");box.append(el("h4","",`Palier ${step.tier} · ${fmt(step.goal)} pts · manque ${fmt(step.missing)}`));
-    if(step.leverPoints)box.append(el("p","",`+${fmt(step.leverPoints)} pts par améliorations possibles du roster`));
-    if(step.verdict)box.append(el("p",step.verdict==="feasible"?"ok":"warning",step.verdict==="feasible"?"Atteignable avec le stock déclaré ou l’inventaire reçu.":step.verdict==="need"?"Stock à déclarer pour chiffrer cette étape.":"Stock connu partiel; le reste est un besoin, pas une recommandation."));
-    for(const spend of step.spends||[])box.append(el("p","row-detail",`${spend.fromStock?"Dans le stock connu : ":"Besoin : "}${resourcePlanLabel(spend)}`));
+    const stepUnknown=uncertain||Number(step.uncovered||0)>0;
+    const ready=!stepUnknown&&(step.coveredByLevers||step.verdict==="feasible");
+    const potential=!ready&&!stepUnknown&&(step.verdict==="need"||step.verdict==="short"||step.spends?.length||step.shortfall?.length);
+    const stateKey=ready?"ready":potential?"potential":"unknown";
+    const status=ready?"Atteignable avec les données connues":potential?"Potentiel · ressources à réunir":"Faisabilité inconnue";
+    const box=el("article","plan-tier"),head=el("div","plan-tier-head");head.append(el("strong","",`Palier ${step.tier} · ${fmt(step.goal)} pts`),el("span","plan-tier-state plan-tier-state--"+stateKey,status));box.append(head);
+    box.append(el("p","",`${fmt(step.missing)} points manquent après les actions gratuites identifiées.`));
+    if(step.leverPoints)box.append(el("p","",`Le roster peut apporter jusqu’à ${fmt(step.leverPoints)} pts par les améliorations listées.`));
+    for(const spend of step.spends||[])box.append(el("p","row-detail",`${spend.fromStock?"Pris en compte dans le stock connu : ":"Ressource nécessaire : "}${resourcePlanLabel(spend)}`));
     for(const spend of step.shortfall||[])box.append(el("p","row-detail",`À prévoir : ${resourcePlanLabel(spend)}`));
     for(const alternative of step.alternatives||[])box.append(el("p","row-detail",`Alternative : ${resourcePlanLabel(alternative)}`));
-    if(step.uncovered)box.append(el("p","warning",`${fmt(step.uncovered)} pts restent non couverts par les lignes connues.`));
-    planCard.append(box);
+    if(step.uncovered>0)box.append(el("p","warning",`${fmt(step.uncovered)} pts ne sont couverts par aucune action ou ressource actuellement identifiée.`));
+    tierPanel.append(box);
   }
-  target.append(planCard);
-  if(analysis.offRoster.length){const outside=el("section","panel-card");outside.append(el("h3","","Sources hors roster"));for(const item of analysis.offRoster)outside.append(el("p","row-detail",`${item.label} · ${fmt(item.points)} pts`));target.append(outside);}
+  target.append(tierPanel);
+
+  const actions=el("section","panel-card");actions.append(el("h3","","Actions possibles pour gagner des points"));
+  const actionable=analysis.actions.filter(action=>action.status!=="done");
+  if(!actionable.length)actions.append(el("p","muted","Aucune action restante n’est reconnue dans les données de scoring."));
+  else{const list=el("ul","action-list");for(const group of analysis.groups){const representative=analysis.actions.find(action=>group.actions.includes(action.index));if(representative)addActionRow(list,{...representative,status:group.status,fightsLeft:group.fightsLeft});}actions.append(list);}
+  if(plan.levers?.length){const list=el("ul","action-list");for(const lever of plan.levers){const row=el("li","action-row");addSafeImage(row,lever.character?.portrait,"character-portrait");row.append(el("span","action-row__copy",`${lever.character?.name||"Personnage"} · ${lever.kind} ${lever.from} → ${lever.to} · +${fmt(lever.points)} pts`));list.append(row);}actions.append(el("h4","","Améliorations de roster à envisager"),list);}
+  target.append(actions);
+  if(uncertain){const notes=[];if(event.progressState!=="available")notes.push("le score n’est pas un total Scopely confirmé");if(!Array.isArray(state.roster))notes.push("le roster est indisponible");if(analysis.unparsed.length)notes.push(`${analysis.unparsed.length} ligne(s) de scoring ne sont pas interprétées`);if(analysis.actions.some(action=>action.status==="unknown"))notes.push("certaines conditions restent inconnues");
+    const warning=el("section","plan-warning-group");warning.append(el("strong","","À vérifier avant de viser un palier"));const list=el("ul");for(const note of notes)list.append(el("li","",note));warning.append(list);target.append(warning);}
+  if(analysis.offRoster.length){const outside=el("section","panel-card");outside.append(el("h3","","Objectifs hors roster connu"));for(const item of analysis.offRoster)outside.append(el("p","row-detail",`${item.label} · ${fmt(item.points)} pts`));target.append(outside);}
 }
 function resourceLabel(key){return RESOURCES[key]?.label?.fr||key;}
-function renderStock(){
-  const root=$("stock-view");root.replaceChildren();
-  if(!state.eventsEn.length){root.append(el("p","warning","Les événements personnels n’ont pas été reçus; la liste des ressources demandées est indisponible."));return;}
-  const used=resourcesInUse(state.observations,[...state.skipped]);
-  if(!used.length){root.append(el("p","muted","Aucune ressource de stock n’est requise par les événements actifs non ignorés."));return;}
-  const intro=el("p",state.inventory?"muted":"warning",state.inventory?"Inventaire autorisé. Une ressource absente de la réponse n’est pas assimilée à zéro.":`Inventaire indisponible${state.inventoryReason?" · "+errorText(state.inventoryReason):""}. Tu peux déclarer ton stock.`);root.append(intro);
-  for(const key of used){
-    const card=el("article","stock-card"),head=el("h3","",resourceLabel(key));
-    const involved=state.observations.filter(item=>item.uses.includes(key)).map(item=>displayName(getEvent(item.id,"fr")||getEvent(item.id,"en")||{}));
-    const info=el("p","",involved.length?"Demandé par : "+involved.join(", "):"Demandé par les événements actifs.");card.append(head,info);
-    const apiValue=inventoryValue(key),saved=stockEstimate(key);
-    const shown=apiValue!==null?apiValue:saved?.value??null;
-    const source=apiValue!==null?"Inventaire Scopely":saved?.source==="estimated"?"Estimation Maddoxx":saved?.source==="declared"?"Déclaration locale":"Données indisponibles";
-    const sourceLine=el("p","row-detail",`${source}${saved?.declaredAt?` · déclarée le ${eventDate(saved.declaredAt/1000)}`:""}${saved?.spentSince?` · ${fmt(saved.spentSince)} unités dépensées estimées`:""}${saved?.earnedSince?` · ${fmt(saved.earnedSince)} reçues`:""}`);card.append(sourceLine);
-    if(saved?.dataUnavailable)card.append(el("p","warning","Les compteurs Scopely sont incomplets : l’estimation des dépenses est indisponible. La planification utilise la dernière déclaration locale."));
-    if(saved?.declaredAt&&Date.now()-saved.declaredAt>86400000)card.append(el("p","warning","Déclaration de plus de 24 h : vérifie ou confirme l’estimation."));
-    const row=el("div","stock-row"),label=el("label","",shown===null?"Quantité à déclarer":"Quantité connue / remplacement manuel");
-    const input=el("input");input.type="text";input.inputMode="decimal";input.autocomplete="off";input.placeholder=shown===null?"Données indisponibles":"";input.value=state.drafts[key]??"";input.dataset.stockKey=key;label.append(input);row.append(label);
-    const save=el("button","button button-secondary",shown===null?"Enregistrer":"Déclarer / corriger");save.type="button";save.dataset.action="save-stock";save.dataset.resource=key;row.append(save);
-    if(saved&&saved.source==="estimated") {const confirm=el("button","small-button","Valider l’estimation");confirm.type="button";confirm.dataset.action="confirm-stock";confirm.dataset.resource=key;row.append(confirm);}
-    card.append(row);root.append(card);
+function resourceForItemId(id){return Object.values(RESOURCES).find(resource=>resource.itemId===id)||null;}
+function inventoryItemName(item,id){
+  const resource=resourceForItemId(id);
+  if(resource?.names?.fr)return resource.names.fr;
+  if(resource?.label?.fr)return resource.label.fr;
+  const nested=typeof item?.item==="object"?item.item:{};
+  return item?.name||nested.name||id||"Objet sans nom";
+}
+function renderSyncedInventory(){
+  const target=$("synced-inventory");target.replaceChildren();
+  if(!state.inventory){target.append(el("p","warning",`Inventaire non disponible${state.inventoryReason?" · "+errorText(state.inventoryReason):""}. Les quantités restent inconnues.`));return;}
+  let count=0;
+  for(const type of ["CONSUMABLE","ISOITEM"]){
+    const snapshot=state.inventoryTypes[type]||{rows:[],error:null},section=el("div","inventory-type"),title=el("h4","",type==="CONSUMABLE"?"Objets consommables":"Objets ISO-8");
+    if(snapshot.error)title.textContent+=` · indisponible`;
+    else if(snapshot.retrievedAt)title.textContent+=` · vérifié ${syncDate.format(new Date(snapshot.retrievedAt))}${snapshot.unchanged?" · inchangé":""}`;
+    section.append(title);
+    if(snapshot.error){section.append(el("p","warning",errorText(snapshot.error)));target.append(section);continue;}
+    if(snapshot.refreshError)section.append(el("p","warning",`Actualisation échouée; dernier inventaire conservé. ${errorText(snapshot.refreshError)}`));
+    const rows=Array.isArray(snapshot.rows)?snapshot.rows:[];count+=rows.length;
+    if(!rows.length){section.append(el("p","muted","Scopely a renvoyé 0 objet dans cette famille."));target.append(section);continue;}
+    const list=el("div","inventory-list");
+    for(const item of rows){
+      const id=inventoryItemId(item),quantity=Number(item?.quantity),row=el("article","inventory-row"),icon=item?.icon||item?.item?.icon;
+      if(typeof icon==="string"&&/^https:\/\/assets\.marvelstrikeforce\.com\//i.test(icon)){const img=el("img","inventory-icon");img.src=icon;img.alt="";img.loading="lazy";row.append(img);}
+      else row.append(el("span","inventory-icon inventory-icon--empty","◈"));
+      const copy=el("div");copy.append(el("strong","inventory-name",inventoryItemName(item,id)));
+      if(id)copy.append(el("span","inventory-id",id));
+      const resource=resourceForItemId(id);copy.append(el("span","inventory-source",resource?`Synchronisé · utilisé dans le plan (${resource.label?.fr||resource.names?.fr||resource.key})`:item?.name?"Nom transmis par Scopely · famille lang=none":"Libellé français non disponible dans les données reçues"));
+      row.append(copy,el("strong","inventory-quantity",Number.isFinite(quantity)?fmt(quantity):"Quantité indisponible"));list.append(row);
+    }
+    section.append(list);target.append(section);
   }
-  if(state.loadingStock)root.prepend(el("p","muted","Lecture des événements actifs pour mettre à jour les récompenses et les compteurs…"));
+  const dates=Object.values(state.inventoryTypes).map(item=>item?.retrievedAt).filter(Boolean).map(Date.parse).filter(Number.isFinite);
+  const latest=dates.length?new Date(Math.max(...dates)):null;
+  $("inventory-sync-status").textContent=latest?`${fmt(count)} objets reçus · dernière vérification ${syncDate.format(latest)}. Une absence de la réponse ne vaut pas zéro.`:
+    "Aucun horodatage de synchronisation n’est disponible dans la réponse Scopely.";
+}
+function renderStock(){
+  renderSyncedInventory();
+  const root=$("stock-view");root.replaceChildren();const unknown=$("unavailable-stock");unknown.replaceChildren();
+  const used=resourcesInUse(state.observations,[...state.skipped]);
+  if(!state.eventsEn.length){root.append(el("p","warning","Les événements personnels n’ont pas été reçus; les ressources utilisées par le moteur ne peuvent pas être établies."));unknown.append(el("p","muted","Les quantités sont inconnues tant que les événements personnels restent indisponibles."));return;}
+  if(!used.length)root.append(el("p","muted","Aucune ressource de stock n’est requise par les événements LoSP en cours."));
+  for(const key of used){
+    const card=el("article","stock-card");card.append(el("h3","",resourceLabel(key)));
+    const involved=state.observations.filter(item=>item.uses.includes(key)).map(item=>displayName(getEvent(item.id,"fr")||getEvent(item.id,"en")||activeEvents().find(event=>String(event.id)===String(item.id))||{}));
+    card.append(el("p","stock-note",involved.length?"Demandé par : "+[...new Set(involved)].join(", "):"Demandé par les événements en cours."));
+    const apiValue=inventoryValue(key),saved=stockEstimate(key);
+    if(apiValue!==null)card.append(el("p","ok",`Inventaire Scopely : ${fmt(apiValue)}. La synchronisation est conservée séparément de la saisie manuelle.`));
+    if(saved){
+      card.append(el("p","row-detail",`${saved.source==="estimated"?"Estimation Maddoxx":"Dernière déclaration manuelle"} : ${fmt(saved.value)}${saved.declaredAt?` · mise à jour ${syncDate.format(new Date(saved.declaredAt))}`:""}${saved.spentSince?` · ${fmt(saved.spentSince)} dépensées estimées`:""}${saved.earnedSince?` · ${fmt(saved.earnedSince)} reçues estimées`:""}`));
+      if(saved.dataUnavailable)card.append(el("p","warning","Des compteurs Scopely manquent; les dépenses et le stock estimé ne sont pas confirmés."));
+      if(saved.declaredAt&&Date.now()-saved.declaredAt>86400000)card.append(el("p","warning","Cette déclaration date de plus de 24 h; vérifie-la avant de planifier."));
+    }
+    const row=el("div","stock-row"),label=el("label","","Ta quantité manuelle");
+    const input=el("input");input.type="text";input.inputMode="decimal";input.autocomplete="off";input.placeholder="Quantité inconnue";input.value=state.drafts[key]??"";input.dataset.stockKey=key;label.append(input);row.append(label);
+    const save=el("button","button button-secondary","Enregistrer la déclaration");save.type="button";save.dataset.action="save-stock";save.dataset.resource=key;row.append(save);
+    if(saved&&saved.source==="estimated"){const confirm=el("button","small-button","Confirmer cette estimation");confirm.type="button";confirm.dataset.action="confirm-stock";confirm.dataset.resource=key;row.append(confirm);}
+    card.append(row);root.append(card);
+    if(apiValue===null){
+      const itemId=RESOURCES[key]?.itemId,unavailable=el("article","unknown-resource-row");
+      unavailable.append(el("strong","",resourceLabel(key)),el("p","",saved?.source==="estimated"?`Estimation Maddoxx : ${fmt(saved.value)}. L’objet ${itemId||"correspondant"} n’a pas été reçu dans les familles synchronisées; cette estimation n’est pas un inventaire Scopely.`:saved?.source==="declared"?`Scopely n’a pas renvoyé ${itemId||"cet objet"}. La déclaration manuelle (${fmt(saved.value)}) reste une donnée séparée.`:`Scopely n’a pas renvoyé ${itemId||"cet objet"} dans les familles CONSUMABLE / ISOITEM. Quantité inconnue, jamais ramenée à zéro.`));unknown.append(unavailable);
+    }
+  }
+  if(!used.length)unknown.append(el("p","muted","Aucune ressource de planification n’est identifiée pour les événements en cours."));
+  if(state.loadingStock)root.prepend(el("p","muted","Lecture des détails d’événements pour actualiser les récompenses Maddoxx…"));
   if(state.history.length){const details=el("details","stock-card");details.append(el("summary","","Historique des déclarations · "+state.history.length));for(const entry of state.history.slice(-20).reverse())details.append(el("p","row-detail",`${resourceLabel(entry.resource)} · ${eventDate(entry.at/1000)} · ${fmt(entry.estimated)} → ${fmt(entry.declared)}`));root.append(details);}
 }
 async function refreshLedger(){
@@ -356,6 +503,21 @@ async function refreshLedger(){
     }
     buildObservations();
   }finally{state.loadingStock=false;renderStock();}
+}
+async function refreshInventory(){
+  const button=$("refresh-inventory");button.disabled=true;$("inventory-sync-status").textContent="Actualisation des deux familles d’inventaire…";
+  try{
+    const safe=async itemType=>{try{return await api({resource:"inventory",itemType,refresh:"1"});}catch(error){return {error};}};
+    const [consumables,isoitems]=await Promise.all([safe("CONSUMABLE"),safe("ISOITEM")]);
+    installInventoryResult("CONSUMABLE",consumables);installInventoryResult("ISOITEM",isoitems);
+    const hasKnown=Object.values(state.inventoryTypes).some(item=>Array.isArray(item.rows)&&!item.error);
+    state.inventory=hasKnown?{}:null;state.inventoryReason=consumables.error||isoitems.error||null;
+    if(state.inventory)for(const snapshot of Object.values(state.inventoryTypes))for(const item of snapshot.rows||[]){
+      const id=inventoryItemId(item),quantity=typeof item?.quantity==="number"?item.quantity:Number(item?.quantity);
+      if(id&&Number.isFinite(quantity))state.inventory[id]=quantity;
+    }
+    renderStock();if(state.selectedId){state.analysis=currentAnalysis();renderPlan();}
+  }finally{button.disabled=false;}
 }
 function declareStock(key,input,confirm=false){
   const result=parseQuantity(input);if(result.error){banner(`Quantité non reconnue pour ${resourceLabel(key)}.`,"error");return;}
@@ -389,19 +551,18 @@ async function loadOverview(forceRefresh=false){
   const [english,french,roster,consumables,isoitems,catalogResult]=await Promise.all([
     fetchSafe({resource:"events",lang:"en"}),fetchSafe({resource:"events",lang:"fr"}),
     fetchSafe({resource:"roster",lang:"fr"}),fetchSafe({resource:"inventory",itemType:"CONSUMABLE"}),
-    fetchSafe({resource:"inventory",itemType:"ISOITEM"}),loadCatalog().then(()=>({ok:true}))
+    fetchSafe({resource:"inventory",itemType:"ISOITEM"}),Promise.all([loadCatalog(),loadCalendar()]).then(()=>({ok:true}))
   ]);
   if(english.error){banner("Les événements personnels sont indisponibles · "+errorText(english.error),"error");$("event-count").textContent="Événements indisponibles";$("events-list").replaceChildren(el("p","warning","La session est active, mais Scopely n’a pas fourni la liste."),renderDiagnostic(english.error));state.refreshing=false;$("refresh").disabled=false;return;}
   state.eventsEn=Array.isArray(english.data)?english.data:[];state.eventsFr=Array.isArray(french.data)?french.data:[];
   state.roster=Array.isArray(roster.data)?roster.data:null;
   const invOk=[consumables,isoitems].some(result=>!result.error);
   state.inventory=invOk?{}:null;state.inventoryReason=consumables.error||isoitems.error||null;
-  for(const result of [consumables,isoitems])if(Array.isArray(result.data))for(const item of result.data){
-    const id=item?.item??item?.id,quantity=typeof item?.quantity==="number"?item.quantity:Number(item?.quantity);
-    if(typeof id==="string"&&Number.isFinite(quantity))state.inventory[id]=quantity;
-  }
+  state.inventoryTypes={};
+  if(state.inventory){installInventoryResult("CONSUMABLE",consumables);installInventoryResult("ISOITEM",isoitems);}
   buildObservations();renderEvents();
-  if(state.selectedId)showSelected(state.selectedId);
+  if(state.selectedId&&state.tab==="events")showSelected(state.selectedId);
+  if(state.calendarError)banner("Le catalogue de présentation LoSP est indisponible : les événements personnels non filtrés sont masqués.","warning");
   if(state.characters.length===0)banner("Catalogue de personnages indisponible. Les objectifs restent visibles, mais les noms ou traits non résolus ne seront pas évalués.","warning");
   else renderConnection(session);
   state.refreshing=false;$("refresh").disabled=false;
@@ -413,11 +574,19 @@ $("events-list").addEventListener("click",event=>{
   const button=event.target.closest("[data-action]");if(!button)return;
   const id=button.dataset.eventId;
   if(button.dataset.action==="select")showSelected(id);
-  if(button.dataset.action==="skip"){state.skipped.add(id);saveLocal();if(state.selectedId===id)state.selectedId=null;renderEvents();}
+  if(button.dataset.action==="skip"){state.skipped.add(id);saveLocal();if(state.selectedId===id){state.selectedId=null;returnToList();}renderEvents();}
 });
 $("skipped-list").addEventListener("click",event=>{const button=event.target.closest('[data-action="restore"]');if(button){state.skipped.delete(button.dataset.eventId);saveLocal();renderEvents();}});
-$("selected-event").addEventListener("click",event=>{const button=event.target.closest("[data-action]");if(!button)return;const id=button.dataset.eventId;if(button.dataset.action==="skip")state.skipped.add(id);else if(button.dataset.action==="restore")state.skipped.delete(id);saveLocal();renderEvents();});
-$("refresh-stock").addEventListener("click",refreshLedger);
+$("selected-event").addEventListener("click",event=>{
+  const button=event.target.closest("[data-action]");if(!button)return;const id=button.dataset.eventId;
+  if(button.dataset.action==="back-list"){returnToList();return;}
+  if(button.dataset.action==="open-plan"){setTab("plan");return;}
+  if(button.dataset.action==="skip"){state.skipped.add(id);state.selectedId=null;saveLocal();returnToList();renderEvents();return;}
+  if(button.dataset.action==="restore"){state.skipped.delete(id);saveLocal();renderEvents();}
+});
+$("refresh-ledger").addEventListener("click",refreshLedger);
+$("refresh-inventory").addEventListener("click",refreshInventory);
+$("plan-back").addEventListener("click",()=>setTab("events"));
 $("stock-view").addEventListener("input",event=>{const input=event.target.closest("[data-stock-key]");if(input)state.drafts[input.dataset.stockKey]=input.value;});
 $("stock-view").addEventListener("click",event=>{
   const button=event.target.closest("[data-action]");if(!button)return;
