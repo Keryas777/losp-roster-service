@@ -622,7 +622,7 @@ export default {
     }
 
     if (url.pathname === "/oauth/status") {
-      return handleOAuthStatus(request,env);
+      return handleOAuthStatus(request);
     }
 
     if (request.method === "GET" && url.pathname === "/") {
