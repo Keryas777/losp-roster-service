@@ -1,8 +1,9 @@
 // Same-origin private shell for the event planner. A GitHub Pages page cannot
 // reliably use the Worker’s SameSite=Lax session cookie in a cross-site fetch.
 import { handleCaptainSession } from "./captain-session-routes.js";
+import {eventPlannerAccessStatus,eventPlannerAccessResponse} from "./event-planner-auth.js";
 
-const ROOT="/captain/events-planner";
+const ROOT="/admin/events-planner";
 const ASSET_ROOT="/event-planner/";
 const PAGE_HEADERS={"Content-Type":"text/html; charset=utf-8","Cache-Control":"private, no-store, max-age=0",
   "CDN-Cache-Control":"no-store","X-Robots-Tag":"noindex","X-Content-Type-Options":"nosniff",
@@ -15,7 +16,9 @@ function page(html,status=200){return new Response(html,{status,headers:PAGE_HEA
 function signedInShell(message,link,linkText){
   return page('<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Planificateur LoSP</title><link rel="stylesheet" href="/style.css"></head><body><main><p><a href="https://keryas777.github.io/msf/evenements.html">‹ Calendrier LoSP</a></p><h1>Planificateur d’événements</h1><p>'+message+'</p><p><a href="'+link+'">'+linkText+'</a></p><p>Les jetons OAuth ne sont jamais transmis au navigateur.</p></main></body></html>');
 }
-export async function handleEventPlannerPage(request,env){
+export async function handleEventPlannerPage(request,env,fetchImpl=fetch){
+  const access=await eventPlannerAccessStatus(request,env,fetchImpl);
+  if(access!=="allowed")return eventPlannerAccessResponse(access);
   if(request.method!=="GET")return new Response("Method Not Allowed",{status:405,headers:{Allow:"GET","Cache-Control":"no-store"}});
   const url=new URL(request.url);
   if(!url.pathname.startsWith(ROOT))return new Response("Not Found",{status:404});
@@ -30,7 +33,7 @@ export async function handleEventPlannerPage(request,env){
     const body=session.status==="temporarily-unavailable"
       ? "La session Scopely est temporairement indisponible. Réessaie dans un instant."
       : "Aucune session Scopely active dans ce navigateur.";
-    return signedInShell(body,"/login/captain?returnTo=events-planner","Autoriser LoSP avec Scopely");
+    return signedInShell(body,"/admin/login/captain?returnTo=events-planner","Autoriser LoSP avec Scopely");
   }
   if(!env?.ASSETS?.fetch)return new Response("Planificateur indisponible",{status:503,headers:{"Cache-Control":"no-store","X-Robots-Tag":"noindex"}});
   let response;

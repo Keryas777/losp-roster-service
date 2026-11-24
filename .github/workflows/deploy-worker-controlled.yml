@@ -1,0 +1,73 @@
+name: Controlled Cloudflare Worker deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Full commit SHA to deploy
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: losp-roster-service-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy approved Worker commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the requested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verify exact commit and deployment configuration
+        shell: bash
+        env:
+          TARGET_SHA: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$TARGET_SHA" ]]
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          import assert from "node:assert/strict";
+          const c = JSON.parse(fs.readFileSync("wrangler.jsonc", "utf8"));
+          assert.equal(c.name, "losp-roster-service");
+          assert.equal(c.vars?.PERSONAL_EVENT_LAB_ENABLED, "false");
+          assert.equal(c.vars?.EVENT_PLANNER_ENABLED, "true");
+          assert.ok(c.durable_objects?.bindings?.some(
+            b => b.name === "PERSONAL_EVENT_CACHE" && b.class_name === "PersonalEventProgressCache"
+          ));
+          assert.ok(c.migrations?.some(
+            m => m.tag === "personal-event-cache-v1" && m.new_sqlite_classes?.includes("PersonalEventProgressCache")
+          ));
+          assert.deepEqual([...c.triggers.crons].sort(), [
+            "* * * * *", "* 2-3,14-15 * * *", "15 * * * *", "15 3 * * *"
+          ]);
+          assert.ok(c.r2_buckets?.some(
+            b => b.binding === "CAPTAIN_BUCKET" && b.bucket_name === "losp-roster-sessions"
+          ));
+          assert.ok(c.services?.some(
+            s => s.binding === "LOSP_AUTH" && s.service === "losp-auth"
+          ));
+          console.log("Commit, Worker name, lab flag, DO binding/migration, R2/service bindings and cron schedule set verified.");
+          NODE
+
+      - name: Deploy with Wrangler
+        run: npx --yes wrangler@4.131.0 deploy --config wrangler.jsonc
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_SEND_METRICS: "false"

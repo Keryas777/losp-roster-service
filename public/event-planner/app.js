@@ -2,7 +2,7 @@ import { analyzeMilestoneEvent } from "./lib/event-analysis.js";
 import { RESOURCES, classifyObjective, observeEvent, resourcesInUse, declareResource, refreshResource, estimateResource, parseQuantity } from "./lib/index.js";
 
 const $=id=>document.getElementById(id);
-const API="/captain/api/event-planner";
+const API="/admin/api/event-planner";
 const CATALOG_BASE="https://keryas777.github.io/msf/data/";
 const STORAGE_KEY="losp-event-planner-v1";
 const number=new Intl.NumberFormat("fr-FR");
@@ -343,12 +343,12 @@ function renderConnection(status){
   const box=$("connection");box.replaceChildren();
   if(status.status!=="connected"){
     box.append(el("strong","","Connexion requise"),el("p","row-detail",errorText({body:{reason:status.reason}})));
-    const link=el("a","button","Autoriser LoSP avec Scopely");link.href="/login/captain?returnTo=events-planner";box.append(link);return;
+    const link=el("a","button","Autoriser LoSP avec Scopely");link.href="/admin/login/captain?returnTo=events-planner";box.append(link);return;
   }
   const required=["m3p.f.pr.act","m3p.f.pr.ros"],missing=required.filter(scope=>!status.scopes.includes(scope));
   const line=el("p","",missing.length?"Événements ou roster : accès manquant.":"Session Scopely active · données lues à la demande.");
   box.append(line);
-  if(missing.length){const link=el("a","button","Réautoriser l’accès requis");link.href="/login/captain?returnTo=events-planner&reauthorize=1";box.append(link);}
+  if(missing.length){const link=el("a","button","Réautoriser l’accès requis");link.href="/admin/login/captain?returnTo=events-planner&reauthorize=1";box.append(link);}
   if(!status.scopes.includes("m3p.f.pr.inv"))box.append(el("p","row-detail","Inventaire non autorisé : le plan utilisera les déclarations de stock disponibles."));
 }
 async function loadOverview(forceRefresh=false){

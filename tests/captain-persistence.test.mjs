@@ -1,3 +1,4 @@
+import {accessJwt,accessFetch,ACCESS_OWNER} from "./event-planner/access-fixtures.mjs";
 import { test } from "node:test";
 import {AUDIT_PREFIX,auditCaptainEvent} from "../src/captain-audit.js";
 import assert from "node:assert/strict";
@@ -119,10 +120,17 @@ test("captain consent sets only HttpOnly cookie after successful encrypted stora
   assert.doesNotMatch(JSON.stringify([...landing.headers]),/PRIVATE_REFRESH/);
 });
 
-test("planner reauthorization round-trips only opaque session cookies back to the Worker page",async()=>{
+test("planner reauthorization is owner-only and round-trips only opaque session cookies",async()=>{
   const {env,bucket}=setup();
+  Object.assign(env,{EVENT_PLANNER_ENABLED:"true",PERSONAL_EVENT_LAB_ADMIN_EMAIL:ACCESS_OWNER,
+    MSF_ADMIN_ENABLED:"true",CF_ACCESS_TEAM_DOMAIN:"planner-test.cloudflareaccess.com",CF_ACCESS_AUD:"a".repeat(32),
+    MSF_ADMIN_EMAILS:ACCESS_OWNER});
   const prior=newCaptainSessionId();await store(env,prior);
-  const start=await worker.fetch(req("/login/captain?returnTo=events-planner&reauthorize=1",prior),env);
+  const ownerJwt=await accessJwt(ACCESS_OWNER);
+  const previousFetch=globalThis.fetch;globalThis.fetch=accessFetch();
+  let start;
+  try{start=await worker.fetch(req("/admin/login/captain?returnTo=events-planner&reauthorize=1",prior,{
+    "Cf-Access-Jwt-Assertion":ownerJwt}),env);}finally{globalThis.fetch=previousFetch;}
   assert.equal(start.status,302);
   const authorize=new URL(start.headers.get("location"));
   assert.equal(authorize.hostname,"hydra-public.prod.m3.scopelypv.com");
@@ -143,7 +151,7 @@ test("planner reauthorization round-trips only opaque session cookies back to th
     if(url.endsWith("/player/v1/alliance/members"))return fakeResponse({data:[]});
     throw Error("Unexpected provider request");
   });
-  assert.equal(callback.status,303);assert.equal(callback.headers.get("location"),origin+"/captain/events-planner");
+  assert.equal(callback.status,303);assert.equal(callback.headers.get("location"),origin+"/admin/events-planner");
   const responseCookies=callback.headers.getSetCookie();
   assert.ok(responseCookies.some(value=>value.startsWith("__Host-losp_captain_session=")));
   assert.ok(responseCookies.some(value=>value.startsWith("__Host-losp_oauth_captain_return=; Max-Age=0")));

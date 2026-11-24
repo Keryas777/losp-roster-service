@@ -22,7 +22,7 @@ const frEvent={...enEvent,name:"Événement de test Maddoxx"};
 const apiCalls=[];
 const server=createServer(async(req,res)=>{
   const pathname=new URL(req.url,"http://localhost").pathname;
-  if(pathname.startsWith("/captain/api/event-planner")){
+  if(pathname.startsWith("/admin/api/event-planner")){
     const params=new URL(req.url,"http://localhost").searchParams,resource=params.get("resource");
     apiCalls.push({resource,lang:params.get("lang"),itemType:params.get("itemType")});
     let body;
@@ -35,8 +35,8 @@ const server=createServer(async(req,res)=>{
     res.writeHead(200,{"Content-Type":"application/json","Cache-Control":"no-store"});res.end(JSON.stringify(body));return;
   }
   let path=pathname;
-  const mount="/captain/events-planner/";
-  if(path==="/captain/events-planner")path=mount+"index.html";
+  const mount="/admin/events-planner/";
+  if(path==="/admin/events-planner")path=mount+"index.html";
   if(path.startsWith(mount))path=path.slice(mount.length);
   const file=resolve(join(root,path));
   if(!file.startsWith(root+"/")){res.writeHead(404);res.end();return;}
@@ -63,7 +63,7 @@ try{
     else body={characters:{}};
     return route.fulfill({status:200,contentType:"application/json",body:JSON.stringify(body),headers:{"Access-Control-Allow-Origin":"*"}});
   });
-  await page.goto(`http://127.0.0.1:${address.port}/captain/events-planner`,{waitUntil:"networkidle"});
+  await page.goto(`http://127.0.0.1:${address.port}/admin/events-planner`,{waitUntil:"networkidle"});
   await page.locator("#selected-event h2").filter({hasText:"Événement de test Maddoxx"}).waitFor();
   await page.locator("#selected-event").getByText("Terminé confirmé").first().waitFor();
   await page.locator("#selected-event").getByText("Faisable gratuitement").first().waitFor();

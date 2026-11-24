@@ -4,8 +4,9 @@ Cette note décrit l’intégration portée dans `work/personal-event-progress-v
 
 ## Architecture
 
-- `/captain/events-planner` sert la page et ses modules sous le même domaine que la session capitaine. Le navigateur ne fait aucun appel privé depuis GitHub Pages.
-- `/captain/api/event-planner` expose uniquement `status`, `events`, `detail`, `roster` et `inventory`. Chaque lecture privée vérifie le cookie de session, le grant courant et le scope de l’opération. L’origine est limitée au domaine du Worker, les réponses sont privées et `no-store`, et aucun jeton ne quitte le Worker.
+- `/admin/events-planner` sert la page et ses modules dans le domaine déjà protégé par Cloudflare Access. Le Worker valide en plus le JWT Access et exige l’identité exacte du propriétaire configurée pour le laboratoire privé; un cookie Scopely capitaine ne confère aucun droit administrateur.
+- L’entrée « Planifier avec mon roster » est rendue uniquement dans l’espace `/admin` pour le propriétaire. La page Événements GitHub Pages et ses fichiers CSS/JS restent identiques à la production; aucun bouton public ni appel personnel n’y est ajouté.
+- `/admin/api/event-planner` expose uniquement `status`, `events`, `detail`, `roster` et `inventory`. Chaque lecture vérifie d’abord l’identité propriétaire, puis le cookie de session, le grant courant et le scope de l’opération. Les assets `/event-planner/*` sont exécutés par le Worker avant toute réponse statique et refusés en accès direct. L’origine est limitée au domaine du Worker, les réponses sont privées et `no-store`, et aucun jeton ne quitte le Worker.
 - Les lectures utilisent le Durable Object `PERSONAL_EVENT_CACHE` déjà présent dans le Worker. Elles sont isolées par le hash du consentement, mises en cache cinq minutes, et les erreurs ne servent jamais une réponse périmée. L’inventaire utilise `since=meta.asOf` lorsque disponible et conserve la dernière liste complète sur une réponse Scopely `344`.
 - Les catalogues publics LoSP apportent noms, portraits et traits. Aucun résultat personnel ne leur est envoyé. Les préférences et déclarations de stock sont gardées dans le `localStorage` du navigateur sur l’origine Worker.
 
@@ -40,4 +41,4 @@ Aucun appel en direct à un compte Scopely n’a été fait. Les formes des donn
 
 ## Activation après validation
 
-Après accord et fusion de la PR Worker, le Worker existant devra recevoir cette version puis le parcours capitaine devra être testé dans le navigateur. La page publique de la PR `Keryas777/msf` contient le lien vers l’URL Worker officielle. Ce chantier n’ajoute ni Worker, ni cron, ni binding Durable Object, et n’effectue aucun déploiement.
+Après accord et fusion de la PR Worker, le Worker existant devra recevoir cette version puis le parcours capitaine devra être testé dans le navigateur. Le lancement se fait depuis le bouton propriétaire uniquement visible dans l’espace administrateur existant. La PR `Keryas777/msf` conserve la page publique Événements inchangée. Ce chantier n’ajoute ni Worker, ni cron, ni binding Durable Object, et n’effectue aucun déploiement.

@@ -1,6 +1,7 @@
 // Same-origin, session-bound routes for on-demand Maddoxx planner data.
 import { captainSessionKey } from "./captain-vault.js";
 import { getPersonalEventGrant } from "./personal-event-progress.js";
+import {eventPlannerAccessStatus,eventPlannerAccessResponse} from "./event-planner-auth.js";
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const COOKIE="__Host-losp_captain_session";
 const COOKIE_RX=/^[A-Za-z0-9_-]{43}$/;
@@ -17,6 +18,8 @@ function sessionId(request){
   return COOKIE_RX.test(id)?id:null;
 }
 export async function handleEventPlannerApi(request,env,fetchImpl=fetch,now=Date.now()){
+  const access=await eventPlannerAccessStatus(request,env,fetchImpl,now);
+  if(access!=="allowed")return eventPlannerAccessResponse(access);
   if(request.method!=="GET")return json({error:"method-not-allowed"},405);
   const url=new URL(request.url);
   if(url.origin!==ORIGIN||(request.headers.get("Origin")&&request.headers.get("Origin")!==ORIGIN))return json({error:"forbidden"},403);

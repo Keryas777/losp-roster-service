@@ -42,6 +42,7 @@ import {handleAllianceSeasonRanks} from "./alliance-season-ranks.js";
 import {handlePersonalEventLab} from "./personal-event-lab.js";
 import {handleEventPlannerApi} from "./event-planner-api.js";
 import {handleEventPlannerPage} from "./event-planner-page.js";
+import {eventPlannerAccessStatus} from "./event-planner-auth.js";
 
 const SCOPELY_AUTH_URL = "https://hydra-public.prod.m3.scopelypv.com/oauth2/auth";
 const APP_ORIGIN = "https://losp-roster-service.deliriousfan7.workers.dev";
@@ -65,7 +66,7 @@ async function sha256Base64Url(value) {
     .replace(/=+$/g, "");
 }
 
-async function startLogin(request, env, url) {
+async function startLogin(request, env, url, fetchImpl=fetch) {
   if (request.method !== "GET") {
     return new Response("Method Not Allowed", {
       status: 405,
@@ -78,7 +79,19 @@ async function startLogin(request, env, url) {
     return new Response("Not Found", { status: 404 });
   }
 
-  if (url.pathname === "/login/captain" && env?.CAPTAIN_SESSIONS_ENABLED === "true" &&
+  const plannerLogin=url.pathname==="/admin/login/captain";
+  if(plannerLogin&&url.searchParams.get("returnTo")!=="events-planner")
+    return new Response("Not Found",{status:404,headers:{"Cache-Control":"no-store"}});
+  const plannerReturn=plannerLogin||url.pathname==="/login/captain"&&url.searchParams.get("returnTo")==="events-planner";
+  if(plannerReturn){
+    const access=await eventPlannerAccessStatus(request,env,fetchImpl);
+    if(access!=="allowed")return new Response(access==="disabled"?"Not Found":"Forbidden",{
+      status:access==="disabled"?404:403,headers:{"Cache-Control":"private, no-store","X-Robots-Tag":"noindex"}});
+  }
+  const captainLogin=url.pathname==="/login/captain"||plannerLogin;
+  const forceCaptainConsent=plannerReturn&&url.searchParams.get("reauthorize")==="1";
+
+  if (captainLogin && env?.CAPTAIN_SESSIONS_ENABLED === "true" &&
       !captainConfigReady(env)) {
     return new Response("Captain session storage is not configured", {
       status: 503, headers: { "Cache-Control": "no-store" }
@@ -92,15 +105,13 @@ async function startLogin(request, env, url) {
     });
   }
 
-  const plannerReturn=url.pathname==="/login/captain"&&url.searchParams.get("returnTo")==="events-planner";
-  const forceCaptainConsent=plannerReturn&&url.searchParams.get("reauthorize")==="1";
-  if (url.pathname === "/login/captain" && captainConfigReady(env) && !forceCaptainConsent) {
+  if (captainLogin && captainConfigReady(env) && !forceCaptainConsent) {
     // A returning captain must not be sent through the emailed-code OAuth flow.
     const status=await handleCaptainSession(request,env);
     if(status.ok) {
       const previous=await status.json();
       if(previous.status==="connected"){
-        const redirect=Response.redirect(origin+(plannerReturn?"/captain/events-planner":"/captain"),302);
+        const redirect=Response.redirect(origin+(plannerReturn?"/admin/events-planner":"/captain"),302);
         // Extend the sliding browser lease only when the Worker confirmed
         // the opaque session. No token is ever sent to the browser.
         const headers=new Headers(redirect.headers);
@@ -137,7 +148,7 @@ async function startLogin(request, env, url) {
   const allianceScopeProbe = url.pathname === "/login/alliance-scope-test";
   const collectionProbe = url.pathname === "/login/alliance-collection-test";
   const rosterViewerMode = url.pathname === "/login/rosters";
-  const captainMode = url.pathname === "/login/captain";
+  const captainMode = captainLogin;
   const scopeProbe = getAllianceScopeProbe(url.pathname);
   const allianceProbe = url.pathname === "/login/alliance-test" || rosterScopeProbe;
   const scopes = allianceProbe || allianceScopeProbe || collectionProbe || rosterViewerMode || profilesProbe || coverageProbe || cardTypesProbe || metricsProbe
@@ -535,10 +546,12 @@ export default {
     if(url.pathname==="/admin/personal-event-lab"||url.pathname.startsWith("/admin/personal-event-lab/"))return handlePersonalEventLab(request,env);
     if(url.pathname==="/captain/api/events")
       return handlePersonalEventProgress(request,env);
-    if(url.pathname==="/captain/api/event-planner")
+    if(url.pathname==="/admin/api/event-planner")
       return handleEventPlannerApi(request,env);
-    if(url.pathname==="/captain/events-planner"||url.pathname.startsWith("/captain/events-planner/"))
+    if(url.pathname==="/admin/events-planner"||url.pathname.startsWith("/admin/events-planner/"))
       return handleEventPlannerPage(request,env);
+    if(url.pathname==="/event-planner"||url.pathname.startsWith("/event-planner/"))
+      return new Response("Not Found",{status:404,headers:{"Cache-Control":"no-store","X-Robots-Tag":"noindex"}});
     if(url.pathname==="/captain/events")
       return handlePersonalEventProgress(request,env);
     if(url.pathname==="/api/public/events")
@@ -566,6 +579,8 @@ export default {
     if(url.pathname==="/api/public/guest-season-ranks")
       return publicGuestSeasonRanks(request,env);
 
+    if(url.pathname==="/admin/login/captain")return startLogin(request,env,url);
+
     if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
       return handleAdmin(request, env);
     }
@@ -576,7 +591,7 @@ export default {
         url.pathname === "/login/alliance-scope-test" ||
         url.pathname === "/login/alliance-collection-test" ||
         url.pathname === "/login/rosters" ||
-        url.pathname === "/login/captain" ||
+        url.pathname === "/login/captain" || url.pathname === "/admin/login/captain" ||
         url.pathname === "/login/inventory-test" ||
         url.pathname === "/login/profiles-test" ||
         url.pathname === "/login/coverage-test" ||

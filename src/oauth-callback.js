@@ -263,7 +263,7 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
       }
       if(eventPlannerReturn&&saveToken){
         try{
-          const redirect=new Response(null,{status:303,headers:{Location:APP_ORIGIN+"/captain/events-planner",
+          const redirect=new Response(null,{status:303,headers:{Location:APP_ORIGIN+"/admin/events-planner",
             "Cache-Control":"no-store","Referrer-Policy":"no-referrer","X-Robots-Tag":"noindex"}});
           const saved=await saveCaptainConsent(redirect,result,env,request,fetchImpl);
           const headers=new Headers(saved.headers);
