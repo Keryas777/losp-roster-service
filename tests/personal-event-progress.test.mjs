@@ -1,11 +1,16 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {handlePersonalEventProgress,PersonalEventProgressCache,numericProgressFacts} from "../src/personal-event-progress.js";
+import {accessJwt,accessFetch,ACCESS_OWNER,ACCESS_DOMAIN,ACCESS_AUD} from "./event-planner/access-fixtures.mjs";
 
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
+const OWNER_JWT=await accessJwt(ACCESS_OWNER);
+const accessFetcher=accessFetch();globalThis.fetch=accessFetcher;
 const cookie="__Host-losp_captain_session="+"a".repeat(43);
 const scope="openid m3p.f.pr.pro m3p.f.pr.act offline";
-const envBase=()=>({CAPTAIN_SESSIONS_ENABLED:"true",CAPTAIN_ENCRYPTION_KEY_HEX:"a".repeat(64),
+const envBase=()=>({EVENT_PLANNER_ENABLED:"true",MSF_ADMIN_ENABLED:"true",PERSONAL_EVENT_LAB_ADMIN_EMAIL:ACCESS_OWNER,
+  CF_ACCESS_TEAM_DOMAIN:ACCESS_DOMAIN,CF_ACCESS_AUD:ACCESS_AUD,MSF_ADMIN_EMAILS:ACCESS_OWNER,
+  CAPTAIN_SESSIONS_ENABLED:"true",CAPTAIN_ENCRYPTION_KEY_HEX:"a".repeat(64),
   CAPTAIN_BUCKET:{put(){},get(){},delete(){}},
   CAPTAIN_REFRESH_COORDINATOR:{idFromName:key=>key,get:()=>({fetch:async()=>Response.json({
     status:"active",scope,accessToken:"private-token"})})}});
@@ -19,7 +24,7 @@ function harness(provider){
       delete:async k=>state.delete(key+"|"+k)}},{}));
     return instances.get(key).fetch(req,async(url,options)=>{calls.push({url,options,identity:key});return provider(url,options,calls);});
   }})};
-  const request=(path="/captain/api/events",method="GET",headers={},id="a".repeat(43))=>new Request(ORIGIN+path,{method,headers:{Cookie:"__Host-losp_captain_session="+id,...headers}});
+  const request=(path="/captain/api/events",method="GET",headers={},id="a".repeat(43))=>new Request(ORIGIN+path,{method,headers:{"Cf-Access-Jwt-Assertion":OWNER_JWT,Cookie:"__Host-losp_captain_session="+id,...headers}});
   return {env,calls,state,request};
 }
 const payload=(data,meta={})=>Response.json({data,meta:{page:1,perTotal:data.length,asOf:"stable",...meta}});
