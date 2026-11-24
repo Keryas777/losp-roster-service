@@ -101,3 +101,14 @@ test("public planner assets run through the Worker access gate",async()=>{
   assert.ok(config.assets.run_worker_first.includes("/event-planner"));
   assert.ok(config.assets.run_worker_first.includes("/event-planner/*"));
 });
+
+test("feature-off fails closed and supports the Worker recovery switch",async()=>{
+  const f=setup();f.env.EVENT_PLANNER_ENABLED="false";
+  const admin=await withAccessFetch(()=>worker.fetch(request("/admin",{jwt:OWNER_JWT}),f.env));
+  const page=await withAccessFetch(()=>worker.fetch(request("/admin/events-planner",{jwt:OWNER_JWT}),f.env));
+  const api=await withAccessFetch(()=>worker.fetch(request("/admin/api/event-planner?resource=status",{jwt:OWNER_JWT}),f.env));
+  const progress=await withAccessFetch(()=>worker.fetch(request("/captain/api/events",{jwt:OWNER_JWT,session:true}),f.env));
+  assert.equal(admin.status,200);assert.doesNotMatch(await admin.text(),/Planifier avec mon roster/);
+  assert.equal(page.status,404);assert.equal(api.status,404);assert.equal(progress.status,404);
+  assert.deepEqual(f.calls,{sessions:0,cache:0,assets:0,scopely:0});
+});
