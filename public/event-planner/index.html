@@ -30,10 +30,12 @@
     </nav>
 
     <section id="panel-events" class="tab-panel" role="tabpanel" aria-labelledby="tab-events">
-      <div class="section-heading"><div><h2>Événements en cours</h2><p id="event-count" class="muted">Chargement…</p></div><button type="button" class="button button-secondary" id="refresh">Actualiser</button></div>
-      <div id="events-list" class="event-list"></div>
-      <details class="skipped-wrap"><summary>Événements ignorés</summary><div id="skipped-list"></div></details>
-      <article id="selected-event" class="selected-event" aria-live="polite"><p class="muted">Choisis un événement pour afficher son analyse.</p></article>
+      <div id="event-list-view">
+        <div class="section-heading"><div><h2>Événements en cours</h2><p id="event-count" class="muted">Chargement…</p></div><button type="button" class="button button-secondary" id="refresh">Actualiser</button></div>
+        <div id="events-list" class="event-list ev-groups"></div>
+        <details class="skipped-wrap"><summary>Événements ignorés</summary><div id="skipped-list"></div></details>
+      </div>
+      <article id="selected-event" class="selected-event planner-detail" aria-live="polite" hidden></article>
     </section>
 
     <section id="panel-objectives" class="tab-panel" role="tabpanel" aria-labelledby="tab-objectives" hidden>
@@ -42,13 +44,24 @@
     </section>
 
     <section id="panel-plan" class="tab-panel" role="tabpanel" aria-labelledby="tab-plan" hidden>
-      <h2>Planification</h2>
+      <div class="section-heading"><div><h2>Planification</h2><p id="plan-event-name" class="muted">Aucun événement sélectionné</p></div><button type="button" class="button button-secondary" id="plan-back" hidden>Retour à la fiche</button></div>
       <div id="plan-view"><p class="muted">Choisis un événement dans l’onglet Événements.</p></div>
     </section>
 
     <section id="panel-stock" class="tab-panel" role="tabpanel" aria-labelledby="tab-stock" hidden>
-      <div class="section-heading"><div><h2>Mon stock</h2><p class="muted">Inventaire Scopely quand il est autorisé; sinon tes déclarations sur cet appareil.</p></div><button type="button" class="button button-secondary" id="refresh-stock">Actualiser les relevés</button></div>
-      <div id="stock-view"><p class="muted">Chargement des ressources utilisées…</p></div>
+      <h2>Mon stock</h2>
+      <section class="stock-section stock-section--synced">
+        <div class="section-heading"><div><h3>Inventaire synchronisé Scopely</h3><p id="inventory-sync-status" class="muted">Chargement de l’inventaire…</p></div><button type="button" class="button button-secondary" id="refresh-inventory">Actualiser l’inventaire</button></div>
+        <div id="synced-inventory"></div>
+      </section>
+      <section class="stock-section stock-section--manual">
+        <div class="section-heading"><div><h3>Ressources déclarées manuellement</h3><p class="muted">Ces quantités restent distinctes de Scopely. Elles servent de secours uniquement si l’objet n’est pas présent dans l’inventaire synchronisé.</p></div><button type="button" class="small-button" id="refresh-ledger">Actualiser les relevés Maddoxx</button></div>
+        <div id="stock-view"><p class="muted">Chargement des ressources utilisées…</p></div>
+      </section>
+      <section class="stock-section stock-section--unknown">
+        <h3>Ressources indisponibles ou estimées</h3>
+        <div id="unavailable-stock"><p class="muted">Chargement…</p></div>
+      </section>
     </section>
 
     <footer><a href="/captain">Session Scopely</a><span>·</span><a href="/logout">Révoquer l’autorisation</a></footer>

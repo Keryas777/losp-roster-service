@@ -107,3 +107,78 @@ footer a{color:var(--muted)}
 @media(max-width:390px){.planner-app{padding-left:9px;padding-right:9px}.planner-tabs.ev-overview{gap:5px}.planner-tabs .ev-stat{padding:8px 2px}.planner-tabs .ev-stat span{font-size:10px}.section-heading{align-items:flex-start}.section-heading .button{padding:.5rem .55rem;font-size:.8rem}.planner-event-card .ev-cover{width:92px;flex-basis:92px}.planner-event-card .ev-card-copy{padding:10px}.planner-event-card .ev-card h3{font-size:14px}.planner-event-card .ev-sub{font-size:11px}.stock-row{grid-template-columns:1fr 108px}.stock-row .small-button{grid-column:2}}
 @media(max-width:350px){.planner-tabs.ev-overview{grid-template-columns:repeat(2,minmax(0,1fr))}.planner-tabs .ev-stat{min-height:54px;flex-direction:row}.planner-tabs .ev-stat strong{font-size:16px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+
+/* Planner views reuse the public LoSP calendar components from evenements.css. */
+.event-list.ev-groups{display:flex;flex-direction:column;gap:18px}
+.ev-calendar-group{display:flex;flex-direction:column;gap:9px;min-width:0}
+.ev-calendar-group-head{display:flex;align-items:center;gap:8px;padding:0 3px}
+.ev-calendar-group-title{margin:0;color:var(--text);font-size:18px;font-weight:850;letter-spacing:-.02em}
+.ev-calendar-group-count{margin-left:auto;border:1px solid var(--border);border-radius:99px;padding:2px 9px;color:var(--muted);background:var(--panel);font-size:12px}
+.ev-calendar-group .ev-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
+.planner-event-card{min-height:150px}
+.planner-event-card .ev-card-copy{padding:11px}
+.planner-event-card .ev-card-actions{margin-top:auto;display:flex;align-items:center;gap:10px}
+.planner-event-card .ev-detail-btn{border:0;background:transparent;color:#a6c8ff;font:inherit;font-weight:780;cursor:pointer;padding:8px 2px;text-align:left}
+.planner-event-card .ev-detail-btn:focus-visible,.planner-back:focus-visible{outline:2px solid #86b9ff;outline-offset:3px}
+.planner-detail[hidden]{display:none}
+.planner-detail{padding:0;overflow:hidden}
+.planner-detail-bar{display:flex;align-items:center;gap:9px;padding:11px 13px;border-bottom:1px solid var(--border);background:rgba(0,0,0,.16)}
+.planner-back{min-height:42px;padding:7px 10px;border:1px solid var(--border);border-radius:10px;background:var(--panel2);color:var(--text);font:inherit;font-weight:750;cursor:pointer}
+.planner-detail-state{font-size:12px;color:var(--muted)}
+.planner-detail-content{padding:.85rem;display:flex;flex-direction:column;gap:12px}
+.planner-detail-hero{position:relative;min-height:148px;display:flex;align-items:flex-end;padding:15px;background:radial-gradient(ellipse at center,#292f3e,#151719);overflow:hidden}
+.planner-detail-hero>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.36}
+.planner-detail-hero-copy{position:relative;z-index:1;max-width:100%}
+.planner-detail-hero h2{margin:6px 0 0;color:#fff;font-size:clamp(21px,5.4vw,28px);line-height:1.12;letter-spacing:-.035em;overflow-wrap:anywhere}
+.planner-detail-hero p{margin:6px 0 0;color:#d3d9e7;font-size:13px}
+.planner-detail-content .metric-row{gap:7px}
+.planner-detail-content .metric{line-height:1.45}
+.detail-action-bar{display:flex;flex-wrap:wrap;gap:8px}
+.loading-state{display:flex;align-items:center;gap:10px;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--panel);color:var(--muted)}
+.loading-spinner{width:18px;height:18px;flex:0 0 18px;border:2px solid rgba(255,255,255,.2);border-top-color:var(--planner-blue);border-radius:50%;animation:planner-spin .8s linear infinite}
+@keyframes planner-spin{to{transform:rotate(360deg)}}
+.plan-event-card{border:1px solid var(--border);border-radius:16px;background:linear-gradient(145deg,rgba(91,130,186,.14),rgba(0,0,0,.12));padding:14px;box-shadow:var(--shadow)}
+.plan-event-card h3{margin:0 0 5px;font-size:13px;color:var(--muted);font-weight:700}
+.plan-event-name{margin:0 0 12px;color:var(--text);font-size:18px;font-weight:850;line-height:1.25;overflow-wrap:anywhere}
+.plan-score-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.plan-score{min-width:0;padding:10px;border:1px solid var(--border);border-radius:11px;background:rgba(0,0,0,.18)}
+.plan-score-label{display:block;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+.plan-score strong{display:block;margin-top:4px;color:var(--text);font-size:18px;line-height:1.2;overflow-wrap:anywhere}
+.plan-progress-wrap{margin-top:12px}
+.plan-progress-track{height:12px;border-radius:99px;overflow:hidden;background:rgba(255,255,255,.14)}
+.plan-progress-track span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#59cdb0,#9dc9ff);min-width:0}
+.plan-progress-label{display:flex;justify-content:space-between;gap:10px;margin-top:6px;color:var(--muted);font-size:12px}
+.plan-tier{padding:12px;border:1px solid var(--border);border-radius:13px;background:var(--panel)}
+.plan-tier+.plan-tier{margin-top:8px}
+.plan-tier-head{display:flex;align-items:flex-start;gap:8px}
+.plan-tier-head strong{font-size:15px}
+.plan-tier-state{margin-left:auto;white-space:nowrap;font-size:11px;font-weight:800}
+.plan-tier-state--ready{color:var(--planner-green)}
+.plan-tier-state--potential{color:#f1c77b}
+.plan-tier-state--unknown{color:var(--planner-purple)}
+.plan-tier p{margin:6px 0 0;color:var(--muted);font-size:13px;line-height:1.5}
+.plan-rewards{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px}
+.plan-reward{display:flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid var(--border);border-radius:9px;background:rgba(0,0,0,.18);font-size:12px}
+.plan-reward img{width:25px;height:25px;object-fit:contain}
+.plan-warning-group{border:1px solid rgba(241,199,123,.25);border-radius:12px;background:rgba(241,199,123,.07);padding:10px 12px;color:#edd8ad;font-size:13px}
+.plan-warning-group ul{margin:5px 0 0;padding-left:18px}
+.stock-section{margin:14px 0 19px;padding:12px;border:1px solid var(--border);border-radius:16px;background:rgba(0,0,0,.12)}
+.stock-section>h3,.stock-section .section-heading h3{margin:0;color:var(--text);font-size:17px}
+.stock-section .section-heading{margin:0 0 10px;align-items:center}
+.stock-section .section-heading p{max-width:550px;font-size:12px;line-height:1.5}
+.inventory-type{margin-top:10px}
+.inventory-type h4{margin:0 0 7px;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+.inventory-list{display:grid;gap:7px}
+.inventory-row{display:grid;grid-template-columns:38px minmax(0,1fr) auto;align-items:center;gap:9px;padding:8px;border:1px solid var(--border);border-radius:11px;background:var(--panel)}
+.inventory-icon{width:36px;height:36px;object-fit:contain;border-radius:8px;background:var(--panel2)}
+.inventory-name{min-width:0;color:var(--text);font-size:13px;font-weight:700;overflow-wrap:anywhere}
+.inventory-id{display:block;margin-top:2px;color:var(--muted);font-size:10px;font-weight:500;overflow-wrap:anywhere}
+.inventory-quantity{font-size:14px;font-variant-numeric:tabular-nums;font-weight:850;color:var(--planner-green)}
+.inventory-source{display:inline-block;margin-top:3px;color:var(--muted);font-size:10px}
+.stock-note{font-size:12px;color:var(--muted);line-height:1.5}
+.unknown-resource-row{padding:9px 10px;border:1px solid var(--border);border-radius:10px;background:var(--panel);margin-top:7px}
+.unknown-resource-row strong{display:block;color:var(--text);font-size:13px}
+.unknown-resource-row p{margin:3px 0 0;color:var(--muted);font-size:12px;line-height:1.45}
+.stock-card .inventory-icon{width:30px;height:30px}
+@media(min-width:610px){.ev-calendar-group .ev-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.planner-detail-content{padding:1rem}.plan-score-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.inventory-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:390px){.stock-section{padding:9px}.stock-section .section-heading{align-items:flex-start;flex-direction:column}.inventory-row{grid-template-columns:32px minmax(0,1fr) auto;gap:7px}.inventory-icon{width:30px;height:30px}.plan-score{padding:8px}.plan-score strong{font-size:16px}}
