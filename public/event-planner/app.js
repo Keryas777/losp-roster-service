@@ -9,7 +9,7 @@ const STORAGE_KEY="losp-event-planner-v1";
 const number=new Intl.NumberFormat("fr-FR");
 const date=new Intl.DateTimeFormat("fr-FR",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit",timeZone:"Europe/Paris"});
 const syncDate=new Intl.DateTimeFormat("fr-FR",{dateStyle:"medium",timeStyle:"short",timeZone:"Europe/Paris"});
-const state={eventsEn:[],eventsFr:[],calendarEvents:[],eligibleEventIds:null,calendarError:null,roster:null,characters:[],inventory:null,inventoryReason:null,inventoryTypes:{},skipped:new Set(),stock:{},history:[],details:new Map(),rewardDetails:new Map(),selectedId:null,analysis:null,observations:[],drafts:{},tab:"events",loadingStock:false,refreshing:false,detailLoading:false,listScrollY:0};
+const state={eventsEn:[],eventsFr:[],calendarEvents:[],eligibleEventIds:null,calendarError:null,roster:null,characters:[],inventory:null,inventoryReason:null,inventoryTypes:{},skipped:new Set(),stock:{},history:[],details:new Map(),rewardDetails:new Map(),selectedId:null,analysis:null,observations:[],drafts:{},tab:"events",loadingStock:false,refreshing:false,detailLoading:false,listScrollY:0,initialEventId:(()=>{const id=new URLSearchParams(location.search).get("eventId");return id&&/^[A-Za-z0-9_.:-]{1,160}$/.test(id)?id:null;})()};
 
 function el(tag,cls,text){const node=document.createElement(tag);if(cls)node.className=cls;if(text!==undefined&&text!==null)node.textContent=String(text);return node;}
 function fmt(value){return value==null?"Données indisponibles":number.format(value);}
@@ -109,6 +109,11 @@ function calendarView(){
   return Object.fromEntries(Object.entries(groups).map(([key,events])=>[key,events.map(event=>mergeCalendarEvent(event,getEvent(event.id,"en")))]));
 }
 function activeEvents(){return Object.values(calendarView()).flat();}
+function localizedCalendarEvent(id,language="fr"){
+  const catalog=state.calendarEvents.find(item=>String(item.id)===String(id))||null;
+  const personal=getEvent(id,language);
+  return mergeCalendarEvent(catalog,personal)||catalog||personal;
+}
 function rewardsFrom(event){
   const objective=milestoneObjective(event),tiers=objective?.tiers||{},rewards={};
   for(const [tier,row] of Object.entries(tiers)){
@@ -185,7 +190,7 @@ function renderEvents(){
     head.append(el("h3","ev-calendar-group-title",group.icon+" "+group.label),el("span","ev-calendar-group-count",entries.length));
     const grid=el("div","ev-grid");
     for(const event of entries){
-      const id=String(event.id),localized=getEvent(id,"fr")||event,card=el("article","ev-card planner-event-card");
+      const id=String(event.id),localized=localizedCalendarEvent(id,"fr")||event,card=el("article","ev-card planner-event-card");
       card.dataset.eventId=id;card.setAttribute("aria-current",String(id===String(state.selectedId)));
       const command=event.type==="milestone"&&event.locationHints?.includes("lohub_wrapper");
       const candidates=command?[event.icon]:[event.cardArt,event.popupArt,...(Array.isArray(event.hubArt)?event.hubArt:[]),event.icon];
@@ -215,7 +220,82 @@ function renderEvents(){
   for(const event of skipped){const row=el("div","event-card");row.append(el("span","",displayName(getEvent(event.id,"fr")||event)));const restore=el("button","small-button","Réintégrer");restore.type="button";restore.dataset.action="restore";restore.dataset.eventId=String(event.id);row.append(restore);skippedList.append(row);}
   if(state.selectedId&&!events.some(event=>String(event.id)===String(state.selectedId))){state.selectedId=null;$("selected-event").hidden=true;$("event-list-view").hidden=false;}
 }
-function statusTag(status){const labels={done:"Terminé confirmé",doable:"Faisable gratuitement",resource:"Ressource requise",blocked:"Bloqué par le roster",unknown:"Données indisponibles"};return labels[status]||"Données indisponibles";}
+function statusTag(status){const labels={done:"Terminé confirmé",doable:"Faisable gratuitement",resource:"Ressource à prévoir",blocked:"Prérequis du roster à améliorer",unknown:"Progression ou faisabilité inconnue"};return labels[status]||"Données indisponibles";}
+function modeLabelFr(mode){
+  const labels={raid:"Raid",war:"Guerre",arena:"Arène",blitz:"Blitz",crucible:"Épreuve cosmique",rta:"Arène en temps réel",campaign:"Campagne",battleworld:"Battleworld",any:"combat"};
+  return labels[mode]||null;
+}
+function characterNameFr(character){
+  const entry=state.characters.find(item=>String(item.id)===String(character?.id));
+  return entry?.nameFr||"Personnage dont le nom français est indisponible";
+}
+function objectiveLabelFr(action){
+  const french=String(action.label||"").trim(),english=String(action.labelEn||"").trim();
+  if(french&&french!==english)return french;
+  if(action.kind==="login")return "Connexion quotidienne";
+  if(action.kind==="free")return "Récupérer l’offre gratuite";
+  if(action.kind==="fight"){
+    const modes=(action.modes||[]).map(modeLabelFr).filter(Boolean);
+    if(!modes.length&&modeLabelFr(action.mode))modes.push(modeLabelFr(action.mode));
+    const modeText=modes.length?" en "+modes.join(" et "):" dans un mode de jeu admissible";
+    const subject=action.character?.id?" avec "+characterNameFr(action.character):
+      (action.subject?.type==="trait"||action.subject?.type==="team")?" avec une équipe remplissant les critères":" avec un personnage admissible";
+    const req=action.requirements||{},conditions=[];
+    if(Number.isFinite(req.yellowStars))conditions.push(req.yellowStars+" étoiles jaunes");
+    if(Number.isFinite(req.redStars))conditions.push(req.redStars+" étoiles rouges");
+    if(Number.isFinite(req.gearTier))conditions.push("équipement "+req.gearTier);
+    if(Number.isFinite(req.level))conditions.push("niveau "+req.level);
+    return "Effectuer des combats"+modeText+subject+(conditions.length?" ("+conditions.join(", ")+")":"");
+  }
+  if(action.kind==="mode"){
+    const modes=(action.modes||[]).map(modeLabelFr).filter(Boolean);
+    if(!modes.length&&modeLabelFr(action.mode))modes.push(modeLabelFr(action.mode));
+    return modes.length?"Effectuer des combats de "+modes.join(" et "):"Effectuer un combat dans le mode indiqué par l’événement";
+  }
+  if(action.kind==="spend"||action.kind==="spendEnergy"){
+    const resource=action.resourceLabel||"la ressource indiquée";
+    return action.kind==="spendEnergy"?"Utiliser l’énergie requise ("+resource+")":"Dépenser "+resource;
+  }
+  if(action.kind==="external")return "Action liée à une offre ou à un achat; progression non estimée";
+  if(action.kind==="upgrade")return "Améliorer un personnage éligible selon les conditions de l’événement";
+  return "Objectif à vérifier · libellé français indisponible";
+}
+function rosterRequirementText(code,reason){
+  const have=Number.isFinite(reason?.have)?reason.have:null,need=Number.isFinite(reason?.need)?reason.need:null;
+  if(code==="yellowStars"||code==="redStars"){
+    const label=code==="yellowStars"?"étoiles jaunes":"étoiles rouges";
+    return have===null||need===null?"Prérequis de "+label+" non rempli.":have+"/"+need+" "+label+" · "+Math.max(0,need-have)+" supplémentaire(s) nécessaire(s)";
+  }
+  if(code==="gearTier")return have===null||need===null?"Palier d’équipement requis indisponible.":"Équipement : palier "+have+"/"+need;
+  if(code==="level")return have===null||need===null?"Niveau requis indisponible.":"Niveau : "+have+"/"+need;
+  return null;
+}
+function reasonLabel(code){const labels={unknownName:"Personnage absent du catalogue",ambiguousName:"Nom de personnage ambigu",unknownResource:"Ressource non reconnue",unknownIon:"Ion ISO-8 non reconnu",unknownMode:"Mode de jeu non reconnu",unknownForm:"Condition non interprétée",multiMethod:"Plusieurs actions combinées",meta:"Points portés par un sous-événement",earn:"Gain non calculable"};return labels[code]||"Données nécessaires indisponibles";}
+function unparsedObjectiveLabel(item){
+  if(item?.label&&item?.label!==item?.labelEn)return item.label;
+  return "Objectif à vérifier · "+reasonLabel(item?.reason);
+}
+function objectiveGroup(action){
+  if(action.character?.id)return {key:"character:"+action.character.id,label:characterNameFr(action.character),portrait:action.character.portrait||null};
+  if(action.subject?.type==="trait"||action.subject?.type==="team")return {key:"team:"+String(action.mode||"general"),label:"Équipe · "+(modeLabelFr(action.mode)||"actions associées"),portrait:null};
+  if(action.mode&&action.mode!=="any")return {key:"mode:"+action.mode,label:"Actions · "+(modeLabelFr(action.mode)||"mode de jeu"),portrait:null};
+  return {key:"general",label:"Actions générales",portrait:null};
+}
+function renderObjectiveGroups(rows,target){
+  const groups=new Map();
+  for(const action of rows){const meta=objectiveGroup(action);if(!groups.has(meta.key))groups.set(meta.key,{...meta,actions:[]});groups.get(meta.key).actions.push(action);}
+  for(const group of groups.values()){
+    const completed=group.actions.filter(action=>action.status==="done"),remaining=group.actions.filter(action=>action.status!=="done");
+    const card=el("details","objective-group");card.open=remaining.length>0&&group.actions.length<=4;
+    const summary=el("summary","objective-group-summary");
+    if(group.portrait)addSafeImage(summary,group.portrait,"objective-group-portrait",group.label);
+    summary.append(el("strong","",group.label),el("span","objective-group-count",remaining.length+" à faire ou vérifier · "+completed.length+" terminé"+(completed.length===1?"":"s")));card.append(summary);
+    const content=el("div","objective-group-content");
+    if(remaining.length){const list=el("ul","action-list");for(const action of remaining)addActionRow(list,action,{portrait:false});content.append(list);}
+    if(completed.length){const done=el("details","objective-completed");done.append(el("summary","objective-completed-summary","Terminés confirmés · "+completed.length));const list=el("ul","action-list");for(const action of completed)addActionRow(list,action,{portrait:false});done.append(list);content.append(done);}
+    card.append(content);target.append(card);
+  }
+}
 function loadDetailPair(id){
   const key=String(id);if(state.details.has(key))return Promise.resolve(state.details.get(key));
   const existing=state.details.get("loading:"+key);if(existing)return existing;
@@ -240,7 +320,7 @@ async function showSelected(id){
   root.append(bar,loading);scrollImmediately(0);
   const pair=await loadDetailPair(id);state.detailLoading=false;
   if(state.selectedId!==String(id))return;
-  const curated=activeEvents().find(item=>String(item.id)===String(id));
+  const curated=state.calendarEvents.find(item=>String(item.id)===String(id))||null;
   const event=mergeCalendarEvent(curated,pair.en||getEvent(id,"en"));
   const fr=mergeCalendarEvent(curated,pair.fr||getEvent(id,"fr"))||event;
   if(!event){root.replaceChildren(bar,el("p","error","Les détails de cet événement n’ont pas été reçus."));return;}
@@ -252,29 +332,43 @@ function returnToList(){
   $("selected-event").hidden=true;$("event-list-view").hidden=false;
   requestAnimationFrame(()=>scrollImmediately(state.listScrollY));
 }
-function addActionRow(list,action){
-  const row=el("li","action-row");const name=action.label||action.character?.name||"Objectif sans libellé";
-  addSafeImage(row,action.character?.portrait,"character-portrait");const copy=el("div","action-row__copy");copy.append(el("strong","",name),el("span","status status--"+action.status,statusTag(action.status)));
+function addActionRow(list,action,{portrait=true}={}){
+  const row=el("li","action-row"),name=objectiveLabelFr(action);
+  if(portrait)addSafeImage(row,action.character?.portrait,"character-portrait");
+  const copy=el("div","action-row__copy");copy.append(el("strong","",name),el("span","status status--"+action.status,statusTag(action.status)));
   const details=[];
   if(action.progressState==="unknown")details.push("Progression : données indisponibles");
-  else if(action.progress!=null&&action.cap!=null)details.push(`${fmt(action.progress)} / ${fmt(action.cap)} pts`);
-  if(action.remainingUnits!=null)details.push(`${fmt(action.soFarUnits)} / ${fmt(action.capUnits)} unités`);
-  if(action.fightsLeft!=null)details.push(`${fmt(action.fightsLeft)} action(s) restante(s)`);
-  if(action.reason?.code)details.push(reasonText(action));
+  else if(Number.isFinite(action.progress)&&Number.isFinite(action.cap))details.push(fmt(action.progress)+" / "+fmt(action.cap)+" pts");
+  if(action.remainingUnits!=null)details.push(fmt(action.soFarUnits)+" / "+fmt(action.capUnits)+" unités");
+  if(action.fightsLeft!=null)details.push(fmt(action.fightsLeft)+" action(s) restante(s)");
+  if(action.reason?.code){
+    const rosterText=rosterRequirementText(action.reason.code,action.reason);
+    if(rosterText)details.push(rosterText);
+    else if(action.reason.code==="traitShort")details.push("Équipe : "+action.reason.have+"/"+action.reason.need+" personnages admissibles");
+    else if(action.reason.code==="external")details.push("Objectif associé à une offre ou un achat; faisabilité hors jeu non vérifiée");
+    else if(action.reason.code==="rosterUnavailable")details.push("Roster indisponible : faisabilité inconnue");
+    else if(action.reason.code==="noCharacter")details.push("Aucun personnage du roster ne remplit les prérequis");
+    else details.push(reasonText(action));
+  }
   if(action.resourceLabel)details.push(action.resourceLabel);
-  if(action.assumptions?.length)details.push("Hypothèse : "+action.assumptions.join(", "));
+  if(action.assumptions?.length)details.push("Hypothèse : "+action.assumptions.map(value=>value==="trait-fight-full-squad"?"Équipe complète correspondant au critère supposée":"Estimation du planificateur").join(", "));
   if(details.length)copy.append(el("p","row-detail",details.join(" · ")));
-  row.append(copy);
-  list.append(row);
+  if(action.progressState==="available"&&Number.isFinite(action.progress)&&Number.isFinite(action.cap)&&action.cap>0){
+    const percent=Math.max(0,Math.min(100,action.progress/action.cap*100)),track=el("div","objective-progress");
+    track.setAttribute("role","progressbar");track.setAttribute("aria-label","Progression de "+name);
+    track.setAttribute("aria-valuemin","0");track.setAttribute("aria-valuemax",String(action.cap));track.setAttribute("aria-valuenow",String(Math.max(0,Math.min(action.progress,action.cap))));
+    const fill=el("span");fill.style.width=percent+"%";track.append(fill);copy.append(track);
+  }
+  row.append(copy);list.append(row);
 }
 function reasonText(action){
-  const reason=action.reason;
-  if(reason.code==="notOwned")return "Personnage non présent dans le roster";
-  if(["yellowStars","redStars","gearTier","level"].includes(reason.code))return `Roster ${fmt(reason.have)} · ${fmt(reason.need)} requis`;
-  if(reason.code==="traitShort")return `Trait : ${reason.have}/${reason.need} personnages requis (hypothèse Maddoxx)`;
-  if(reason.code==="external")return "Hors roster";
+  const reason=action.reason||{};
+  if(reason.code==="notOwned")return "Personnage absent du roster reçu";
+  if(reason.code==="noCharacter")return "Aucun personnage du roster ne remplit les prérequis";
   if(reason.code==="rosterUnavailable")return "Roster indisponible : faisabilité inconnue";
-  return "Condition non remplie";
+  if(reason.code==="external")return "Objectif associé à une offre ou un achat";
+  if(reason.code==="traitShort")return Number.isFinite(reason.have)&&Number.isFinite(reason.need)?"Équipe : "+reason.have+"/"+reason.need+" personnages admissibles":"Prérequis d’équipe non remplis";
+  return rosterRequirementText(reason.code,reason)||"Condition de personnage non remplie";
 }
 function objectiveSection(title,rows,emptyText){
   const section=el("section","panel-card");section.append(el("h3","",title));
@@ -335,20 +429,19 @@ function renderSelected(event,fr,analysis,detailError=null){
   const grouped=el("section","panel-card");grouped.append(el("h3","","Actions et leviers du roster"));
   if(analysis.groups.length){const list=el("ul","action-list");for(const group of analysis.groups){const representative=analysis.actions.find(action=>group.actions.includes(action.index));if(representative)addActionRow(list,{...representative,status:group.status,doablePoints:group.doablePoints,remaining:representative.remaining,fightsLeft:group.fightsLeft});}grouped.append(list);}
   else grouped.append(el("p","muted","Aucune action classée à partir du scoring reçu."));
-  if(analysis.levers.length){grouped.append(el("h4","","Améliorations possibles"));const list=el("ul","action-list");for(const lever of analysis.levers){const li=el("li","action-row");addSafeImage(li,lever.character.portrait,"character-portrait");const copy=el("div");copy.append(el("strong","",`${lever.character.name} · ${lever.kind} ${lever.from} → ${lever.to}`),el("p","row-detail",`+${fmt(lever.gain)} pts · ${lever.steps} niveau(x)`));li.append(copy);list.append(li);}grouped.append(list);}
+  if(analysis.levers.length){grouped.append(el("h4","","Améliorations possibles"));const list=el("ul","action-list");for(const lever of analysis.levers){const li=el("li","action-row");addSafeImage(li,lever.character.portrait,"character-portrait");const copy=el("div");copy.append(el("strong","",`${characterNameFr(lever.character)} · ${lever.kind} ${lever.from} → ${lever.to}`),el("p","row-detail",`+${fmt(lever.gain)} pts · ${lever.steps} niveau(x)`));li.append(copy);list.append(li);}grouped.append(list);}
   rows.append(grouped);root.append(rows);
-  if(analysis.unparsed.length){const unknown=el("details","panel-card");unknown.append(el("summary","","Lignes non analysées · "+analysis.unparsed.length));const list=el("ul","action-list");for(const item of analysis.unparsed){const li=el("li","action-row");li.append(el("strong","",item.label||item.labelEn||"Objectif"),el("p","row-detail",reasonLabel(item.reason)));list.append(li);}unknown.append(list);root.append(unknown);}
+  if(analysis.unparsed.length){const unknown=el("details","panel-card");unknown.append(el("summary","","Lignes non analysées · "+analysis.unparsed.length));const list=el("ul","action-list");for(const item of analysis.unparsed){const li=el("li","action-row");li.append(el("strong","",unparsedObjectiveLabel(item)),el("p","row-detail",reasonLabel(item.reason)));list.append(li);}unknown.append(list);root.append(unknown);}
   renderObjectives();renderPlan();
 }
-function reasonLabel(code){const labels={unknownName:"Nom absent du catalogue",ambiguousName:"Nom ambigu",unknownResource:"Ressource non reconnue",unknownIon:"Ion non reconnu",unknownMode:"Mode inconnu",unknownForm:"Forme non reconnue",multiMethod:"Plusieurs méthodes combinées",meta:"Points issus d’un sous-événement",earn:"Gain non calculable"};return labels[code]||"Données indisponibles";}
 function renderObjectives(){
   const target=$("objectives-view");target.replaceChildren();
   const analysis=state.analysis;
-  if(!analysis?.supported){target.append(el("p","warning",!state.roster?"Roster indisponible : objectifs terminés et actions personnelles ne peuvent pas être confirmés.":"Choisis un événement dont les données de scoring sont disponibles."));return;}
-  target.append(objectiveSection("Terminés confirmés",analysis.actions.filter(item=>item.status==="done"),"Aucun objectif terminé confirmé."));
-  target.append(objectiveSection("Restants ou inconnus",analysis.actions.filter(item=>item.status!=="done"),"Aucun objectif restant connu."));
+  if(!analysis?.supported){target.append(el("p","warning",!state.roster?"Roster indisponible : progression et faisabilité restent inconnues.":"Choisis un événement dont les données de scoring sont disponibles."));return;}
+  renderObjectiveGroups(analysis.actions,target);
+  if(!analysis.actions.length)target.append(el("p","muted","Aucun objectif individuel exploitable n’a été reçu."));
   if(analysis.event.progressState==="unknown")target.append(el("p","warning","Le score global et les compteurs utiles ne sont pas fournis. Le plan ne leur substitue pas zéro."));
-  if(analysis.event.progressState==="partial")target.append(el("p","warning",`${fmt(analysis.event.reportedActionPoints)} points de compteurs sont lisibles, mais au moins un compteur manque : le total et les paliers restent inconnus.`));
+  if(analysis.event.progressState==="partial")target.append(el("p","warning",fmt(analysis.event.reportedActionPoints)+" points de compteurs sont lisibles, mais au moins un compteur manque : le total et les paliers restent inconnus."));
 }
 function resourcePlanLabel(item){
   const names=(item.resources||[item.resource]).filter(Boolean).map(key=>RESOURCES[key]?.label?.fr||key).join(" / ");
@@ -356,7 +449,7 @@ function resourcePlanLabel(item){
 }
 function renderPlan(){
   const target=$("plan-view");target.replaceChildren();const analysis=state.analysis;
-  const selected=state.selectedId&&(getEvent(state.selectedId,"fr")||getEvent(state.selectedId,"en")||activeEvents().find(item=>String(item.id)===String(state.selectedId)));
+  const selected=state.selectedId&&(localizedCalendarEvent(state.selectedId,"fr")||localizedCalendarEvent(state.selectedId,"en")||activeEvents().find(item=>String(item.id)===String(state.selectedId)));
   $("plan-event-name").textContent=selected?displayName(selected):"Aucun événement sélectionné";
   $("plan-back").hidden=!selected;
   if(!analysis?.supported){target.append(el("p","warning","Les données de scoring nécessaires à cette planification ne sont pas disponibles pour l’événement sélectionné."));return;}
@@ -417,11 +510,11 @@ function renderPlan(){
   const actionable=analysis.actions.filter(action=>action.status!=="done");
   if(!actionable.length)actions.append(el("p","muted","Aucune action restante n’est reconnue dans les données de scoring."));
   else{const list=el("ul","action-list");for(const group of analysis.groups){const representative=analysis.actions.find(action=>group.actions.includes(action.index));if(representative)addActionRow(list,{...representative,status:group.status,fightsLeft:group.fightsLeft});}actions.append(list);}
-  if(plan.levers?.length){const list=el("ul","action-list");for(const lever of plan.levers){const row=el("li","action-row");addSafeImage(row,lever.character?.portrait,"character-portrait");row.append(el("span","action-row__copy",`${lever.character?.name||"Personnage"} · ${lever.kind} ${lever.from} → ${lever.to} · +${fmt(lever.points)} pts`));list.append(row);}actions.append(el("h4","","Améliorations de roster à envisager"),list);}
+  if(plan.levers?.length){const list=el("ul","action-list");for(const lever of plan.levers){const row=el("li","action-row");addSafeImage(row,lever.character?.portrait,"character-portrait");row.append(el("span","action-row__copy",`${characterNameFr(lever.character)} · ${lever.kind} ${lever.from} → ${lever.to} · +${fmt(lever.points)} pts`));list.append(row);}actions.append(el("h4","","Améliorations de roster à envisager"),list);}
   target.append(actions);
   if(uncertain){const notes=[];if(event.progressState!=="available")notes.push("le score n’est pas un total Scopely confirmé");if(!Array.isArray(state.roster))notes.push("le roster est indisponible");if(analysis.unparsed.length)notes.push(`${analysis.unparsed.length} ligne(s) de scoring ne sont pas interprétées`);if(analysis.actions.some(action=>action.status==="unknown"))notes.push("certaines conditions restent inconnues");
     const warning=el("section","plan-warning-group");warning.append(el("strong","","À vérifier avant de viser un palier"));const list=el("ul");for(const note of notes)list.append(el("li","",note));warning.append(list);target.append(warning);}
-  if(analysis.offRoster.length){const outside=el("section","panel-card");outside.append(el("h3","","Objectifs hors roster connu"));for(const item of analysis.offRoster)outside.append(el("p","row-detail",`${item.label} · ${fmt(item.points)} pts`));target.append(outside);}
+  if(analysis.offRoster.length){const outside=el("section","panel-card");outside.append(el("h3","","Objectifs hors roster connu"));for(const item of analysis.offRoster)outside.append(el("p","row-detail",`${item.label&&item.label!==item.labelEn?item.label:"Action supplémentaire hors roster · détail français indisponible"} · ${fmt(item.points)} pts`));target.append(outside);}
 }
 function resourceLabel(key){return RESOURCES[key]?.label?.fr||key;}
 function resourceForItemId(id){return Object.values(RESOURCES).find(resource=>resource.itemId===id)||null;}
@@ -429,34 +522,38 @@ function inventoryItemName(item,id){
   const resource=resourceForItemId(id);
   if(resource?.names?.fr)return resource.names.fr;
   if(resource?.label?.fr)return resource.label.fr;
-  const nested=typeof item?.item==="object"?item.item:{};
-  return item?.name||nested.name||id||"Objet sans nom";
+  return "Ressource sans libellé français dans le référentiel";
 }
 function renderSyncedInventory(){
   const target=$("synced-inventory");target.replaceChildren();
   if(!state.inventory){target.append(el("p","warning",`Inventaire non disponible${state.inventoryReason?" · "+errorText(state.inventoryReason):""}. Les quantités restent inconnues.`));return;}
-  let count=0;
+  let count=0;const query=String($("inventory-search")?.value||"").trim().toLocaleLowerCase("fr");
+  const familyFilter=$("inventory-family")?.value||"all",typeNames={CONSUMABLE:"Consommables",ISOITEM:"ISO-8"};
   for(const type of ["CONSUMABLE","ISOITEM"]){
-    const snapshot=state.inventoryTypes[type]||{rows:[],error:null},section=el("div","inventory-type"),title=el("h4","",type==="CONSUMABLE"?"Objets consommables":"Objets ISO-8");
-    if(snapshot.error)title.textContent+=` · indisponible`;
-    else if(snapshot.retrievedAt)title.textContent+=` · vérifié ${syncDate.format(new Date(snapshot.retrievedAt))}${snapshot.unchanged?" · inchangé":""}`;
-    section.append(title);
+    const snapshot=state.inventoryTypes[type]||{rows:[],error:null},rows=Array.isArray(snapshot.rows)?snapshot.rows:[];
+    count+=rows.length;if(familyFilter!=="all"&&familyFilter!==type)continue;
+    const section=el("details","inventory-type inventory-family");section.open=rows.length<=8;
+    const summary=el("summary","inventory-family-summary");
+    summary.append(el("strong","",`${typeNames[type]} · ${fmt(rows.length)} objets`));
+    const verified=snapshot.retrievedAt?syncDate.format(new Date(snapshot.retrievedAt)):"date inconnue";
+    summary.append(el("span","inventory-family-date",`Synchronisé ${verified}${snapshot.unchanged?" · inchangé":""}`));section.append(summary);
     if(snapshot.error){section.append(el("p","warning",errorText(snapshot.error)));target.append(section);continue;}
     if(snapshot.refreshError)section.append(el("p","warning",`Actualisation échouée; dernier inventaire conservé. ${errorText(snapshot.refreshError)}`));
-    const rows=Array.isArray(snapshot.rows)?snapshot.rows:[];count+=rows.length;
-    if(!rows.length){section.append(el("p","muted","Scopely a renvoyé 0 objet dans cette famille."));target.append(section);continue;}
+    const filtered=rows.filter(item=>{if(!query)return true;const id=inventoryItemId(item)||"",name=inventoryItemName(item,id);return `${name} ${id}`.toLocaleLowerCase("fr").includes(query);});
+    if(!filtered.length){section.append(el("p","muted",rows.length?"Aucun objet ne correspond à la recherche.":"Scopely a renvoyé 0 objet dans cette famille."));target.append(section);continue;}
     const list=el("div","inventory-list");
-    for(const item of rows){
+    for(const item of filtered){
       const id=inventoryItemId(item),quantity=Number(item?.quantity),row=el("article","inventory-row"),icon=item?.icon||item?.item?.icon;
       if(typeof icon==="string"&&/^https:\/\/assets\.marvelstrikeforce\.com\//i.test(icon)){const img=el("img","inventory-icon");img.src=icon;img.alt="";img.loading="lazy";row.append(img);}
       else row.append(el("span","inventory-icon inventory-icon--empty","◈"));
       const copy=el("div");copy.append(el("strong","inventory-name",inventoryItemName(item,id)));
-      if(id)copy.append(el("span","inventory-id",id));
-      const resource=resourceForItemId(id);copy.append(el("span","inventory-source",resource?`Synchronisé · utilisé dans le plan (${resource.label?.fr||resource.names?.fr||resource.key})`:item?.name?"Nom transmis par Scopely · famille lang=none":"Libellé français non disponible dans les données reçues"));
+      const resource=resourceForItemId(id);copy.append(el("span","inventory-source",resource?`Synchronisé · utilisé dans le plan (${resource.label?.fr||resource.names?.fr||resource.key})`:"Synchronisé Scopely · libellé français à compléter dans le référentiel"));
+      if(id){const technical=el("details","inventory-technical");technical.append(el("summary","","Référence technique"),el("code","",id));copy.append(technical);}
       row.append(copy,el("strong","inventory-quantity",Number.isFinite(quantity)?fmt(quantity):"Quantité indisponible"));list.append(row);
     }
     section.append(list);target.append(section);
   }
+  if(!target.childElementCount)target.append(el("p","muted","Aucune famille d’inventaire ne correspond au filtre."));
   const dates=Object.values(state.inventoryTypes).map(item=>item?.retrievedAt).filter(Boolean).map(Date.parse).filter(Number.isFinite);
   const latest=dates.length?new Date(Math.max(...dates)):null;
   $("inventory-sync-status").textContent=latest?`${fmt(count)} objets reçus · dernière vérification ${syncDate.format(latest)}. Une absence de la réponse ne vaut pas zéro.`:
@@ -561,7 +658,12 @@ async function loadOverview(forceRefresh=false){
   state.inventoryTypes={};
   if(state.inventory){installInventoryResult("CONSUMABLE",consumables);installInventoryResult("ISOITEM",isoitems);}
   buildObservations();renderEvents();
-  if(state.selectedId&&state.tab==="events")showSelected(state.selectedId);
+  if(state.initialEventId){
+    const requestedId=state.initialEventId;state.initialEventId=null;
+    const requested=activeEvents().find(event=>String(event.id)===requestedId&&!state.skipped.has(requestedId));
+    if(requested)showSelected(requested.id);
+    else banner("Cet événement ne figure pas dans le calendrier LoSP actif ou est ignoré. Aucune fiche personnelle supplémentaire n’a été demandée.","warning");
+  }else if(state.selectedId&&state.tab==="events")showSelected(state.selectedId);
   if(state.calendarError)banner("Le catalogue de présentation LoSP est indisponible : les événements personnels non filtrés sont masqués.","warning");
   if(state.characters.length===0)banner("Catalogue de personnages indisponible. Les objectifs restent visibles, mais les noms ou traits non résolus ne seront pas évalués.","warning");
   else renderConnection(session);
@@ -586,6 +688,8 @@ $("selected-event").addEventListener("click",event=>{
 });
 $("refresh-ledger").addEventListener("click",refreshLedger);
 $("refresh-inventory").addEventListener("click",refreshInventory);
+$("inventory-search").addEventListener("input",renderSyncedInventory);
+$("inventory-family").addEventListener("change",renderSyncedInventory);
 $("plan-back").addEventListener("click",()=>setTab("events"));
 $("stock-view").addEventListener("input",event=>{const input=event.target.closest("[data-stock-key]");if(input)state.drafts[input.dataset.stockKey]=input.value;});
 $("stock-view").addEventListener("click",event=>{

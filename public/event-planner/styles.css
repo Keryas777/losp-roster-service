@@ -182,3 +182,30 @@ footer a{color:var(--muted)}
 .stock-card .inventory-icon{width:30px;height:30px}
 @media(min-width:610px){.ev-calendar-group .ev-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.planner-detail-content{padding:1rem}.plan-score-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.inventory-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:390px){.stock-section{padding:9px}.stock-section .section-heading{align-items:flex-start;flex-direction:column}.inventory-row{grid-template-columns:32px minmax(0,1fr) auto;gap:7px}.inventory-icon{width:30px;height:30px}.plan-score{padding:8px}.plan-score strong{font-size:16px}}
+
+/* Objectifs compacts : un portrait par personnage, les objectifs restent indépendants. */
+.objective-group{margin:.45rem 0;border:1px solid var(--border);border-radius:12px;background:rgba(0,0,0,.12);overflow:hidden}
+.objective-group-summary{display:flex;align-items:center;gap:.55rem;min-height:54px;padding:.55rem .65rem;flex-wrap:wrap}
+.objective-group-summary strong{flex:1;min-width:120px;overflow-wrap:anywhere}
+.objective-group-count{color:var(--muted);font-size:11px}
+.objective-group-portrait{width:42px;height:42px;flex:0 0 42px;object-fit:cover;border-radius:8px}
+.objective-group-content{padding:0 .55rem .55rem;border-top:1px solid var(--border)}
+.objective-completed{margin:.4rem 0}
+.objective-completed-summary{font-size:12px;color:var(--muted);padding:.4rem 0}
+.objective-progress{height:6px;margin-top:7px;border-radius:6px;background:var(--panel2);overflow:hidden}
+.objective-progress span{display:block;height:100%;border-radius:inherit;background:var(--planner-blue,#75baff)}
+.inventory-controls{display:grid;grid-template-columns:1fr;gap:5px;margin:.6rem 0}
+.inventory-controls label{font-size:11px;color:var(--muted)}
+.inventory-controls input,.inventory-controls select{width:100%;min-height:38px;padding:8px 10px;border:1px solid var(--border);border-radius:9px;background:var(--panel);color:var(--text)}
+.inventory-family{margin:8px 0;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:rgba(0,0,0,.1)}
+.inventory-family-summary{display:flex;align-items:flex-start;justify-content:space-between;gap:6px 10px;padding:10px;flex-wrap:wrap;cursor:pointer}
+.inventory-family-summary strong{font-size:13px}
+.inventory-family-date{font-size:10px;color:var(--muted)}
+.inventory-family>.inventory-list{padding:0 8px 8px}
+.inventory-family .inventory-row{grid-template-columns:32px minmax(0,1fr) auto;padding:6px;gap:7px}
+.inventory-family .inventory-icon{width:30px;height:30px}
+.inventory-technical{margin-top:4px;color:var(--muted);font-size:10px}
+.inventory-technical summary{display:inline-block;cursor:pointer}
+.inventory-technical code{display:block;overflow-wrap:anywhere;font-size:10px}
+@media(min-width:610px){.inventory-controls{grid-template-columns:auto minmax(200px,1fr) auto minmax(160px,.5fr);align-items:center}}
+@media(max-width:390px){.objective-group-summary{gap:5px}.objective-group-portrait{width:38px;height:38px;flex-basis:38px}.inventory-family .inventory-row{grid-template-columns:28px minmax(0,1fr) auto;gap:5px}.inventory-family .inventory-icon{width:26px;height:26px}}

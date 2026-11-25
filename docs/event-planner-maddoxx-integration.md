@@ -46,3 +46,24 @@ Après accord et fusion de la PR Worker, le Worker existant devra recevoir cette
 ## Restauration rapide
 
 La migration de classe Durable Object est additive. Après son déploiement, Cloudflare n’autorise pas le retour à une version située avant cette migration. En cas de problème, déployer par le workflow contrôlé un commit fail-closed qui conserve le binding et la migration avec `EVENT_PLANNER_ENABLED` à `false`; les routes personnelles du planificateur et les alias progressions répondent alors `404`. Le contrôle du workflow accepte ces deux états du drapeau pour permettre cette restauration. Pour la page GitHub Pages, rétablir le commit précédant la PR #730 par un commit de revert et attendre la publication Pages.
+
+
+## Passerelle temporaire depuis la page Événements LoSP
+
+La page publique reste la source de vérité pour le calendrier : filtres, groupes, libellés et cartes continuent d’être calculés dans `msf/docs/evenements.js`. Le lien propriétaire n’est ajouté qu’aux cartes après validation de la session administrateur réelle par `auth-guard.js` (identifiant propriétaire déjà utilisé par LoSP). Le mode aperçu d’un membre ne suffit pas à l’afficher.
+
+Le lien transmet uniquement l’identifiant stable de l’événement à la page privée du Worker. Le navigateur ouvre cette page par navigation de premier niveau; les routes personnelles continuent donc d’utiliser le contrôle Cloudflare Access, le contrôle propriétaire et le cookie capitaine de première partie existants. Aucun jeton n’est transmis à GitHub Pages, aucun appel personnel n’est émis sur la page publique et aucune requête CORS vers l’API privée n’est ajoutée.
+
+Le Worker accepte `eventId` uniquement s’il correspond à un événement présent dans le calendrier public LoSP actif et non ignoré. Il n’appelle les détails personnels que pour cette sélection; un identifiant invalide, expiré, filtré ou ignoré ne déclenche pas de requête de détail.
+
+Cette passerelle prépare une migration réversible, mais ne réalise pas encore la page unique souhaitée. Safari iOS bloque ou partitionne les cookies tiers; GitHub Pages ne peut pas servir un proxy côté serveur. Une page unique authentifiée nécessitera soit une origine LoSP commune au front et à l’API, soit un mécanisme de ticket bref à usage unique et révocable. Aucun de ces changements d’architecture/sécurité n’est introduit dans cette PR.
+
+
+## Périmètre de cette passe et limites à traiter avant ouverture aux membres
+
+- Le calcul Maddoxx et ses classifieurs ne sont pas modifiés. Les libellés français Scopely restent prioritaires; lorsque la traduction manque, les actions courantes (connexion, combats par mode, dépenses et prérequis du roster) ont une formulation française construite à partir des champs structurés. Les cas non reconnus restent signalés comme à vérifier sans exposer les codes internes.
+- Les actions sont regroupées par personnage avec un portrait unique, progression en barre uniquement lorsque Scopely fournit un compteur exploitable, et sections repliables pour les actions terminées. Le score d’événement et les paliers continuent d’utiliser leurs champs Scopely séparés.
+- L’inventaire est filtrable par famille et par texte, replié par famille sur les grands volumes; un identifiant technique n’est visible qu’à l’ouverture de son détail. Les quantités absentes restent « Quantité indisponible ». Les métadonnées réellement livrées par l’inventaire ne suffisent pas à reconstituer les catégories ISO-8 couleur/niveau/classe/statistique; la vue les regroupe donc seulement selon la famille retournée. Les noms français inconnus restent génériques plutôt que d’afficher un texte anglais ou un ID comme nom.
+- Les correspondances XPLVL20/40/60 n’ont pas été retrouvées dans les référentiels versionnés examinés; elles ne sont pas ajoutées par déduction. Un catalogue central partagé d’objets, alimenté depuis les définitions publiques /game/v1/items/{itemId} et livré depuis le dépôt msf, reste à préparer lorsqu’une source complète versionnée sera disponible.
+- La persistance des ressources déclarées et des événements ignorés reste dans la clé locale existante du navigateur. Le planificateur étant encore propriétaire uniquement, cette passe ne migre pas les données vers un stockage par compte. Avant ouverture à plusieurs capitaines/joueurs, il faudra scoper ces préférences par identité de compte stable côté service; le statut actuel n’expose pas une telle identité et aucune requête Scopely supplémentaire n’est ajoutée ici.
+- Les tests navigateur utilisent des réponses Scopely anonymisées/simulées. Ils vérifient le routage réel des imports de Worker déjà couvert par la PR #217, le deep-link filtré, l’interface, les valeurs nulles/absentes, les quatre onglets et les styles LoSP chargés depuis la page publique. Ils ne revalident pas les données personnelles réelles de l’administrateur.

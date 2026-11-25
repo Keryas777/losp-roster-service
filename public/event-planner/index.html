@@ -52,6 +52,10 @@
       <h2>Mon stock</h2>
       <section class="stock-section stock-section--synced">
         <div class="section-heading"><div><h3>Inventaire synchronisé Scopely</h3><p id="inventory-sync-status" class="muted">Chargement de l’inventaire…</p></div><button type="button" class="button button-secondary" id="refresh-inventory">Actualiser l’inventaire</button></div>
+        <div class="inventory-controls" role="group" aria-label="Rechercher dans l’inventaire">
+          <label for="inventory-search">Recherche</label><input id="inventory-search" type="search" autocomplete="off" placeholder="Nom français ou référence technique">
+          <label for="inventory-family">Famille</label><select id="inventory-family"><option value="all">Toutes les familles</option><option value="CONSUMABLE">Consommables</option><option value="ISOITEM">ISO-8</option></select>
+        </div>
         <div id="synced-inventory"></div>
       </section>
       <section class="stock-section stock-section--manual">
