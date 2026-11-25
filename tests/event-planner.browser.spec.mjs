@@ -154,8 +154,10 @@ try{
   const loginObjective=page.locator("#objectives-view").getByText("Connexion quotidienne",{exact:true}).first();
   if(!(await loginObjective.isVisible()))await page.locator("#objectives-view .objective-completed-summary").first().click();
   await loginObjective.waitFor();
-  await page.locator("#objectives-view").getByText("Progression : données indisponibles",{exact:true}).first().waitFor();
-  await page.locator("#objectives-view").getByText("7/8 étoiles jaunes · 1 supplémentaire(s) nécessaire(s)",{exact:true}).first().waitFor();
+  const unknownProgressRow=page.locator("#objectives-view .action-row").filter({hasText:"Progression : données indisponibles"}).first();
+  await unknownProgressRow.waitFor();
+  await unknownProgressRow.getByText(/7\/8 étoiles jaunes/).waitFor();
+  assert.equal(await unknownProgressRow.getByRole("progressbar").count(),0,`${browserName} unknown objective progress is not rendered as a zero-valued bar`);
   assert.equal(await page.locator("#objectives-view .objective-group-portrait").count(),1,`${browserName} multiple objectives share one character portrait`);
   await page.locator("#objectives-view [role=progressbar]").first().waitFor();await checkMobileWidths("Objectifs");await capture("objectifs");
   await page.getByRole("tab",{name:"Planifier"}).click();
