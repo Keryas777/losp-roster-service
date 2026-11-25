@@ -39,17 +39,20 @@ const apiCalls=[];
 const captureScreenshots=process.env.CAPTURE_SCREENSHOTS==="1";
 if(captureScreenshots)await mkdir(resolve("artifacts","planner-tabs"),{recursive:true});
 let failEvents=false;
+let currentNamespace="a".repeat(64),currentConnected=true;
 const server=createServer(async(req,res)=>{
   const pathname=new URL(req.url,"http://localhost").pathname;
+  if(pathname==="/__test/profile"){const params=new URL(req.url,"http://localhost").searchParams;currentNamespace=params.get("namespace")||currentNamespace;currentConnected=params.get("connected")!=="false";res.writeHead(204);res.end();return;}
   if(pathname.startsWith("/admin/api/event-planner")){
     const params=new URL(req.url,"http://localhost").searchParams,resource=params.get("resource");
     apiCalls.push({resource,lang:params.get("lang"),itemType:params.get("itemType"),eventId:params.get("eventId")});
     let body;
-    if(resource==="status")body={status:"connected",scopes:["m3p.f.pr.act","m3p.f.pr.ros","m3p.f.pr.inv"]};
+    if(resource==="status")body=currentConnected?{status:"connected",storageNamespace:currentNamespace,scopes:["m3p.f.pr.act","m3p.f.pr.ros","m3p.f.pr.inv"]}:{status:"disconnected",reason:"session-revoked"};
+    else if(!currentConnected){res.writeHead(403,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"disconnected"}));return;}
     else if(resource==="events"&&failEvents){res.writeHead(502,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"provider-error",upstreamStatus:502,diagnostic:{endpoint:"/player/v1/events",httpStatus:502,providerCode:"event-list-unavailable",error:"provider-error",lang:params.get("lang"),page:1}}));return;}
     else if(resource==="events")body={status:"ok",data:[...privateById.values()].map(item=>item.id===enEvent.id&&params.get("lang")==="fr"?frEvent:item)};
     else if(resource==="roster")body={status:"ok",data:[{id:"CaptainAmerica",activeYellow:7,activeRed:0,gearTier:20,level:90,iso8:{active:"raider",raider:10}}]};
-    else if(resource==="inventory")body={status:"ok",retrievedAt:new Date().toISOString(),upstream:{asOf:"inventory-test"},data:[{item:params.get("itemType")==="ISOITEM"?"ISO8-TIER-0-CURRENCY":"SC",name:params.get("itemType")==="ISOITEM"?"T1 Ions":"Gold",icon:art,quantity:0},...(params.get("itemType")==="CONSUMABLE"?[{item:"UNMAPPED_ITEM",name:"English Technical Name",icon:art}]:[])]};
+    else if(resource==="inventory")body={status:"ok",retrievedAt:new Date().toISOString(),upstream:{asOf:"inventory-test"},data:params.get("itemType")==="ISOITEM"?[{item:"ISO8-TIER-0-CURRENCY",quantity:0},{item:"ISO8-TIER-1-A-CURRENCY",quantity:125}]:[{item:"SC",quantity:0},{item:"CONSUMABLE_XPLVL80",quantity:24},{item:"UNMAPPED_ITEM",name:"English Technical Name",icon:art}]};
     else if(resource==="detail"){await new Promise(resolve=>setTimeout(resolve,180));const item=privateById.get(params.get("eventId"))||enEvent;body={status:"ok",data:item.id===enEvent.id&&params.get("lang")==="fr"?frEvent:item};}
     else {res.writeHead(400);res.end("{}");return;}
     res.writeHead(200,{"Content-Type":"application/json","Cache-Control":"no-store"});res.end(JSON.stringify(body));return;
@@ -81,6 +84,13 @@ try{
     if(url.endsWith("msf-characters.json"))body=[{id:"CaptainAmerica",nameKey:"Captain America",nameEn:"Captain America",nameFr:"Captain America",portraitUrl:art,player_Character:true}];
     else if(url.endsWith("dd-character-traits.json"))body={characters:{CaptainAmerica:["Avenger"]}};
     else if(url.endsWith("evenements-snapshot.json"))body=snapshot;
+    else if(url.endsWith("msf-resource-catalog.json"))body={items:[
+      {id:"SC",names:{fr:"Or"},group:"gold",priority:true,sortOrder:1,categoryLabelFr:"Monnaie"},
+      {id:"HC",names:{fr:"Noyaux d’énergie"},group:"cores",priority:true,sortOrder:2,categoryLabelFr:"Monnaie"},
+      {id:"CONSUMABLE_XPLVL80",names:{fr:"Module d’entraînement N4"},group:"training",priority:true,sortOrder:3,icon:"https://assets.marvelstrikeforce.com/imgs/ICON_CONSUMABLE_XPLVL80_4ae2e7af.png",categoryLabelFr:"Progression"},
+      {id:"ISO8-TIER-0-CURRENCY",names:{fr:"Ions P1"},group:"iso8Ions",priority:true,sortOrder:4,categoryLabelFr:"Ions ISO-8"},
+      {id:"ISO8-TIER-1-A-CURRENCY",names:{fr:"Ions P2 niveau 1"},group:"iso8Ions",priority:true,sortOrder:5,categoryLabelFr:"Ions ISO-8"}
+    ]};
     else body={characters:{}};
     return route.fulfill({status:200,contentType:"application/json",body:JSON.stringify(body),headers:{"Access-Control-Allow-Origin":"*"}});
   });
@@ -165,14 +175,16 @@ try{
   await page.getByRole("tab",{name:"Mon stock"}).click();
   await page.getByRole("heading",{name:"Inventaire synchronisé Scopely"}).waitFor();await checkMobileWidths("Mon stock");await capture("mon-stock");
   await page.locator(".inventory-quantity").filter({hasText:"0"}).first().waitFor();
-  assert.equal(await page.locator(".inventory-technical").count(),3,`${browserName} inventory IDs are hidden in expandable diagnostics`);
-  await page.getByText("Quantité indisponible",{exact:true}).waitFor();
+  assert.ok(await page.locator(".inventory-technical").count()>=4,`${browserName} item IDs are available only in expandable diagnostics`);
+  await page.getByText("Non communiqué",{exact:true}).waitFor();
   assert.equal(await page.getByText("English Technical Name",{exact:true}).count(),0,`${browserName} raw English inventory names are not presented as French`);
-  await page.locator("#inventory-search").fill("UNMAPPED_ITEM");
-  assert.equal(await page.locator(".inventory-row").count(),1,`${browserName} inventory search can find technical ids`);
+  await page.getByText("Module d’entraînement N4",{exact:true}).waitFor();
+  await page.getByText("Matrice indisponible : aucune définition publique archivée",{exact:false}).waitFor();
+  await page.locator("#inventory-search").fill("libellé français");
+  assert.equal(await page.locator(".inventory-row").count(),1,`${browserName} inventory search uses the French fallback, not technical identifiers`);
   await page.locator("#inventory-search").fill("");
   await page.locator("#inventory-family").selectOption("ISOITEM");
-  assert.equal(await page.locator(".inventory-row").count(),1,`${browserName} inventory family filter works`);
+  assert.equal(await page.locator("#synced-inventory .inventory-row").count(),2,`${browserName} inventory family filter works`);
   await page.locator("#inventory-family").selectOption("all");
   await page.locator("#stock-view").getByRole("button",{name:"Enregistrer la déclaration"}).waitFor();
   await page.getByRole("button",{name:"Actualiser l’inventaire"}).click();
@@ -180,6 +192,32 @@ try{
   const width=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth}));
   assert.ok((await page.locator("#tab-events").getAttribute("class")).includes("ev-stat"));
   assert.deepEqual(consoleErrors,[],`${browserName} console errors before simulated provider failure`);
+  await page.getByRole("tab",{name:"Mon stock"}).click();
+  const manualInput=page.locator("#stock-view input[data-stock-key]").first();
+  await manualInput.fill("12345");
+  await page.locator('#stock-view button[data-action="save-stock"]').first().click();
+  await page.getByRole("tab",{name:"Événements"}).click();
+  await page.locator('button[data-action="skip"][data-event-id="campaign-test"]').click();
+  const savedForA=await page.evaluate(()=>localStorage.getItem("losp-event-planner-v1:"+"a".repeat(64)));
+  const parsedForA=JSON.parse(savedForA||"{}");
+  assert.ok(savedForA?.includes("campaign-test"),`${browserName} account A ignored event uses its session-scoped key`);
+  assert.ok(Object.keys(parsedForA.stock||{}).length>0,`${browserName} account A manual stock is saved in its session-scoped key`);
+  await page.evaluate(async()=>fetch("/__test/profile?namespace="+"b".repeat(64)));
+  await page.getByRole("button",{name:"Actualiser"}).click();
+  await page.locator('button[data-action="skip"][data-event-id="campaign-test"]').waitFor();
+  const savedForB=await page.evaluate(()=>localStorage.getItem("losp-event-planner-v1:"+"b".repeat(64)));
+  const parsedForB=JSON.parse(savedForB||"{}");
+  assert.ok(savedForB&&!savedForB.includes("campaign-test"),`${browserName} switching accounts does not load account A ignored events`);
+  assert.equal(Object.keys(parsedForB.stock||{}).length,0,`${browserName} switching accounts does not load account A manual stock`);
+  const eventsBeforeDisconnect=apiCalls.filter(call=>call.resource==="events").length;
+  await page.evaluate(async()=>fetch("/__test/profile?connected=false"));
+  await page.getByRole("button",{name:"Actualiser"}).click();
+  await page.getByRole("button",{name:"Autoriser LoSP avec Scopely"}).waitFor();
+  assert.equal(apiCalls.filter(call=>call.resource==="events").length,eventsBeforeDisconnect,`${browserName} disconnect triggers no additional personal event requests`);
+  await page.evaluate(async()=>fetch("/__test/profile?namespace="+"c".repeat(64)+"&connected=true"));
+  await page.getByRole("button",{name:"Actualiser"}).click();
+  await page.locator(".planner-event-card").first().waitFor();
+  assert.ok(await page.evaluate(()=>Object.keys(localStorage).includes("losp-event-planner-v1:"+"a".repeat(64))),`${browserName} previous account preferences remain partitioned`);
   failEvents=true;
   await page.getByRole("tab",{name:"Événements"}).click();
   await page.getByRole("button",{name:"Actualiser"}).click();
@@ -189,7 +227,7 @@ try{
   await page.getByText("event-list-unavailable",{exact:true}).waitFor();
   assert.doesNotMatch(await page.locator(".planner-diagnostic").textContent(),/private-test-token|Bearer/);
   assert.ok(apiCalls.some(call=>call.resource==="roster"));
-  assert.ok(apiCalls.some(call=>call.resource==="inventory"&&call.itemType==="CONSUMABLE"));
+  assert.ok(apiCalls.some(call=>call.resource==="inventory"&&call.itemType==="CONSUMABLE"&&call.lang==="fr"));
   assert.ok(apiCalls.filter(call=>call.resource==="detail").length>=2);
   assert.deepEqual(runtimeErrors,[],`${browserName} page errors`);
   assert.equal(consoleErrors.length,2,`${browserName} simulated provider responses`);

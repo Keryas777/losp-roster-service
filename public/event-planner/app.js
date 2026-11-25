@@ -6,10 +6,11 @@ const $=id=>document.getElementById(id);
 const API="/admin/api/event-planner";
 const CATALOG_BASE="https://keryas777.github.io/msf/data/";
 const STORAGE_KEY="losp-event-planner-v1";
+const SESSION_NAMESPACE_RX=/^[a-f0-9]{64}$/;
 const number=new Intl.NumberFormat("fr-FR");
 const date=new Intl.DateTimeFormat("fr-FR",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit",timeZone:"Europe/Paris"});
 const syncDate=new Intl.DateTimeFormat("fr-FR",{dateStyle:"medium",timeStyle:"short",timeZone:"Europe/Paris"});
-const state={eventsEn:[],eventsFr:[],calendarEvents:[],eligibleEventIds:null,calendarError:null,roster:null,characters:[],inventory:null,inventoryReason:null,inventoryTypes:{},skipped:new Set(),stock:{},history:[],details:new Map(),rewardDetails:new Map(),selectedId:null,analysis:null,observations:[],drafts:{},tab:"events",loadingStock:false,refreshing:false,detailLoading:false,listScrollY:0,initialEventId:(()=>{const id=new URLSearchParams(location.search).get("eventId");return id&&/^[A-Za-z0-9_.:-]{1,160}$/.test(id)?id:null;})()};
+const state={eventsEn:[],eventsFr:[],calendarEvents:[],eligibleEventIds:null,calendarError:null,roster:null,characters:[],resourceCatalog:[],storageNamespace:null,inventory:null,inventoryReason:null,inventoryTypes:{},skipped:new Set(),stock:{},history:[],details:new Map(),rewardDetails:new Map(),selectedId:null,analysis:null,observations:[],drafts:{},tab:"events",loadingStock:false,refreshing:false,detailLoading:false,listScrollY:0,initialEventId:(()=>{const id=new URLSearchParams(location.search).get("eventId");return id&&/^[A-Za-z0-9_.:-]{1,160}$/.test(id)?id:null;})()};
 
 function el(tag,cls,text){const node=document.createElement(tag);if(cls)node.className=cls;if(text!==undefined&&text!==null)node.textContent=String(text);return node;}
 function fmt(value){return value==null?"Données indisponibles":number.format(value);}
@@ -54,17 +55,26 @@ async function api(params){
   if(!response.ok){const error=new Error(body.error||"request-failed");error.status=response.status;error.body=body;throw error;}
   return body;
 }
-function loadLocal(){
+function loadLocal(namespace){
+  if(!SESSION_NAMESPACE_RX.test(String(namespace||"")))return;
+  state.storageNamespace=namespace;
   try{
-    const saved=JSON.parse(localStorage.getItem(STORAGE_KEY)||"{}");
+    const saved=JSON.parse(localStorage.getItem(STORAGE_KEY+":"+namespace)||"{}");
     if(Array.isArray(saved.skipped))state.skipped=new Set(saved.skipped.filter(id=>typeof id==="string"));
     if(saved.stock&&typeof saved.stock==="object"&&!Array.isArray(saved.stock))state.stock=saved.stock;
     if(Array.isArray(saved.history))state.history=saved.history.slice(-500);
   }catch{state.skipped=new Set();state.stock={};state.history=[];}
 }
 function saveLocal(){
-  try{localStorage.setItem(STORAGE_KEY,JSON.stringify({skipped:[...state.skipped],stock:state.stock,history:state.history.slice(-500)}));}
+  if(!state.storageNamespace||!SESSION_NAMESPACE_RX.test(state.storageNamespace))return;
+  try{localStorage.setItem(STORAGE_KEY+":"+state.storageNamespace,JSON.stringify({skipped:[...state.skipped],stock:state.stock,history:state.history.slice(-500)}));}
   catch{banner("Les réglages locaux ne peuvent pas être enregistrés dans ce navigateur.","warning");}
+}
+function clearPersonalState(){
+  state.storageNamespace=null;state.eventsEn=[];state.eventsFr=[];state.roster=null;state.inventory=null;state.inventoryReason=null;state.inventoryTypes={};
+  state.skipped=new Set();state.stock={};state.history=[];state.details.clear();state.rewardDetails.clear();
+  state.selectedId=null;state.analysis=null;state.observations=[];state.drafts={};state.initialEventId=null;
+  $("selected-event").hidden=true;$("event-list-view").hidden=false;
 }
 function banner(message,kind="warning"){
   const box=el("p",kind,message);$("connection").replaceChildren(box);
@@ -78,6 +88,7 @@ async function loadCatalog(){
   const load=async path=>{const response=await fetch(CATALOG_BASE+path,{cache:"force-cache",mode:"cors"});if(!response.ok)throw new Error("catalog-unavailable");return response.json();};
   try{
     const [catalog,traits,eventTraits]=await Promise.all([load("msf-characters.json"),load("dd-character-traits.json"),load("dd-event-character-traits.json")]);
+    try{const resourceData=await load("msf-resource-catalog.json");state.resourceCatalog=Array.isArray(resourceData?.items)?resourceData.items:[];}catch{state.resourceCatalog=[];}
     const regular=traits?.characters||{},special=eventTraits?.characters||{};
     state.characters=(Array.isArray(catalog)?catalog:[]).filter(item=>item?.id&&item.player_Character===true).map(item=>({
       id:item.id,nameEn:item.nameEn||item.nameKey||item.id,nameFr:item.nameFr||null,
@@ -470,15 +481,17 @@ function renderPlan(){
   metrics.append(metric("Score actuel",scoreKnown?`${fmt(score)} pts`:"Données indisponibles"));
   metrics.append(metric("Dernier palier terminé",event.completedTierKnown?fmt(event.currentTier):"Non confirmé"));
   metrics.append(metric("Temps de planification",`${fmt(plan.planDays)} jour${plan.planDays===1?"":"s"}`));
-  metrics.append(metric("Score sécurisé projeté",`${fmt(plan.secure.points)} pts`));summary.append(metrics);
-  summary.append(el("p","stock-note",`Provenance du score : ${scoreSource}. Le score projeté ajoute ${fmt(plan.secure.fromDoable)} pts d’actions gratuites identifiées et ${fmt(plan.secure.fromEnergy)} pts d’énergie disponible.`));
+  const projectionLabel=plan.secure.fromEnergy>0?"Projection conditionnelle · actions + énergie":"Projection gratuite conditionnelle";
+  metrics.append(metric(projectionLabel,`${fmt(plan.secure.points)} pts`));summary.append(metrics);
+  summary.append(el("p","stock-note",`Points acquis : ${scoreKnown?fmt(score):"données indisponibles"} pts · ${scoreSource}. La projection ajoute ${fmt(plan.secure.fromDoable)} pts d’actions gratuites identifiées et ${fmt(plan.secure.fromEnergy)} pts d’énergie disponible; ces gains restent conditionnels aux actions réalisables avant la fin.`));
   if(nextTier){
     const missing=Math.max(0,nextTier.goal-score),progress=Math.max(0,Math.min(100,score/nextTier.goal*100));
     const progressWrap=el("div","plan-progress-wrap");progressWrap.append(el("p","",`Palier ${nextTier.tier} · ${fmt(nextTier.goal)} points`));
     const track=el("div","plan-progress-track");track.setAttribute("role","progressbar");track.setAttribute("aria-label",`Progression vers le palier ${nextTier.tier}`);track.setAttribute("aria-valuemin","0");track.setAttribute("aria-valuemax",String(nextTier.goal));track.setAttribute("aria-valuenow",String(Math.min(score,nextTier.goal)));
     const fill=el("span");fill.style.width=`${progress}%`;track.append(fill);progressWrap.append(track);
     const label=el("div","plan-progress-label");label.append(el("span","",`${fmt(score)} / ${fmt(nextTier.goal)} pts`),el("strong","",`${fmt(missing)} pts manquants`));progressWrap.append(label);
-    if(scoreKnown){const pace=Math.ceil(missing/Math.max(1,plan.planDays));progressWrap.append(el("p","row-detail",`Rythme moyen à obtenir : ${fmt(pace)} points par jour avant la fin.`));}
+    if(scoreKnown){const projectedMissing=Math.max(0,nextTier.goal-plan.secure.points);const pace=Math.ceil(projectedMissing/Math.max(1,plan.planDays));
+      progressWrap.append(el("p","row-detail",projectedMissing?`Après la projection gratuite, il resterait ${fmt(projectedMissing)} points à obtenir (environ ${fmt(pace)} par jour).`:"La projection gratuite couvre le seuil; elle reste conditionnelle à la réalisation des actions identifiées."));}
     else progressWrap.append(el("p","row-detail","Le rythme quotidien reste indisponible tant que le score actuel n’est pas confirmé."));
     if(nextTier.rewards?.length){const rewards=el("div","plan-rewards");for(const reward of nextTier.rewards){const item=el("span","plan-reward");addSafeImage(item,reward.icon,"reward-icon");item.append(el("span","",`${fmt(reward.quantity)} ${reward.name}`));rewards.append(item);}progressWrap.append(rewards);}
     summary.append(progressWrap);
@@ -493,8 +506,9 @@ function renderPlan(){
     const stepUnknown=uncertain||Number(step.uncovered||0)>0;
     const ready=!stepUnknown&&(step.coveredByLevers||step.verdict==="feasible");
     const potential=!ready&&!stepUnknown&&(step.verdict==="need"||step.verdict==="short"||step.spends?.length||step.shortfall?.length);
-    const stateKey=ready?"ready":potential?"potential":"unknown";
-    const status=ready?"Atteignable avec les données connues":potential?"Potentiel · ressources à réunir":"Faisabilité inconnue";
+    const uncovered=Number(step.uncovered||0)>0;
+    const stateKey=ready?"ready":uncovered?"unknown":potential?"potential":"unknown";
+    const status=ready?"Atteignable avec les données connues":uncovered?"Points non couverts · action non identifiée":potential?"Potentiel · ressources à réunir":"Faisabilité inconnue";
     const box=el("article","plan-tier"),head=el("div","plan-tier-head");head.append(el("strong","",`Palier ${step.tier} · ${fmt(step.goal)} pts`),el("span","plan-tier-state plan-tier-state--"+stateKey,status));box.append(head);
     box.append(el("p","",`${fmt(step.missing)} points manquent après les actions gratuites identifiées.`));
     if(step.leverPoints)box.append(el("p","",`Le roster peut apporter jusqu’à ${fmt(step.leverPoints)} pts par les améliorations listées.`));
@@ -519,45 +533,113 @@ function renderPlan(){
 function resourceLabel(key){return RESOURCES[key]?.label?.fr||key;}
 function resourceForItemId(id){return Object.values(RESOURCES).find(resource=>resource.itemId===id)||null;}
 function inventoryItemName(item,id){
+  const record=state.resourceCatalog.find(entry=>entry.id===id);
+  if(record?.names?.fr)return record.names.fr;
   const resource=resourceForItemId(id);
   if(resource?.names?.fr)return resource.names.fr;
   if(resource?.label?.fr)return resource.label.fr;
   return "Ressource sans libellé français dans le référentiel";
 }
+function inventoryCatalogItem(id){return state.resourceCatalog.find(entry=>entry.id===id)||null;}
+function safeInventoryIcon(item,id){
+  const url=item?.icon||item?.item?.icon||inventoryCatalogItem(id)?.icon;
+  return typeof url==="string"&&/^https:\/\/assets\.marvelstrikeforce\.com\//i.test(url)?url:null;
+}
+function inventoryQuantityText(item){
+  if(!item||!Object.hasOwn(item,"quantity")||item.quantity===null||item.quantity===undefined)return "Non communiqué";
+  const quantity=Number(item.quantity);
+  return Number.isFinite(quantity)?fmt(quantity):"Non communiqué";
+}
+function inventoryAllRows(){
+  const rows=[];
+  for(const [type,snapshot] of Object.entries(state.inventoryTypes)){
+    for(const item of snapshot?.rows||[]){const id=inventoryItemId(item);if(id)rows.push({type,item,id});}
+  }
+  return rows;
+}
+function renderInventoryItemRow(row,{priority=false}={}){
+  const {item,id,type}=row,record=inventoryCatalogItem(id),line=el("div","inventory-row"+(priority?" inventory-row--priority":""));
+  const icon=safeInventoryIcon(item,id);
+  if(icon){const image=el("img","inventory-icon");image.src=icon;image.alt="";image.loading="lazy";line.append(image);}
+  else line.append(el("span","inventory-icon inventory-icon--empty","◈"));
+  const copy=el("div");copy.append(el("strong","inventory-name",inventoryItemName(item,id)));
+  copy.append(el("span","inventory-source",priority?"Inventaire synchronisé Scopely":(record?.categoryLabelFr||(type==="ISOITEM"?"Objet ISO-8 synchronisé":"Objet synchronisé Scopely"))));
+  const technical=el("details","inventory-technical");technical.append(el("summary","","Diagnostic"),el("code","",id));copy.append(technical);
+  line.append(copy,el("strong","inventory-quantity",inventoryQuantityText(item)));return line;
+}
 function renderSyncedInventory(){
-  const target=$("synced-inventory");target.replaceChildren();
-  if(!state.inventory){target.append(el("p","warning",`Inventaire non disponible${state.inventoryReason?" · "+errorText(state.inventoryReason):""}. Les quantités restent inconnues.`));return;}
-  let count=0;const query=String($("inventory-search")?.value||"").trim().toLocaleLowerCase("fr");
-  const familyFilter=$("inventory-family")?.value||"all",typeNames={CONSUMABLE:"Consommables",ISOITEM:"ISO-8"};
+  const target=$("synced-inventory"),priority=$("inventory-priority"),matrix=$("inventory-iso-matrix");
+  target.replaceChildren();priority.replaceChildren();matrix.replaceChildren();
+  if(!state.inventory){
+    target.append(el("p","warning",`Inventaire non disponible${state.inventoryReason?" · "+errorText(state.inventoryReason):""}. Les quantités restent inconnues.`));
+    priority.append(el("p","muted","Aucune quantité synchronisée disponible; aucune valeur n’est remplacée par zéro."));
+    matrix.append(el("p","muted","Matrice ISO-8 indisponible sans définitions de cristaux vérifiées."));return;
+  }
+  const rows=inventoryAllRows(),byId=new Map(rows.map(row=>[row.id,row]));
+  const groups={gold:"Or",cores:"Noyaux d’énergie",training:"Modules d’entraînement",iso8Ions:"Ions ISO-8"};
+  const priorities=state.resourceCatalog.filter(item=>item.priority===true).sort((a,b)=>(a.sortOrder||99)-(b.sortOrder||99));
+  if(!priorities.length)priority.append(el("p","warning","Le référentiel central des ressources prioritaires n’est pas disponible."));
+  for(const groupKey of Object.keys(groups)){
+    const items=priorities.filter(item=>item.group===groupKey);if(!items.length)continue;
+    const section=el("section","inventory-summary-group"),heading=el("h4","",groups[groupKey]),list=el("div","inventory-priority-list");
+    section.append(heading);
+    for(const record of items){
+      const row=byId.get(record.id);
+      if(row)list.append(renderInventoryItemRow(row,{priority:true}));
+      else{
+        const unknown=el("div","inventory-row inventory-row--priority");
+        if(record.icon){const icon=el("img","inventory-icon");icon.src=record.icon;icon.alt="";icon.loading="lazy";unknown.append(icon);}
+        else unknown.append(el("span","inventory-icon inventory-icon--empty","◈"));
+        const copy=el("div");copy.append(el("strong","inventory-name",record.names?.fr||"Ressource sans libellé français"));
+        copy.append(el("span","inventory-source","Non communiqué dans la réponse Scopely"));
+        const diagnostic=el("details","inventory-technical");diagnostic.append(el("summary","","Diagnostic"),el("code","",record.id));copy.append(diagnostic);
+        unknown.append(copy,el("strong","inventory-quantity","Non communiqué"));list.append(unknown);
+      }
+    }
+    section.append(list);priority.append(section);
+  }
+  const isoRows=rows.filter(row=>row.type==="ISOITEM");
+  const crystals=state.resourceCatalog.filter(item=>item.iso8Crystal&&item.iso8Crystal.colour&&item.iso8Crystal.level&&item.iso8Crystal.class&&item.iso8Crystal.stat);
+  if(crystals.length){
+    for(const colour of [...new Set(crystals.map(item=>item.iso8Crystal.colour))]){
+      const details=el("details","iso-matrix-group");details.open=false;details.append(el("summary","",colour+" · matrice des cristaux"));
+      const table=el("table","iso-matrix"),head=el("tr");for(const label of ["Niveau","Classe","Statistique","Quantité"])head.append(el("th","",label));
+      const thead=el("thead");thead.append(head);const tbody=el("tbody");
+      for(const record of crystals.filter(item=>item.iso8Crystal.colour===colour)){
+        const line=el("tr");
+        for(const value of [record.iso8Crystal.level,record.iso8Crystal.class,record.iso8Crystal.stat,byId.has(record.id)?inventoryQuantityText(byId.get(record.id).item):"Non communiqué"])line.append(el("td","",value));
+        tbody.append(line);
+      }
+      table.append(thead,tbody);details.append(table);matrix.append(details);
+    }
+  }else{
+    matrix.append(el("h4","","Cristaux ISO-8 · détail par couleur, niveau, classe et statistique"));
+    matrix.append(el("p","muted",`Matrice indisponible : aucune définition publique archivée ne relie de façon vérifiée les identifiants de cristaux à leur couleur, niveau, classe et statistique. ${fmt(isoRows.length)} objets ISO-8 restent consultables dans le tableau compact; les ions sont présentés séparément.`));
+  }
+  const query=String($("inventory-search")?.value||"").trim().toLocaleLowerCase("fr");
+  const familyFilter=$("inventory-family")?.value||"all",typeNames={CONSUMABLE:"Consommables synchronisés",ISOITEM:"Objets ISO-8 synchronisés"};
+  let count=0;
   for(const type of ["CONSUMABLE","ISOITEM"]){
-    const snapshot=state.inventoryTypes[type]||{rows:[],error:null},rows=Array.isArray(snapshot.rows)?snapshot.rows:[];
-    count+=rows.length;if(familyFilter!=="all"&&familyFilter!==type)continue;
-    const section=el("details","inventory-type inventory-family");section.open=rows.length<=8;
-    const summary=el("summary","inventory-family-summary");
-    summary.append(el("strong","",`${typeNames[type]} · ${fmt(rows.length)} objets`));
-    const verified=snapshot.retrievedAt?syncDate.format(new Date(snapshot.retrievedAt)):"date inconnue";
-    summary.append(el("span","inventory-family-date",`Synchronisé ${verified}${snapshot.unchanged?" · inchangé":""}`));section.append(summary);
+    const snapshot=state.inventoryTypes[type]||{rows:[],error:null},items=Array.isArray(snapshot.rows)?snapshot.rows:[];
+    count+=items.length;if(familyFilter!=="all"&&familyFilter!==type)continue;
+    const section=el("details","inventory-type inventory-family");section.open=items.length<=8;
+    const summary=el("summary","inventory-family-summary"),verified=snapshot.retrievedAt?syncDate.format(new Date(snapshot.retrievedAt)):"date inconnue";
+    summary.append(el("strong","",`${typeNames[type]} · ${fmt(items.length)} objets`),el("span","inventory-family-date",`Synchronisé ${verified}${snapshot.unchanged?" · inchangé":""}`));section.append(summary);
     if(snapshot.error){section.append(el("p","warning",errorText(snapshot.error)));target.append(section);continue;}
     if(snapshot.refreshError)section.append(el("p","warning",`Actualisation échouée; dernier inventaire conservé. ${errorText(snapshot.refreshError)}`));
-    const filtered=rows.filter(item=>{if(!query)return true;const id=inventoryItemId(item)||"",name=inventoryItemName(item,id);return `${name} ${id}`.toLocaleLowerCase("fr").includes(query);});
-    if(!filtered.length){section.append(el("p","muted",rows.length?"Aucun objet ne correspond à la recherche.":"Scopely a renvoyé 0 objet dans cette famille."));target.append(section);continue;}
-    const list=el("div","inventory-list");
-    for(const item of filtered){
-      const id=inventoryItemId(item),quantity=Number(item?.quantity),row=el("article","inventory-row"),icon=item?.icon||item?.item?.icon;
-      if(typeof icon==="string"&&/^https:\/\/assets\.marvelstrikeforce\.com\//i.test(icon)){const img=el("img","inventory-icon");img.src=icon;img.alt="";img.loading="lazy";row.append(img);}
-      else row.append(el("span","inventory-icon inventory-icon--empty","◈"));
-      const copy=el("div");copy.append(el("strong","inventory-name",inventoryItemName(item,id)));
-      const resource=resourceForItemId(id);copy.append(el("span","inventory-source",resource?`Synchronisé · utilisé dans le plan (${resource.label?.fr||resource.names?.fr||resource.key})`:"Synchronisé Scopely · libellé français à compléter dans le référentiel"));
-      if(id){const technical=el("details","inventory-technical");technical.append(el("summary","","Référence technique"),el("code","",id));copy.append(technical);}
-      row.append(copy,el("strong","inventory-quantity",Number.isFinite(quantity)?fmt(quantity):"Quantité indisponible"));list.append(row);
-    }
-    section.append(list);target.append(section);
+    const filtered=items.map(item=>({type,item,id:inventoryItemId(item)})).filter(row=>{
+      const label=inventoryItemName(row.item,row.id||"").toLocaleLowerCase("fr");
+      const category=String(inventoryCatalogItem(row.id)?.categoryLabelFr||"").toLocaleLowerCase("fr");
+      return !query||label.includes(query)||category.includes(query);
+    });
+    if(!filtered.length)section.append(el("p","muted",items.length?"Aucun objet ne correspond à la recherche.":"Scopely a renvoyé 0 objet dans cette famille."));
+    else{const list=el("div","inventory-list");for(const row of filtered)list.append(renderInventoryItemRow(row));section.append(list);}
+    target.append(section);
   }
   if(!target.childElementCount)target.append(el("p","muted","Aucune famille d’inventaire ne correspond au filtre."));
   const dates=Object.values(state.inventoryTypes).map(item=>item?.retrievedAt).filter(Boolean).map(Date.parse).filter(Number.isFinite);
   const latest=dates.length?new Date(Math.max(...dates)):null;
-  $("inventory-sync-status").textContent=latest?`${fmt(count)} objets reçus · dernière vérification ${syncDate.format(latest)}. Une absence de la réponse ne vaut pas zéro.`:
-    "Aucun horodatage de synchronisation n’est disponible dans la réponse Scopely.";
+  $("inventory-sync-status").textContent=latest?`${fmt(count)} objets reçus · dernière synchronisation ${syncDate.format(latest)}. Une absence de la réponse ne vaut pas zéro.`:"Aucun horodatage de synchronisation n’est disponible dans la réponse Scopely.";
 }
 function renderStock(){
   renderSyncedInventory();
@@ -602,9 +684,10 @@ async function refreshLedger(){
   }finally{state.loadingStock=false;renderStock();}
 }
 async function refreshInventory(){
+  if(!state.storageNamespace)return;
   const button=$("refresh-inventory");button.disabled=true;$("inventory-sync-status").textContent="Actualisation des deux familles d’inventaire…";
   try{
-    const safe=async itemType=>{try{return await api({resource:"inventory",itemType,refresh:"1"});}catch(error){return {error};}};
+    const safe=async itemType=>{try{return await api({resource:"inventory",itemType,lang:"fr",refresh:"1"});}catch(error){return {error};}};
     const [consumables,isoitems]=await Promise.all([safe("CONSUMABLE"),safe("ISOITEM")]);
     installInventoryResult("CONSUMABLE",consumables);installInventoryResult("ISOITEM",isoitems);
     const hasKnown=Object.values(state.inventoryTypes).some(item=>Array.isArray(item.rows)&&!item.error);
@@ -643,12 +726,19 @@ async function loadOverview(forceRefresh=false){
   if(forceRefresh){state.details.clear();state.rewardDetails.clear();}
   $("refresh").disabled=true;$("event-count").textContent="Chargement des événements personnels…";
   const session=await api({resource:"status"}).catch(error=>({status:"disconnected",reason:error?.body?.reason||error?.body?.error||"session-unavailable"}));
-  renderConnection(session);if(session.status!=="connected"){state.refreshing=false;$("refresh").disabled=false;return;}
+  const namespace=typeof session.storageNamespace==="string"&&SESSION_NAMESPACE_RX.test(session.storageNamespace)?session.storageNamespace:null;
+  if(session.status!=="connected"||!namespace){
+    clearPersonalState();renderConnection(session);renderEvents();
+    if(state.tab==="objectives")renderObjectives();if(state.tab==="plan")renderPlan();if(state.tab==="stock")renderStock();
+    state.refreshing=false;$("refresh").disabled=false;return;
+  }
+  if(state.storageNamespace!==namespace){clearPersonalState();loadLocal(namespace);}
+  renderConnection(session);
   const fetchSafe=async params=>{try{return await api({...params,...(forceRefresh?{refresh:"1"}:{})});}catch(error){return {error};}};
   const [english,french,roster,consumables,isoitems,catalogResult]=await Promise.all([
     fetchSafe({resource:"events",lang:"en"}),fetchSafe({resource:"events",lang:"fr"}),
-    fetchSafe({resource:"roster",lang:"fr"}),fetchSafe({resource:"inventory",itemType:"CONSUMABLE"}),
-    fetchSafe({resource:"inventory",itemType:"ISOITEM"}),Promise.all([loadCatalog(),loadCalendar()]).then(()=>({ok:true}))
+    fetchSafe({resource:"roster",lang:"fr"}),fetchSafe({resource:"inventory",itemType:"CONSUMABLE",lang:"fr"}),
+    fetchSafe({resource:"inventory",itemType:"ISOITEM",lang:"fr"}),Promise.all([loadCatalog(),loadCalendar()]).then(()=>({ok:true}))
   ]);
   if(english.error){banner("Les événements personnels sont indisponibles · "+errorText(english.error),"error");$("event-count").textContent="Événements indisponibles";$("events-list").replaceChildren(el("p","warning","La session est active, mais Scopely n’a pas fourni la liste."),renderDiagnostic(english.error));state.refreshing=false;$("refresh").disabled=false;return;}
   state.eventsEn=Array.isArray(english.data)?english.data:[];state.eventsFr=Array.isArray(french.data)?french.data:[];

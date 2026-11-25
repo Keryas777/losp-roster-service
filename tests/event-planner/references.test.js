@@ -6,25 +6,27 @@ import { planEvent } from '../../public/event-planner/lib/plan.js';
 const NOW = 1_800_000_000;
 const DAY = 86_400;
 
-test('Faim mutante reference: a synthetic near-threshold projection does not claim tier 18', () => {
-  // Synthetic aggregate values; no player response or roster is stored in this fixture.
+test('Faim mutante exact reference: acquired 65,300 + conditional free projection 29,600 = 94,900; tier 18 stays 100 points uncovered', () => {
+  // Synthetic aggregate values only; no personal Scopely response or roster is stored.
   const plan = planEvent({
-    event: { points: 5_500, currentTier: 12, endTime: NOW + 7 * DAY },
-    actions: [{ index: 0, kind: 'free', status: 'doable', doablePoints: 3_990 }],
+    event: { points: 65_300, currentTier: 12, endTime: NOW + 6 * DAY },
+    actions: [{ index: 0, kind: 'free', status: 'doable', doablePoints: 29_600 }],
     tiers: [
-      { tier: 13, goal: 7_000 },
-      { tier: 18, goal: 9_500 },
-      { tier: 19, goal: 10_000 },
-      { tier: 20, goal: 10_500 }
+      { tier: 13, goal: 70_000 },
+      { tier: 18, goal: 95_000 },
+      { tier: 19, goal: 100_000 },
+      { tier: 20, goal: 105_000 }
     ],
     levers: [],
     uncappedResources: []
   }, { now: NOW });
 
-  assert.deepEqual(plan.secure, { points: 9_490, tier: 13, fromDoable: 3_990, fromEnergy: 0 });
+  assert.deepEqual(plan.secure, { points: 94_900, tier: 13, fromDoable: 29_600, fromEnergy: 0 });
+  assert.equal(plan.secure.points - plan.secure.fromDoable, 65_300, 'the acquired score stays separate');
   const tier18 = plan.steps.find((step) => step.tier === 18);
-  assert.equal(tier18.missing, 10);
-  assert.equal(tier18.uncovered, 10);
+  assert.equal(tier18.missing, 100);
+  assert.equal(tier18.uncovered, 100);
+  assert.notEqual(tier18.verdict, 'feasible');
 });
 
 test('Sang, gloire et fortune reference: French public objectives label the analyzed actions', () => {

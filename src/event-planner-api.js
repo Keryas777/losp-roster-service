@@ -17,6 +17,11 @@ function sessionId(request){
   const id=rows[0].slice(COOKIE.length+1);
   return COOKIE_RX.test(id)?id:null;
 }
+async function localStorageNamespace(id){
+  if(!id)return null;
+  const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode("losp-event-planner-local-v1:"+id));
+  return [...new Uint8Array(digest)].map(value=>value.toString(16).padStart(2,"0")).join("");
+}
 export async function handleEventPlannerApi(request,env,fetchImpl=fetch,now=Date.now()){
   const access=await eventPlannerAccessStatus(request,env,fetchImpl);
   if(access!=="allowed")return eventPlannerAccessResponse(access);
@@ -26,18 +31,18 @@ export async function handleEventPlannerApi(request,env,fetchImpl=fetch,now=Date
   const resource=url.searchParams.get("resource");
   const allowed=resource==="status"?new Set(["resource"]):resource==="events"?new Set(["resource","lang","refresh"]):
     resource==="detail"?new Set(["resource","lang","eventId","refresh"]):resource==="roster"?new Set(["resource","lang","refresh"]):
-    resource==="inventory"?new Set(["resource","itemType","refresh"]):null;
+    resource==="inventory"?new Set(["resource","itemType","lang","refresh"]):null;
   if(!allowed||[...url.searchParams.keys()].some(key=>!allowed.has(key)))return json({error:"invalid-request"},400);
   const id=sessionId(request);
   const grant=await getPersonalEventGrant(request,env,null);
   if(grant.error)return json({status:"disconnected",reason:grant.error},grant.status);
   const granted=new Set((grant.scope||"").split(/\s+/).filter(Boolean));
-  if(resource==="status")return json({status:"connected",scopes:[...granted]});
+  if(resource==="status")return json({status:"connected",scopes:[...granted],storageNamespace:await localStorageNamespace(id)});
   const lang=url.searchParams.get("lang")||"fr";
   const eventId=url.searchParams.get("eventId");
   const itemType=url.searchParams.get("itemType");
   const refresh=url.searchParams.get("refresh")==="1";
-  if(["events","detail","roster"].includes(resource)&&!['en','fr'].includes(lang))return json({error:"invalid-request"},400);
+  if(["events","detail","roster","inventory"].includes(resource)&&!['en','fr'].includes(lang))return json({error:"invalid-request"},400);
   if(resource==="detail"&&(!eventId||!/^[A-Za-z0-9_-]{1,128}$/.test(eventId)))return json({error:"invalid-request"},400);
   if(resource==="inventory"&&!['CONSUMABLE','ISOITEM'].includes(itemType))return json({error:"invalid-request"},400);
   if([...url.searchParams.keys()].some(key=>key==="refresh")&&!refresh)return json({error:"invalid-request"},400);

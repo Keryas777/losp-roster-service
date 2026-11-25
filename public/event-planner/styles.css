@@ -209,3 +209,25 @@ footer a{color:var(--muted)}
 .inventory-technical code{display:block;overflow-wrap:anywhere;font-size:10px}
 @media(min-width:610px){.inventory-controls{grid-template-columns:auto minmax(200px,1fr) auto minmax(160px,.5fr);align-items:center}}
 @media(max-width:390px){.objective-group-summary{gap:5px}.objective-group-portrait{width:38px;height:38px;flex-basis:38px}.inventory-family .inventory-row{grid-template-columns:28px minmax(0,1fr) auto;gap:5px}.inventory-family .inventory-icon{width:26px;height:26px}}
+
+/* Stock prioritaire : aperçu compact, valeurs absentes distinctes de zéro. */
+.inventory-summary-group{margin:.55rem 0;padding:.55rem;border:1px solid var(--border);border-radius:10px;background:var(--panel2)}
+.inventory-summary-group h4{margin:0 0 .45rem;font-size:12px}
+.inventory-priority-list{display:grid;gap:4px}
+.inventory-row--priority{grid-template-columns:28px minmax(0,1fr) auto;gap:7px;padding:5px 7px;border-radius:8px}
+.inventory-row--priority .inventory-icon{width:26px;height:26px}
+.inventory-row--priority .inventory-name{font-size:12px}
+.inventory-row--priority .inventory-quantity{font-size:13px}
+.inventory-family-summary{position:sticky;top:0;z-index:1;background:var(--panel)}
+.inventory-list{gap:3px}
+.inventory-row{grid-template-columns:26px minmax(0,1fr) auto;gap:6px;padding:5px 7px;border-radius:8px}
+.inventory-icon{width:24px;height:24px}
+.inventory-source{font-size:9px}
+.inventory-technical{font-size:10px}
+.inventory-technical summary{cursor:pointer;color:var(--muted)}
+.inventory-technical code{display:block;overflow-wrap:anywhere}
+.inventory-iso-matrix{margin:.7rem 0;padding:.65rem;border:1px solid var(--border);border-radius:10px;background:var(--panel)}
+.iso-matrix-group{margin:.4rem 0}
+.iso-matrix{width:100%;border-collapse:collapse;font-size:11px}
+.iso-matrix th,.iso-matrix td{padding:4px;border-bottom:1px solid var(--border);text-align:left}
+@media(min-width:610px){.inventory-priority-list{grid-template-columns:repeat(2,minmax(0,1fr))}.inventory-summary-group{padding:.7rem}}

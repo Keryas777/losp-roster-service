@@ -133,7 +133,7 @@ async function loadResource(input,fetchImpl){
   }
   if(resource==="inventory"){
     const previousAsOf=input.previous?.upstream?.asOf;
-    const result=await fetchPaged(input.token,"/player/v1/inventory",{itemType,lang:"none",...(previousAsOf?{since:previousAsOf}:{})},fetchImpl,20);
+    const result=await fetchPaged(input.token,"/player/v1/inventory",{itemType,lang,...(previousAsOf?{since:previousAsOf}:{})},fetchImpl,20);
     if(result.error)return result;
     if(result.unchanged){
       if(!Array.isArray(input.previous?.data))return {error:"invalid-provider-response",status:344,calls:result.calls};

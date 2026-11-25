@@ -32,6 +32,19 @@ test("anonymous and cross-origin reads are denied before provider access",async(
   assert.equal(cross.status,403);assert.equal(f.calls.length,0);
 });
 
+test("status exposes an opaque per-session namespace without credentials",async()=>{
+  const f=setup(()=>{throw Error("status must not query Scopely");});
+  const first=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=status"),f.env);
+  const firstBody=await first.json();
+  assert.equal(first.status,200);assert.match(firstBody.storageNamespace,/^[a-f0-9]{64}$/);
+  assert.doesNotMatch(JSON.stringify(firstBody),new RegExp(ID));
+  assert.doesNotMatch(JSON.stringify(firstBody),/private-test-token|Bearer|accessToken/i);
+  const otherCookie="__Host-losp_captain_session="+"b".repeat(43);
+  const second=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=status",ORIGIN,otherCookie),f.env);
+  assert.notEqual((await second.json()).storageNamespace,firstBody.storageNamespace);
+  assert.equal(f.calls.length,0);
+});
+
 test("missing roster scope is explicit and makes no Scopely request",async()=>{
   const f=setup(()=>{throw Error("provider must not be reached");},"openid m3p.f.pr.act");
   const response=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=roster"),f.env);
@@ -96,8 +109,9 @@ test("inventory type is allowlisted and explicit missing items are not synthesiz
     assert.equal(parsed.searchParams.get("itemType"),"CONSUMABLE");
     return payload([{item:"CONSUMABLE_GOLD",quantity:0}],{perTotal:1});
   });
-  const response=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=inventory&itemType=CONSUMABLE"),f.env);
+  const response=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=inventory&itemType=CONSUMABLE&lang=fr"),f.env);
   const body=await response.json();assert.equal(body.data[0].quantity,0);
+  assert.equal(f.calls[0].url.searchParams.get("lang"),"fr");
   const bad=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=inventory&itemType=PLAYER"),f.env);
   assert.equal(bad.status,400);assert.equal(f.calls.length,1);
 });
@@ -105,13 +119,13 @@ test("inventory type is allowlisted and explicit missing items are not synthesiz
 test("inventory refresh paginates and reuses the last complete list on Scopely 344",async()=>{
   let call=0;
   const f=setup(async url=>{
-    const parsed=new URL(url);assert.equal(parsed.searchParams.get("itemType"),"CONSUMABLE");
+    const parsed=new URL(url);assert.equal(parsed.searchParams.get("itemType"),"CONSUMABLE");assert.equal(parsed.searchParams.get("lang"),"fr");
     if(call++===0){assert.equal(parsed.searchParams.get("page"),"1");assert.equal(parsed.searchParams.get("perPage"),"100");
       return payload([{item:"SC",quantity:25}],{perTotal:1,asOf:"inventory-v1"});}
     assert.equal(parsed.searchParams.get("since"),"inventory-v1");
     return new Response(null,{status:344});
   });
-  const path="/admin/api/event-planner?resource=inventory&itemType=CONSUMABLE";
+  const path="/admin/api/event-planner?resource=inventory&itemType=CONSUMABLE&lang=fr";
   const first=await handleEventPlannerApi(f.request(path),f.env,accessFetcher,10_000);
   assert.equal((await first.json()).data[0].quantity,25);
   const second=await handleEventPlannerApi(f.request(path+"&refresh=1"),f.env,accessFetcher,310_001);
