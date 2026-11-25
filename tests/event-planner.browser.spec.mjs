@@ -119,7 +119,7 @@ try{
   await page.getByRole("heading",{name:"Événement planifié"}).waitFor();
   assert.equal(await page.locator("#plan-event-name").textContent(),"Événement de test Maddoxx");
   await page.getByRole("progressbar",{name:"Progression vers le palier 2"}).waitFor();
-  await page.getByText("Potentiel · ressources à réunir").waitFor();
+  await page.getByText("Faisabilité inconnue",{exact:true}).waitFor();
   assert.equal(await page.locator("#plan-view").getByText("Atteignable avec les données connues",{exact:true}).count(),0,
     `${browserName} must not mark a tier attainable when the required resource is absent`);
   await page.getByRole("button",{name:"Retour à la fiche"}).click();
