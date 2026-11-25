@@ -78,7 +78,7 @@ try{
   page.on("console",message=>{if(message.type()==="error")consoleErrors.push(message.text());});
   await page.route("https://keryas777.github.io/msf/data/**",route=>{
     const url=route.request().url();let body;
-    if(url.endsWith("msf-characters.json"))body=[{id:"CaptainAmerica",nameKey:"Captain America",nameEn:"Captain America",nameFr:"Captain America",portraitUrl:null,player_Character:true}];
+    if(url.endsWith("msf-characters.json"))body=[{id:"CaptainAmerica",nameKey:"Captain America",nameEn:"Captain America",nameFr:"Captain America",portraitUrl:art,player_Character:true}];
     else if(url.endsWith("dd-character-traits.json"))body={characters:{CaptainAmerica:["Avenger"]}};
     else if(url.endsWith("evenements-snapshot.json"))body=snapshot;
     else body={characters:{}};
