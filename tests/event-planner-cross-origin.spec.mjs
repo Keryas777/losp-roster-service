@@ -15,7 +15,7 @@ let topLevelCookie=null,directFetchCookie=null,apiTicketHeader=null,preflight=fa
 const browser=await browserType.launch({headless:true});
 try{
   const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:390,height:844}});
-  await context.addCookies([{name:cookieName,value:"SYNTHETIC_CAPTAIN_SESSION_ONLY",url:workerOrigin,path:"/",secure:true,httpOnly:true,sameSite:"Lax"}]);
+  await context.addCookies([{name:cookieName,value:"SYNTHETIC_CAPTAIN_SESSION_ONLY",url:workerOrigin,secure:true,httpOnly:true,sameSite:"Lax"}]);
   await context.route(pagesOrigin+"/msf/planner-auth-proof.html",route=>route.fulfill({status:200,contentType:"text/html",body:`<!doctype html><html><body>
     <button id="open">Ouvrir le service sécurisé</button>
     <script>
