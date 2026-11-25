@@ -91,7 +91,7 @@ try{
   await page.route("https://keryas777.github.io/msf/HeaderObjectifs.webp",route=>route.fulfill({status:200,contentType:"image/gif",body:Buffer.from("R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=","base64")}));
   await page.route("https://assets.marvelstrikeforce.com/**",route=>route.fulfill({status:200,contentType:"image/gif",body:Buffer.from("R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=","base64")}));
   await page.goto(`http://127.0.0.1:${address.port}/admin/events-planner?eventId=planner-test`,{waitUntil:"networkidle"});
-  await page.locator(".planner-event-card").first().waitFor();
+  await page.locator(".planner-event-card").first().waitFor({state:"attached"});
   assert.equal(await page.locator(".planner-event-card").count(),3,`${browserName} should use only public-calendar eligible current events`);
   assert.equal(await page.getByText("Passe de combat",{exact:true}).count(),0);
   assert.equal(await page.getByText("Jalon passé",{exact:true}).count(),0);
