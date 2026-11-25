@@ -134,20 +134,32 @@ try{
   await page.locator("#skipped-list").getByText("Campagne de test").waitFor();
   await page.locator('#skipped-list button[data-action="restore"][data-event-id="campaign-test"]').click();
   assert.equal(await page.locator(".planner-event-card").count(),3,`${browserName} skipped event restored`);
+  const widthChecks={};
+  const checkMobileWidths=async tabName=>{
+    widthChecks[tabName]=[];
+    for(const viewportWidth of [320,360,390,430]){
+      await page.setViewportSize({width:viewportWidth,height:844});
+      await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>resolve())));
+      const metrics=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth}));
+      widthChecks[tabName].push({viewportWidth,...metrics});
+      assert.ok(metrics.scroll<=metrics.client+1,`horizontal overflow on ${browserName} in ${tabName} at ${viewportWidth}px: ${JSON.stringify(metrics)}`);
+    }
+    await page.setViewportSize({width:390,height:844});
+  };
   const capture=async name=>{if(captureScreenshots)await page.screenshot({path:resolve("artifacts","planner-tabs",`${browserName}-${name}.png`),fullPage:true});};
   await page.getByRole("tab",{name:"Événements"}).click();
-  await page.locator("#panel-events").waitFor({state:"visible"});await capture("evenements");
+  await page.locator("#panel-events").waitFor({state:"visible"});await checkMobileWidths("Événements");await capture("evenements");
   await page.getByRole("tab",{name:"Objectifs"}).click();
   await page.locator("#objectives-view .objective-group").first().waitFor();
   await page.locator("#objectives-view").getByText("Connexion quotidienne",{exact:true}).first().waitFor();
   await page.locator("#objectives-view").getByText("Progression : données indisponibles",{exact:true}).first().waitFor();
   await page.locator("#objectives-view").getByText("7/8 étoiles jaunes · 1 supplémentaire(s) nécessaire(s)",{exact:true}).first().waitFor();
   assert.equal(await page.locator("#objectives-view .objective-group-portrait").count(),1,`${browserName} multiple objectives share one character portrait`);
-  await page.locator("#objectives-view [role=progressbar]").first().waitFor();await capture("objectifs");
+  await page.locator("#objectives-view [role=progressbar]").first().waitFor();await checkMobileWidths("Objectifs");await capture("objectifs");
   await page.getByRole("tab",{name:"Planifier"}).click();
-  await page.getByRole("heading",{name:"Événement planifié"}).waitFor();await capture("planifier");
+  await page.getByRole("heading",{name:"Événement planifié"}).waitFor();await checkMobileWidths("Planifier");await capture("planifier");
   await page.getByRole("tab",{name:"Mon stock"}).click();
-  await page.getByRole("heading",{name:"Inventaire synchronisé Scopely"}).waitFor();await capture("mon-stock");
+  await page.getByRole("heading",{name:"Inventaire synchronisé Scopely"}).waitFor();await checkMobileWidths("Mon stock");await capture("mon-stock");
   await page.locator(".inventory-quantity").filter({hasText:"0"}).first().waitFor();
   assert.equal(await page.locator(".inventory-technical").count(),3,`${browserName} inventory IDs are hidden in expandable diagnostics`);
   await page.getByText("Quantité indisponible",{exact:true}).waitFor();
@@ -161,15 +173,7 @@ try{
   await page.locator("#stock-view").getByRole("button",{name:"Enregistrer la déclaration"}).waitFor();
   await page.getByRole("button",{name:"Actualiser l’inventaire"}).click();
   assert.ok(apiCalls.filter(call=>call.resource==="inventory").length>=4,`${browserName} refresh reads both inventory families`);
-  const widthChecks=[];
-  for(const viewportWidth of [320,360,390,430]){
-    await page.setViewportSize({width:viewportWidth,height:844});
-    const metrics=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth}));
-    widthChecks.push({viewportWidth,...metrics});
-    assert.ok(metrics.scroll<=metrics.client+1,`horizontal overflow on ${browserName} at ${viewportWidth}px: ${JSON.stringify(metrics)}`);
-  }
-  await page.setViewportSize({width:390,height:844});
-  const width=widthChecks.find(item=>item.viewportWidth===390);
+  const width=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth}));
   assert.ok((await page.locator("#tab-events").getAttribute("class")).includes("ev-stat"));
   assert.deepEqual(consoleErrors,[],`${browserName} console errors before simulated provider failure`);
   failEvents=true;
