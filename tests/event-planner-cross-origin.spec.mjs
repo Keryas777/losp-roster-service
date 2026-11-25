@@ -17,7 +17,7 @@ try{
   const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:390,height:844}});
   await context.addCookies([{name:cookieName,value:"SYNTHETIC_CAPTAIN_SESSION_ONLY",url:workerOrigin,secure:true,httpOnly:true,sameSite:"Lax"}]);
   await context.route(pagesOrigin+"/msf/planner-auth-proof.html",route=>route.fulfill({status:200,contentType:"text/html",body:`<!doctype html><html><body>
-    <a id="open" href="${workerOrigin}/admin/planner-ticket-proof" target="_blank">Ouvrir le service sécurisé</a>
+    <a id="open" href="${workerOrigin}/admin/planner-ticket-proof" target="_blank" rel="opener">Ouvrir le service sécurisé</a>
     <script>
       const workerOrigin=${JSON.stringify(workerOrigin)},apiUrl=${JSON.stringify(apiUrl)},pagesOrigin=${JSON.stringify(pagesOrigin)};
       window.__proof={};
@@ -70,6 +70,7 @@ try{
   const popupOpened=page.waitForEvent("popup");
   await page.getByRole("link",{name:"Ouvrir le service sécurisé"}).click();
   const popup=await popupOpened;await popup.waitForLoadState("load");
+  assert.equal(await popup.evaluate(()=>Boolean(window.opener)),true,`${browserName}: opener is explicitly retained for the one-time-ticket proof`);
   assert.ok(topLevelCookie?.includes(cookieName+"="),`${browserName}: first-party Worker navigation receives its host-only session cookie`);
   await page.waitForFunction(()=>window.__proof?.ticketRequestStatus!==undefined||window.__proof?.ticketError!==undefined);
   assert.equal(preflight,true,`${browserName}: exact-origin CORS preflight ran for the custom ticket header`);
