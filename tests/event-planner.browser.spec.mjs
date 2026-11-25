@@ -151,7 +151,9 @@ try{
   await page.locator("#panel-events").waitFor({state:"visible"});await checkMobileWidths("Événements");await capture("evenements");
   await page.getByRole("tab",{name:"Objectifs"}).click();
   await page.locator("#objectives-view .objective-group").first().waitFor();
-  await page.locator("#objectives-view").getByText("Connexion quotidienne",{exact:true}).first().waitFor();
+  const loginObjective=page.locator("#objectives-view").getByText("Connexion quotidienne",{exact:true}).first();
+  if(!(await loginObjective.isVisible()))await page.locator("#objectives-view .objective-completed-summary").first().click();
+  await loginObjective.waitFor();
   await page.locator("#objectives-view").getByText("Progression : données indisponibles",{exact:true}).first().waitFor();
   await page.locator("#objectives-view").getByText("7/8 étoiles jaunes · 1 supplémentaire(s) nécessaire(s)",{exact:true}).first().waitFor();
   assert.equal(await page.locator("#objectives-view .objective-group-portrait").count(),1,`${browserName} multiple objectives share one character portrait`);
