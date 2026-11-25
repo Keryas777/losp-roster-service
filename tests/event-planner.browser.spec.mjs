@@ -161,8 +161,15 @@ try{
   await page.locator("#stock-view").getByRole("button",{name:"Enregistrer la déclaration"}).waitFor();
   await page.getByRole("button",{name:"Actualiser l’inventaire"}).click();
   assert.ok(apiCalls.filter(call=>call.resource==="inventory").length>=4,`${browserName} refresh reads both inventory families`);
-  const width=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth}));
-  assert.ok(width.scroll<=width.client+1,`horizontal overflow on ${browserName}: ${JSON.stringify(width)}`);
+  const widthChecks=[];
+  for(const viewportWidth of [320,360,390,430]){
+    await page.setViewportSize({width:viewportWidth,height:844});
+    const metrics=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth}));
+    widthChecks.push({viewportWidth,...metrics});
+    assert.ok(metrics.scroll<=metrics.client+1,`horizontal overflow on ${browserName} at ${viewportWidth}px: ${JSON.stringify(metrics)}`);
+  }
+  await page.setViewportSize({width:390,height:844});
+  const width=widthChecks.find(item=>item.viewportWidth===390);
   assert.ok((await page.locator("#tab-events").getAttribute("class")).includes("ev-stat"));
   assert.deepEqual(consoleErrors,[],`${browserName} console errors before simulated provider failure`);
   failEvents=true;
