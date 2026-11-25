@@ -662,7 +662,7 @@ async function loadOverview(forceRefresh=false){
     const requestedId=state.initialEventId;state.initialEventId=null;
     const requested=activeEvents().find(event=>String(event.id)===requestedId&&!state.skipped.has(requestedId));
     if(requested)showSelected(requested.id);
-    else banner("Cet événement ne figure pas dans le calendrier LoSP actif ou est ignoré. Aucune fiche personnelle supplémentaire n’a été demandée.","warning");
+    else{const notice=el("p","warning","Cet événement ne figure pas dans le calendrier LoSP actif ou est ignoré. Aucune fiche personnelle supplémentaire n’a été demandée.");notice.setAttribute("role","status");$("events-list").prepend(notice);}
   }else if(state.selectedId&&state.tab==="events")showSelected(state.selectedId);
   if(state.calendarError)banner("Le catalogue de présentation LoSP est indisponible : les événements personnels non filtrés sont masqués.","warning");
   if(state.characters.length===0)banner("Catalogue de personnages indisponible. Les objectifs restent visibles, mais les noms ou traits non résolus ne seront pas évalués.","warning");
