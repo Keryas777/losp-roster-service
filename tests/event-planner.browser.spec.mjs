@@ -181,7 +181,7 @@ try{
   await page.getByText("Module d’entraînement N4",{exact:true}).waitFor();
   await page.getByText("Matrice indisponible : aucune définition publique archivée",{exact:false}).waitFor();
   await page.locator("#inventory-search").fill("libellé français");
-  assert.equal(await page.locator(".inventory-row").count(),1,`${browserName} inventory search uses the French fallback, not technical identifiers`);
+  assert.equal(await page.locator("#synced-inventory .inventory-row").count(),1,`${browserName} inventory search uses the French fallback, not technical identifiers`);
   await page.locator("#inventory-search").fill("");
   await page.locator("#inventory-family").selectOption("ISOITEM");
   assert.equal(await page.locator("#synced-inventory .inventory-row").count(),2,`${browserName} inventory family filter works`);

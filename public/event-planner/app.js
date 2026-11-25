@@ -455,9 +455,10 @@ function renderObjectives(){
   if(analysis.event.progressState==="partial")target.append(el("p","warning",fmt(analysis.event.reportedActionPoints)+" points de compteurs sont lisibles, mais au moins un compteur manque : le total et les paliers restent inconnus."));
 }
 function resourcePlanLabel(item){
-  const names=(item.resources||[item.resource]).filter(Boolean).map(key=>RESOURCES[key]?.label?.fr||key).join(" / ");
+  const names=(item.resources||[item.resource]).filter(Boolean).map(key=>RESOURCES[key]?.label?.fr||"ressource non identifiée").join(" / ");
   return `${fmt(item.units)} ${names}${item.perDay?` · ${fmt(item.perDay)} par jour`:""}${item.points?` · ${fmt(item.points)} pts`:""}`;
 }
+function upgradeKindLabel(kind){return ({yellowStars:"étoiles jaunes",redStars:"étoiles rouges",gearTier:"palier d’équipement",level:"niveau",iso8:"ISO-8"})[kind]||"amélioration du personnage";}
 function renderPlan(){
   const target=$("plan-view");target.replaceChildren();const analysis=state.analysis;
   const selected=state.selectedId&&(localizedCalendarEvent(state.selectedId,"fr")||localizedCalendarEvent(state.selectedId,"en")||activeEvents().find(item=>String(item.id)===String(state.selectedId)));
@@ -524,13 +525,13 @@ function renderPlan(){
   const actionable=analysis.actions.filter(action=>action.status!=="done");
   if(!actionable.length)actions.append(el("p","muted","Aucune action restante n’est reconnue dans les données de scoring."));
   else{const list=el("ul","action-list");for(const group of analysis.groups){const representative=analysis.actions.find(action=>group.actions.includes(action.index));if(representative)addActionRow(list,{...representative,status:group.status,fightsLeft:group.fightsLeft});}actions.append(list);}
-  if(plan.levers?.length){const list=el("ul","action-list");for(const lever of plan.levers){const row=el("li","action-row");addSafeImage(row,lever.character?.portrait,"character-portrait");row.append(el("span","action-row__copy",`${characterNameFr(lever.character)} · ${lever.kind} ${lever.from} → ${lever.to} · +${fmt(lever.points)} pts`));list.append(row);}actions.append(el("h4","","Améliorations de roster à envisager"),list);}
+  if(plan.levers?.length){const list=el("ul","action-list");for(const lever of plan.levers){const row=el("li","action-row");addSafeImage(row,lever.character?.portrait,"character-portrait");row.append(el("span","action-row__copy",`${characterNameFr(lever.character)} · ${upgradeKindLabel(lever.kind)} ${lever.from} → ${lever.to} · +${fmt(lever.points)} pts`));list.append(row);}actions.append(el("h4","","Améliorations de roster à envisager"),list);}
   target.append(actions);
   if(uncertain){const notes=[];if(event.progressState!=="available")notes.push("le score n’est pas un total Scopely confirmé");if(!Array.isArray(state.roster))notes.push("le roster est indisponible");if(analysis.unparsed.length)notes.push(`${analysis.unparsed.length} ligne(s) de scoring ne sont pas interprétées`);if(analysis.actions.some(action=>action.status==="unknown"))notes.push("certaines conditions restent inconnues");
     const warning=el("section","plan-warning-group");warning.append(el("strong","","À vérifier avant de viser un palier"));const list=el("ul");for(const note of notes)list.append(el("li","",note));warning.append(list);target.append(warning);}
   if(analysis.offRoster.length){const outside=el("section","panel-card");outside.append(el("h3","","Objectifs hors roster connu"));for(const item of analysis.offRoster)outside.append(el("p","row-detail",`${item.label&&item.label!==item.labelEn?item.label:"Action supplémentaire hors roster · détail français indisponible"} · ${fmt(item.points)} pts`));target.append(outside);}
 }
-function resourceLabel(key){return RESOURCES[key]?.label?.fr||key;}
+function resourceLabel(key){return RESOURCES[key]?.label?.fr||"Ressource non identifiée";}
 function resourceForItemId(id){return Object.values(RESOURCES).find(resource=>resource.itemId===id)||null;}
 function inventoryItemName(item,id){
   const record=state.resourceCatalog.find(entry=>entry.id===id);
@@ -665,7 +666,10 @@ function renderStock(){
     card.append(row);root.append(card);
     if(apiValue===null){
       const itemId=RESOURCES[key]?.itemId,unavailable=el("article","unknown-resource-row");
-      unavailable.append(el("strong","",resourceLabel(key)),el("p","",saved?.source==="estimated"?`Estimation Maddoxx : ${fmt(saved.value)}. L’objet ${itemId||"correspondant"} n’a pas été reçu dans les familles synchronisées; cette estimation n’est pas un inventaire Scopely.`:saved?.source==="declared"?`Scopely n’a pas renvoyé ${itemId||"cet objet"}. La déclaration manuelle (${fmt(saved.value)}) reste une donnée séparée.`:`Scopely n’a pas renvoyé ${itemId||"cet objet"} dans les familles CONSUMABLE / ISOITEM. Quantité inconnue, jamais ramenée à zéro.`));unknown.append(unavailable);
+      const message=saved?.source==="estimated"?`Estimation Maddoxx : ${fmt(saved.value)}. L’objet n’a pas été reçu dans les familles synchronisées; cette estimation n’est pas un inventaire Scopely.`:saved?.source==="declared"?`Scopely n’a pas renvoyé cette ressource. La déclaration manuelle (${fmt(saved.value)}) reste une donnée séparée.`:"Scopely n’a pas renvoyé cette ressource dans les familles d’inventaire synchronisées. Quantité inconnue, jamais ramenée à zéro.";
+      unavailable.append(el("strong","",resourceLabel(key)),el("p","",message));
+      if(itemId){const diagnostic=el("details","inventory-technical");diagnostic.append(el("summary","","Diagnostic"),el("code","",itemId));unavailable.append(diagnostic);}
+      unknown.append(unavailable);
     }
   }
   if(!used.length)unknown.append(el("p","muted","Aucune ressource de planification n’est identifiée pour les événements en cours."));
