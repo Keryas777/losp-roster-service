@@ -736,7 +736,7 @@ async function loadOverview(forceRefresh=false){
     if(state.tab==="objectives")renderObjectives();if(state.tab==="plan")renderPlan();if(state.tab==="stock")renderStock();
     state.refreshing=false;$("refresh").disabled=false;return;
   }
-  if(state.storageNamespace!==namespace){clearPersonalState();loadLocal(namespace);}
+  if(state.storageNamespace!==namespace){const requestedEventId=state.initialEventId;clearPersonalState();state.initialEventId=requestedEventId;loadLocal(namespace);}
   renderConnection(session);
   const fetchSafe=async params=>{try{return await api({...params,...(forceRefresh?{refresh:"1"}:{})});}catch(error){return {error};}};
   const [english,french,roster,consumables,isoitems,catalogResult]=await Promise.all([
