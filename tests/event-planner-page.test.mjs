@@ -38,7 +38,7 @@ test("planner shell requires owner Access and an existing captain session before
   const noCaptain=await handleEventPlannerPage(new Request(ORIGIN+"/admin/events-planner",{
     headers:{"Cf-Access-Jwt-Assertion":OWNER_JWT}}),f.env,accessFetch());
   assert.equal(noCaptain.status,200);
-  const noCaptainText=await noCaptain.text();assert.match(noCaptainText,/Aucun compte MSF n’est connecté/);assert.doesNotMatch(noCaptainText,/Scopely|OAuth|jeton/i);
+  const noCaptainText=await noCaptain.text();assert.match(noCaptainText,/Aucun compte MSF n’est connecté/);assert.match(noCaptainText,/<title>Planificateur d’événements LoSP<\/title>/);assert.doesNotMatch(noCaptainText,/Scopely|OAuth|jeton/i);
   assert.match(noCaptainText,/admin\/login\/captain\?returnTo=events-planner/);
   assert.equal(f.assetCalls(),0);
   assert.equal(noCaptain.headers.get("Cache-Control"),"private, no-store, max-age=0");
