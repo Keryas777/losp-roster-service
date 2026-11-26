@@ -79,7 +79,7 @@ test("an unknown ISO class level does not become level zero or create an upgrade
   const absentActiveLevel=[{...roster[0],iso8:{active:"raider"}}];
   const noAssignedClass=[{...roster[0],iso8:{active:"raider",raider:0}}];
   const eventWithIso=event({points:0,completedTier:0,claimableTiers:[]},0);
-  eventWithIso.milestone.scoring.methods=[{description:"Upgrade any character to ISO 8",points:100}];
+  eventWithIso.milestone.scoring.methods=[{description:"Upgrade any character to T4 Level 3 Iso-8",points:100}];
   for(const entries of [noActiveClass,absentActiveLevel]){
     const result=analyzeMilestoneEvent({eventEn:eventWithIso,eventFr:eventWithIso,roster:entries,characters,now:1_900_000_000});
     assert.equal(result.levers.some(lever=>lever.kind==="iso"),false);
