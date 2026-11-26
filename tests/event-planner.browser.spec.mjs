@@ -106,7 +106,7 @@ try{
   assert.equal(await page.getByText("Passe de combat",{exact:true}).count(),0);
   assert.equal(await page.getByText("Jalon passé",{exact:true}).count(),0);
   assert.equal(await page.getByText("First S.T.R.I.K.E.",{exact:true}).count(),0);
-  try{await page.locator("#selected-event h2").filter({hasText:"Événement de test Maddoxx"}).waitFor({timeout:8000});}catch(error){console.error("DETAIL_RENDER_DIAGNOSTIC",JSON.stringify({runtimeErrors,consoleErrors,apiCalls,selected:await page.locator("#selected-event").innerText().catch(()=>""),status:await page.locator("#selected-event [role=status]").innerText().catch(()=>""),eventCount:await page.locator("#event-count").innerText().catch(()=>""),events:await page.locator("#events-list").innerText().catch(()=>""),connection:await page.locator("#connection").innerText().catch(()=>""),url:page.url()}));throw error;}
+  await page.locator("#selected-event h2").filter({hasText:"Événement de test Maddoxx"}).waitFor();
   assert.equal(await page.locator("#event-list-view").isHidden(),true,`${browserName} direct eventId link opens the matching event fiche`);
   assert.deepEqual(apiCalls.filter(call=>call.resource==="detail").map(call=>call.eventId),["planner-test","planner-test"],`${browserName} direct link requests only the selected public-calendar event`);
   await page.locator(`#selected-event button[data-action="back-list"]`).click();
@@ -176,7 +176,7 @@ try{
   await page.getByRole("heading",{name:"Inventaire synchronisé Scopely"}).waitFor();await checkMobileWidths("Mon stock");await capture("mon-stock");
   await page.locator(".inventory-quantity").filter({hasText:"0"}).first().waitFor();
   assert.ok(await page.locator(".inventory-technical").count()>=4,`${browserName} item IDs are available only in expandable diagnostics`);
-  await page.getByText("Non communiqué",{exact:true}).waitFor();
+  assert.ok(await page.locator(".inventory-quantity").filter({hasText:"Non communiqué"}).count()>0,`${browserName} an absent inventory quantity stays explicitly unknown`);
   assert.equal(await page.getByText("English Technical Name",{exact:true}).count(),0,`${browserName} raw English inventory names are not presented as French`);
   await page.getByText("Module d’entraînement N4",{exact:true}).waitFor();
   await page.getByText("Matrice indisponible : aucune définition publique archivée",{exact:false}).waitFor();
