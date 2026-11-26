@@ -828,7 +828,8 @@ async function loadOverview(){
   const [french,roster,consumables,isoitems]=await Promise.all([
     personalApi({resource:"events",lang:"fr"}),personalApi({resource:"roster",lang:"fr"}),
     personalApi({resource:"inventory",itemType:"CONSUMABLE",lang:"fr"}),
-    personalApi({resource:"inventory",itemType:"ISOITEM",lang:"fr"})
+    personalApi({resource:"inventory",itemType:"ISOITEM",lang:"fr"}),
+    Promise.all([loadCatalog(),loadCalendar()])
   ]);
   if(french.error){banner("Les événements personnels sont indisponibles · "+errorText(french.error),"error");$("event-count").textContent="Événements indisponibles";$("events-list").replaceChildren(el("p","warning","La session est active, mais Scopely n’a pas fourni la liste."),renderDiagnostic(french.error));state.refreshing=false;$("refresh").disabled=false;return;}
   state.eventsFr=Array.isArray(french.data)?french.data:[];
