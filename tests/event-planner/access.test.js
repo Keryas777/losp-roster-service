@@ -47,7 +47,7 @@ test("owner sees the admin entry and can open the planner shell",async()=>{
   const shell=await withAccessFetch(()=>worker.fetch(request("/admin/events-planner",{jwt:OWNER_JWT}),f.env));
   assert.equal(shell.status,200);
   const shellText=await shell.text();
-  assert.match(shellText,/Aucune session Scopely active/);
+  assert.match(shellText,/Aucun compte MSF n’est connecté/);assert.doesNotMatch(shellText,/Scopely|OAuth|jeton/i);
   assert.match(shellText,/\/admin\/login\/captain\?returnTo=events-planner/);
   assert.equal(f.calls.sessions,0);assert.equal(f.calls.assets,0);assert.equal(f.calls.scopely,0);
 });
