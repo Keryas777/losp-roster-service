@@ -7,7 +7,7 @@ const HEADERS={"Cache-Control":"private, no-store, max-age=0","CDN-Cache-Control
   "Referrer-Policy":"no-referrer","Vary":"Cookie"};
 const json=(value,status=200)=>Response.json(value,{status,headers:HEADERS});
 const object=value=>value!==null&&typeof value==="object"&&!Array.isArray(value);
-const requiredScope={events:"m3p.f.pr.act",detail:"m3p.f.pr.act",roster:"m3p.f.pr.ros",inventory:"m3p.f.pr.inv"};
+const requiredScope={events:"m3p.f.pr.act",detail:"m3p.f.pr.act",inventory:"m3p.f.pr.inv"};
 function providerCode(body){
   const candidates=[body?.errorCode,body?.error_code,body?.code,
     body?.error,body?.error?.code,body?.error?.errorCode,
@@ -119,11 +119,6 @@ async function loadResource(input,fetchImpl){
     if(result.error)return result;
     return {data:result.data,calls:result.calls,asOf:result.asOf};
   }
-  if(resource==="roster"){
-    const result=await fetchPaged(input.token,"/player/v1/roster",{lang},fetchImpl,20);
-    if(result.error)return result;
-    return {data:result.data,calls:result.calls,asOf:result.asOf};
-  }
   if(resource==="detail"){
     const result=await providerGet(input.token,"/player/v1/events/"+encodeURIComponent(eventId),{lang,objRewards:"full"},fetchImpl);
     if(result.error)return result;
@@ -148,25 +143,18 @@ export async function handleEventPlannerCache(request,fetchImpl=fetch){
   if(request.method!=="POST"||new URL(request.url).pathname!=="/planner")return json({error:"not-found"},404);
   let input;try{input=await request.json();}catch{return json({error:"invalid-request"},400);}
   if(!object(input)||typeof input.token!=="string"||!input.token||!requiredScope[input.resource]||
-    input.lang!=="fr"&&['events','detail','roster','inventory'].includes(input.resource)||
+    input.lang!=="fr"&&['events','detail','inventory'].includes(input.resource)||
     input.resource==="detail"&&!/^[A-Za-z0-9_-]{1,128}$/.test(input.eventId||"")||
     input.resource==="inventory"&&!['CONSUMABLE','ISOITEM'].includes(input.itemType)||
-    typeof input.refresh!=="boolean"||input.cacheOnly!==undefined&&typeof input.cacheOnly!=="boolean"||
-    input.cacheOnly&&(input.resource!=="roster"||input.refresh))return json({error:"invalid-request"},400);
+    typeof input.refresh!=="boolean")return json({error:"invalid-request"},400);
   const suffix=input.resource==="detail"?input.eventId:input.resource==="inventory"?input.itemType:
-    ['events','roster'].includes(input.resource)?input.lang:"";
+    input.resource==="events"?input.lang:"";
   const slot="planner:"+[input.resource,suffix].filter(Boolean).join(":");
   this.inflight??=new Map();
   if(this.inflight.has(slot))return (await this.inflight.get(slot)).clone();
   const task=(async()=>{
     const now=Number.isSafeInteger(input.requestedAt)?input.requestedAt:Date.now();
     let cached=null;try{cached=await this.ctx.storage.get(slot);}catch{return json({error:"cache-unavailable"},503);}
-    if(input.cacheOnly){
-      if(cached&&Number.isSafeInteger(cached.expiresAt)&&cached.expiresAt>now&&
-        cached.response?.resource==="roster"&&Array.isArray(cached.response.data))
-        return json({...cached.response,cache:{hit:true,expiresAt:new Date(cached.expiresAt).toISOString()}});
-      return json({error:"cache-miss",calls:0},404);
-    }
     if(cached&&Number.isSafeInteger(cached.expiresAt)&&cached.expiresAt>now&&!input.refresh)
       return json({...cached.response,cache:{hit:true,expiresAt:new Date(cached.expiresAt).toISOString()}});
     const loaded=await loadResource({...input,previous:cached?.response},fetchImpl);

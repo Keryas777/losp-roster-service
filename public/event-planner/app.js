@@ -6,6 +6,7 @@ import { commandCenterFeeders, commandCenterPeriodLabel, isCommandCenterFeeder, 
 const $=id=>document.getElementById(id);
 const API="/admin/api/event-planner";
 const CATALOG_BASE="https://keryas777.github.io/msf/data/";
+const RESOURCE_CATALOG_URL="/admin/events-planner/data/msf-resource-catalog.json";
 const STORAGE_KEY="losp-event-planner-v1";
 const DETAIL_BUDGET_KEY="losp-event-planner-phase1-detail-attempted";
 const SESSION_NAMESPACE_RX=/^[a-f0-9]{64}$/;
@@ -95,15 +96,23 @@ function scrollImmediately(top){
 }
 async function loadCatalog(){
   const load=async path=>{const response=await fetch(CATALOG_BASE+path,{cache:"force-cache",mode:"cors"});if(!response.ok)throw new Error("catalog-unavailable");return response.json();};
+  const loadResourceCatalog=async()=>{
+    const response=await fetch(RESOURCE_CATALOG_URL,{credentials:"same-origin",cache:"no-store",headers:{Accept:"application/json"}});
+    if(!response.ok)throw new Error("catalog-unavailable");
+    return response.json();
+  };
   try{
-    const [catalog,traits,eventTraits]=await Promise.all([load("msf-characters.json"),load("dd-character-traits.json"),load("dd-event-character-traits.json")]);
-    try{const resourceData=await load("msf-resource-catalog.json");state.resourceCatalog=Array.isArray(resourceData?.items)?resourceData.items:[];}catch{state.resourceCatalog=[];}
+    const [catalog,traits,eventTraits,resourceData]=await Promise.all([
+      load("msf-characters.json"),load("dd-character-traits.json"),load("dd-event-character-traits.json"),
+      loadResourceCatalog().catch(()=>({items:[]}))
+    ]);
+    state.resourceCatalog=Array.isArray(resourceData?.items)?resourceData.items:[];
     const regular=traits?.characters||{},special=eventTraits?.characters||{};
     state.characters=(Array.isArray(catalog)?catalog:[]).filter(item=>item?.id&&item.player_Character===true).map(item=>({
       id:item.id,nameEn:item.nameEn||item.nameKey||item.id,nameFr:item.nameFr||null,
       portrait:item.portraitUrl||null,traits:[...new Set([...(regular[item.id]||[]),...(special[item.id]||[])])]
     }));
-  }catch{state.characters=[];}
+  }catch{state.characters=[];state.resourceCatalog=[];}
 }
 async function loadCalendar(){
   try{

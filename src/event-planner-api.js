@@ -1,5 +1,6 @@
 // Same-origin, session-bound routes for on-demand Maddoxx planner data.
 import { captainSessionKey } from "./captain-vault.js";
+import { readConnectedPersonalRoster } from "./connected-personal-rosters.js";
 import { getPersonalEventGrant } from "./personal-event-progress.js";
 import {eventPlannerAccessStatus,eventPlannerAccessResponse} from "./event-planner-auth.js";
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
@@ -48,14 +49,25 @@ export async function handleEventPlannerApi(request,env,fetchImpl=fetch,now=Date
   if([...url.searchParams.keys()].some(key=>key==="refresh")&&!refresh)return json({error:"invalid-request"},400);
   const scope=requiredScope[resource];
   if(!granted.has(scope))return json({error:"scope-insufficient",requiredScope:scope},403);
-  if(!id||!env?.PERSONAL_EVENT_CACHE?.idFromName||!env?.PERSONAL_EVENT_CACHE?.get)return json({error:"not-configured"},503);
+  if(!id)return json({error:"not-configured"},503);
+  if(resource==="roster"){
+    if(!env?.CAPTAIN_BUCKET?.get)return json({error:"not-configured"},503);
+    let saved;
+    try{saved=await readConnectedPersonalRoster(env,await captainSessionKey(id),now);}
+    catch{return json({error:"cache-unavailable",calls:0},503);}
+    if(!saved)return json({error:"cache-miss",calls:0},404);
+    return json({status:"ok",resource,lang,retrievedAt:saved.capturedAt,
+      cache:{hit:true,expiresAt:saved.expiresAt},
+      upstream:{calls:0,asOf:saved.asOf??null},
+      data:saved.characters});
+  }
+  if(!env?.PERSONAL_EVENT_CACHE?.idFromName||!env?.PERSONAL_EVENT_CACHE?.get)return json({error:"not-configured"},503);
   const key=await captainSessionKey(id);
   const stub=env.PERSONAL_EVENT_CACHE.get(env.PERSONAL_EVENT_CACHE.idFromName(key));
   try{
     const response=await stub.fetch(new Request("https://personal-event-cache.internal/planner",{
       method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({token:grant.accessToken,resource,lang,eventId,itemType,refresh,
-        cacheOnly:resource==="roster",requestedAt:now})
+      body:JSON.stringify({token:grant.accessToken,resource,lang,eventId,itemType,refresh,requestedAt:now})
     }));
     return new Response(response.body,{status:response.status,headers:HEADERS});
   }catch{return json({error:"service-unavailable"},503);}

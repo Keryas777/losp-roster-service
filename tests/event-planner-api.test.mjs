@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {handleEventPlannerApi} from "../src/event-planner-api.js";
 import {PersonalEventProgressCache} from "../src/personal-event-progress.js";
+import {captainSessionKey} from "../src/captain-vault.js";
 
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const OWNER_JWT=await accessJwt(ACCESS_OWNER);
@@ -11,16 +12,16 @@ const ID="a".repeat(43),COOKIE="__Host-losp_captain_session="+ID;
 const ALL_SCOPES="openid m3p.f.pr.pro m3p.f.pr.ros m3p.f.pr.inv m3p.f.pr.act offline";
 const event={id:"event-1",type:"milestone",milestone:{scoring:{methods:[]},brackets:[]}};
 function setup(provider,scope=ALL_SCOPES){
-  const values=new Map(),calls=[];
+  const values=new Map(),rosterValues=new Map(),calls=[];
   const storage={get:async key=>values.get(key),put:async(key,value)=>values.set(key,value)};
-  const object=new PersonalEventProgressCache({storage},{});
+  const object=new PersonalEventProgressCache({storage},{});let internalCalls=0;
   const env={EVENT_PLANNER_ENABLED:"true",PERSONAL_EVENT_LAB_ADMIN_EMAIL:ACCESS_OWNER,MSF_ADMIN_ENABLED:"true",
     CF_ACCESS_TEAM_DOMAIN:"planner-test.cloudflareaccess.com",CF_ACCESS_AUD:"a".repeat(32),MSF_ADMIN_EMAILS:ACCESS_OWNER,
-    CAPTAIN_SESSIONS_ENABLED:"true",CAPTAIN_ENCRYPTION_KEY_HEX:"a".repeat(64),CAPTAIN_BUCKET:{put(){},get(){},delete(){}},
+    CAPTAIN_SESSIONS_ENABLED:"true",CAPTAIN_ENCRYPTION_KEY_HEX:"a".repeat(64),CAPTAIN_BUCKET:{put(){},get:async key=>{const raw=rosterValues.get(key);return raw?{size:raw.length,text:async()=>raw}:null;},delete(){}},
     CAPTAIN_REFRESH_COORDINATOR:{idFromName:key=>key,get:()=>({fetch:async()=>Response.json({status:"active",scope,accessToken:"private-test-token"})})},
-    PERSONAL_EVENT_CACHE:{idFromName:key=>key,get:()=>({fetch:request=>object.fetch(request,async(url,options)=>{calls.push({url:new URL(url),options});return provider(url,options,calls);})})}};
+    PERSONAL_EVENT_CACHE:{idFromName:key=>key,get:()=>({fetch:request=>{internalCalls++;return object.fetch(request,async(url,options)=>{calls.push({url:new URL(url),options});return provider(url,options,calls);});}})}};
   const request=(path,origin=ORIGIN,cookie=COOKIE,access=true)=>new Request(ORIGIN+path,{headers:{...(access?{"Cf-Access-Jwt-Assertion":OWNER_JWT}:{}),...(origin?{Origin:origin}:{}),...(cookie?{Cookie:cookie}:{})}});
-  return {env,calls,request,values};
+  return {env,calls,request,values,rosterValues,get internalCalls(){return internalCalls;}};
 }
 const payload=(data,meta={})=>Response.json({data,meta:{page:1,perPage:100,perTotal:Array.isArray(data)?data.length:undefined,asOf:"version-1",...meta}});
 
@@ -70,23 +71,41 @@ test("planner rejects English personal reads outside the authorized French scope
   assert.equal(f.calls.length,0);
 });
 
-test("planner roster reads only the existing unexpired private cache",async()=>{
-  const f=setup(()=>{throw Error("roster must not be collected during planner validation");});
+test("planner reuses the existing consent-scoped private R2 roster without another collection",async()=>{
+  const f=setup(()=>{throw Error("the existing roster must be read without Scopely");});
   const now=Date.now(),data=[{id:"CaptainAmerica",level:90}];
-  f.values.set("planner:roster:fr",{expiresAt:now+60_000,response:{status:"ok",resource:"roster",lang:"fr",
-    retrievedAt:new Date(now).toISOString(),upstream:{calls:1},data}});
+  const key=await captainSessionKey(ID),session=key.slice("oauth-captains/v1/".length);
+  const path=`roster-batches/v1/connected-personal-rosters/${session}/latest.json`;
+  f.rosterValues.set(path,JSON.stringify({version:1,kind:"private-consented-personal-roster",session,
+    allianceFingerprint:"b".repeat(64),capturedAt:new Date(now-60_000).toISOString(),
+    expiresAt:new Date(now+60_000).toISOString(),asOf:"roster-v1",characters:data}));
   const response=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=roster&lang=fr"),f.env,accessFetcher,now);
   const body=await response.json();
   assert.equal(response.status,200);assert.deepEqual(body.data,data);assert.equal(body.cache.hit,true);
-  assert.equal(f.calls.length,0);
+  assert.equal(body.upstream.calls,0);assert.equal(body.upstream.asOf,"roster-v1");
+  assert.equal(f.calls.length,0);assert.equal(f.internalCalls,0);
 });
 
-test("planner roster cache miss and forced refresh never call Scopely",async()=>{
+test("planner rejects expired and session-mismatched private rosters",async()=>{
+  const f=setup(()=>{throw Error("expired or mismatched roster must not trigger collection");});
+  const now=Date.now(),key=await captainSessionKey(ID),session=key.slice("oauth-captains/v1/".length);
+  const path=`roster-batches/v1/connected-personal-rosters/${session}/latest.json`;
+  const request=()=>handleEventPlannerApi(f.request("/admin/api/event-planner?resource=roster&lang=fr"),f.env,accessFetcher,now);
+  const base={version:1,allianceFingerprint:"b".repeat(64),capturedAt:new Date(now-120_000).toISOString(),
+    characters:[{id:"CaptainAmerica",level:90}]};
+  f.rosterValues.set(path,JSON.stringify({...base,session,expiresAt:new Date(now-60_000).toISOString()}));
+  const expired=await request();assert.equal(expired.status,404);assert.equal((await expired.json()).error,"cache-miss");
+  f.rosterValues.set(path,JSON.stringify({...base,session:"f".repeat(64),expiresAt:new Date(now+60_000).toISOString()}));
+  const mismatched=await request();assert.equal(mismatched.status,404);assert.equal((await mismatched.json()).error,"cache-miss");
+  assert.equal(f.calls.length,0);assert.equal(f.internalCalls,0);
+});
+
+test("planner roster cache miss remains unknown and makes no collection or Durable Object request",async()=>{
   const f=setup(()=>{throw Error("roster must not be collected during planner validation");});
   const miss=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=roster&lang=fr"),f.env);
   assert.equal(miss.status,404);assert.equal((await miss.json()).error,"cache-miss");
   const forced=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=roster&lang=fr&refresh=1"),f.env);
-  assert.equal(forced.status,400);assert.equal(f.calls.length,0);
+  assert.equal(forced.status,400);assert.equal(f.calls.length,0);assert.equal(f.internalCalls,0);
 });
 
 test("event list follows Maddoxx's default first page and Scopely pagination metadata",async()=>{
@@ -130,11 +149,14 @@ test("nested event detail envelopes and the personal roster are unwrapped",async
   });
   const detail=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=detail&eventId=event-1&lang=fr"),f.env);
   assert.equal((await detail.json()).data.id,"event-1");
-  f.values.set("planner:roster:fr",{expiresAt:Date.now()+60_000,response:{status:"ok",resource:"roster",lang:"fr",
-    upstream:{calls:1},data:[{id:"CaptainAmerica",activeYellow:7}]}});
+  const key=await captainSessionKey(ID),session=key.slice("oauth-captains/v1/".length);
+  f.rosterValues.set(`roster-batches/v1/connected-personal-rosters/${session}/latest.json`,
+    JSON.stringify({version:1,session,allianceFingerprint:"c".repeat(64),
+      capturedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+60_000).toISOString(),
+      asOf:"roster-v1",characters:[{id:"CaptainAmerica",activeYellow:7}]}));
   const roster=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=roster&lang=fr"),f.env);
   assert.equal((await roster.json()).data[0].id,"CaptainAmerica");
-  assert.equal(f.calls.length,1);
+  assert.equal(f.calls.length,1);assert.equal(f.internalCalls,1);
 });
 
 test("inventory type is allowlisted and explicit missing items are not synthesized",async()=>{
