@@ -228,6 +228,13 @@ footer a{color:var(--muted)}
 .inventory-technical code{display:block;overflow-wrap:anywhere}
 .inventory-iso-matrix{margin:.7rem 0;padding:.65rem;border:1px solid var(--border);border-radius:10px;background:var(--panel)}
 .iso-matrix-group{margin:.4rem 0}
-.iso-matrix{width:100%;border-collapse:collapse;font-size:11px}
-.iso-matrix th,.iso-matrix td{padding:4px;border-bottom:1px solid var(--border);text-align:left}
+.iso-matrix-controls{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin:.5rem 0}
+.iso-matrix-select{min-height:2.4rem;max-width:9rem;padding:.35rem;color:var(--text);background:var(--panel);border:1px solid var(--border);border-radius:8px}
+.iso-matrix-scroll{width:100%;overflow-x:auto}
+.iso-matrix{width:100%;table-layout:fixed;border-collapse:collapse;font-size:10px}
+.iso-matrix th,.iso-matrix td{padding:4px 2px;border-bottom:1px solid var(--border);text-align:center;overflow-wrap:anywhere}
+.iso-matrix th:first-child,.iso-matrix td:first-child{width:21%;text-align:left}
+.iso-matrix-cell--unknown{color:var(--muted)}
+.iso-matrix-diagnostic{font-size:9px}
+.iso-matrix-diagnostic summary{cursor:pointer}
 @media(min-width:610px){.inventory-priority-list{grid-template-columns:repeat(2,minmax(0,1fr))}.inventory-summary-group{padding:.7rem}}
