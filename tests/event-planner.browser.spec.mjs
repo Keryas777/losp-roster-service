@@ -212,7 +212,7 @@ try{
   const eventsBeforeDisconnect=apiCalls.filter(call=>call.resource==="events").length;
   await page.evaluate(async()=>fetch("/__test/profile?connected=false"));
   await page.getByRole("button",{name:"Actualiser"}).click();
-  await page.getByRole("button",{name:"Autoriser LoSP avec Scopely"}).waitFor();
+  await page.getByRole("link",{name:"Autoriser LoSP avec Scopely"}).waitFor();
   assert.equal(apiCalls.filter(call=>call.resource==="events").length,eventsBeforeDisconnect,`${browserName} disconnect triggers no additional personal event requests`);
   await page.evaluate(async()=>fetch("/__test/profile?namespace="+"c".repeat(64)+"&connected=true"));
   await page.getByRole("button",{name:"Actualiser"}).click();
