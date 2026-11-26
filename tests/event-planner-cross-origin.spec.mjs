@@ -78,7 +78,7 @@ try{
   if(!popup)throw new Error(`${browserName}: named ticket window did not open; opener state ${JSON.stringify(await page.evaluate(()=>window.__proof))}`);
   await popup.waitForLoadState("load");
   assert.equal(await popup.evaluate(()=>Boolean(window.opener)),true,`${browserName}: opener is explicitly retained for the one-time-ticket proof`);
-  assert.ok(topLevelCookie?.includes(cookieName+"="),`${browserName}: first-party Worker navigation receives its host-only session cookie`);
+  assert.ok(topLevelCookie?.includes(cookieName+"="),`${browserName}: first-party Worker navigation receives its host-only session cookie; cookie jar ${JSON.stringify(await context.cookies(workerOrigin))}`);
   await page.waitForFunction(()=>window.__proof?.ticketRequestStatus!==undefined||window.__proof?.ticketError!==undefined);
   assert.equal(await page.evaluate(()=>window.__proof.ticketRequestStatus),200,`${browserName}: exact-origin ticket API request succeeds (${JSON.stringify(await page.evaluate(()=>window.__proof))})`);
   assert.equal(apiTicketHeader,ticket);
