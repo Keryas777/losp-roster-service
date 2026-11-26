@@ -576,15 +576,24 @@ function renderPlan(){
 }
 function resourceLabel(key){return RESOURCES[key]?.label?.fr||"Ressource non identifiée";}
 function resourceForItemId(id){return Object.values(RESOURCES).find(resource=>resource.itemId===id)||null;}
+function isoCrystalCatalogItem(id){
+  const parsed=parseIsoCrystalId(id);
+  if(parsed.status==="unknown")return null;
+  return {
+    id,names:{fr:`Cristal ISO-8 · ${parsed.characterClass} · ${parsed.tier} niveau ${parsed.level} · ${parsed.category}`},
+    categoryLabelFr:`Cristal ISO-8 · ${parsed.tier} · niveau ${parsed.level}`,
+    iso8Crystal:parsed,identificationStatus:parsed.status
+  };
+}
 function inventoryItemName(item,id){
-  const record=state.resourceCatalog.find(entry=>entry.id===id);
+  const record=state.resourceCatalog.find(entry=>entry.id===id)||isoCrystalCatalogItem(id);
   if(record?.names?.fr)return record.names.fr;
   const resource=resourceForItemId(id);
   if(resource?.names?.fr)return resource.names.fr;
   if(resource?.label?.fr)return resource.label.fr;
   return "Ressource sans libellé français dans le référentiel";
 }
-function inventoryCatalogItem(id){return state.resourceCatalog.find(entry=>entry.id===id)||null;}
+function inventoryCatalogItem(id){return state.resourceCatalog.find(entry=>entry.id===id)||isoCrystalCatalogItem(id);}
 function safeInventoryIcon(item,id){
   const url=item?.icon||item?.item?.icon||inventoryCatalogItem(id)?.icon;
   return typeof url==="string"&&/^https:\/\/assets\.marvelstrikeforce\.com\//i.test(url)?url:null;
