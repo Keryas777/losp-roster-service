@@ -65,9 +65,13 @@ export function buildIsoCrystalMatrix(items, tier = "P1", level = 1) {
     const id = typeof row?.id === "string" ? row.id.trim() : "";
     const parsed = parseIsoCrystalId(id);
     if (parsed.status === "unknown" || parsed.tier !== normalizedTier || parsed.level !== normalizedLevel) continue;
-    const quantity = Number.isSafeInteger(row.quantity) && row.quantity >= 0 ? row.quantity : null;
-    if (!byId.has(id)) byId.set(id, { parsed, quantity });
-    else if (byId.get(id).quantity !== quantity) conflicts.add(id);
+    const rawQuantity = row?.quantity;
+    const quantity = Number.isSafeInteger(rawQuantity) && rawQuantity >= 0 ? rawQuantity
+      : typeof rawQuantity === "string" && /^\\d+$/.test(rawQuantity.trim()) && Number.isSafeInteger(Number(rawQuantity))
+        ? Number(rawQuantity) : null;
+    const canonicalId = id.toUpperCase();
+    if (!byId.has(canonicalId)) byId.set(canonicalId, { parsed: { ...parsed, id }, quantity, id });
+    else if (byId.get(canonicalId).quantity !== quantity) conflicts.add(canonicalId);
   }
 
   const cells = {};
@@ -76,12 +80,12 @@ export function buildIsoCrystalMatrix(items, tier = "P1", level = 1) {
     for (const categoryCode of CATEGORY_ORDER) {
       const matches = [...byId.entries()].filter(([, entry]) =>
         entry.parsed.characterClassCode === classCode && entry.parsed.categoryCode === categoryCode);
-      const hasUnknownQuantity = matches.some(([id, entry]) => entry.quantity === null || conflicts.has(id));
+      const hasUnknownQuantity = matches.some(([key, entry]) => entry.quantity === null || conflicts.has(key));
       const quantity = matches.reduce((sum, [, entry]) => sum + (entry.quantity ?? 0), 0);
       cells[CHARACTER_CLASSES[classCode]][CRYSTAL_CATEGORIES[categoryCode]] = {
         state: matches.length && !hasUnknownQuantity ? "known" : "unknown",
         quantity: matches.length && !hasUnknownQuantity ? quantity : null,
-        ids: matches.map(([id]) => id),
+        ids: matches.map(([, entry]) => entry.id),
       };
     }
   }
@@ -95,5 +99,6 @@ export function buildIsoCrystalMatrix(items, tier = "P1", level = 1) {
     recognizedIds: byId.size,
     unknownIds: [...new Set(rows.map(row => typeof row?.id === "string" ? row.id.trim() : ""))]
       .filter(id => id && parseIsoCrystalId(id).status === "unknown"),
+    conflictingIds: [...conflicts].map(key => byId.get(key)?.id).filter(Boolean),
   };
 }
