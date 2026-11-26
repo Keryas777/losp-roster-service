@@ -179,6 +179,8 @@ try{
     `${browserName} showing command-center feeders reuses the existing event list without requesting feeder details`);
   await checkMobileWidths("Poste de commandement");await capture("poste-commandement");
   await page.locator('#selected-event button[data-action="back-list"]').click();
+  await page.locator('button[data-action="select"][data-event-id="planner-test"]').click();
+  await page.locator("#selected-event h2").filter({hasText:"Événement de test Maddoxx"}).waitFor();
   await page.getByRole("tab",{name:"Objectifs"}).click();
   await page.locator("#objectives-view .objective-group").first().waitFor();
   const loginObjective=page.locator("#objectives-view").getByText("Connexion quotidienne",{exact:true}).first();
