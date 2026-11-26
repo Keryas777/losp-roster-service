@@ -14,7 +14,7 @@ const ASSETS=new Set(["index.html","app.js","styles.css","data/msf-resource-cata
 ].map(file=>"lib/"+file)]);
 function page(html,status=200){return new Response(html,{status,headers:PAGE_HEADERS});}
 function signedInShell(message,link,linkText){
-  return page('<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="referrer" content="no-referrer"><title>Planificateur LoSP</title><link rel="stylesheet" href="https://keryas777.github.io/msf/style.css?v=4"><link rel="stylesheet" href="https://keryas777.github.io/msf/evenements.css?v=24"></head><body class="ev-body"><main class="app ev-page"><header class="header ev-header"><a class="backBtn" href="https://keryas777.github.io/msf/evenements.html" aria-label="Retour aux événements">‹</a><h1 class="ev-header-banner"><img src="https://keryas777.github.io/msf/HeaderObjectifs.webp" alt="Résumé Objectifs"></h1></header><section class="ev-section"><h2>Planificateur d’événements LoSP</h2><p>'+message+'</p><p><a href="'+link+'">'+linkText+'</a></p><p>Les jetons OAuth ne sont jamais transmis au navigateur.</p></section></main></body></html>');
+  return page('<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="referrer" content="no-referrer"><title>Planificateur LoSP</title><link rel="stylesheet" href="https://keryas777.github.io/msf/style.css?v=4"><link rel="stylesheet" href="https://keryas777.github.io/msf/evenements.css?v=24"></head><body class="ev-body"><main class="app ev-page"><header class="header ev-header"><a class="backBtn" href="https://keryas777.github.io/msf/evenements.html" aria-label="Retour aux événements">‹</a><h1 class="ev-header-banner"><img src="https://keryas777.github.io/msf/HeaderObjectifs.webp" alt="Résumé Objectifs"></h1></header><section class="ev-section"><h2>Planificateur d’événements LoSP</h2><p>'+message+'</p><p><a href="'+link+'">'+linkText+'</a></p><p>La connexion protège l’accès à tes données.</p></section></main></body></html>');
 }
 export async function handleEventPlannerPage(request,env,fetchImpl=fetch){
   const access=await eventPlannerAccessStatus(request,env,fetchImpl);
@@ -31,8 +31,8 @@ export async function handleEventPlannerPage(request,env,fetchImpl=fetch){
   if(session.status!=="connected"){
     if(asset!=="index.html")return new Response("Not Found",{status:404,headers:{"Cache-Control":"no-store","X-Robots-Tag":"noindex"}});
     const body=session.status==="temporarily-unavailable"
-      ? "La session Scopely est temporairement indisponible. Réessaie dans un instant."
-      : "Aucune session Scopely active dans ce navigateur.";
+      ? "La connexion est temporairement indisponible. Réessaie dans un instant."
+      : "Aucun compte MSF n’est connecté dans ce navigateur.";
     return signedInShell(body,"/admin/login/captain?returnTo=events-planner","Connecter mon compte MSF");
   }
   if(!env?.ASSETS?.fetch)return new Response("Planificateur indisponible",{status:503,headers:{"Cache-Control":"no-store","X-Robots-Tag":"noindex"}});
