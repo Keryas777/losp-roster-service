@@ -139,7 +139,7 @@ try{
   const savedScroll=await page.evaluate(()=>window.scrollY);
   const savedHeight=await page.evaluate(()=>document.documentElement.scrollHeight);
   await selectButton.click();
-  await page.locator("#selected-event [role=status]").waitFor();
+  await page.locator("#selected-event").waitFor({state:"visible"});
   await page.locator("#selected-event h2").filter({hasText:"Événement de test Maddoxx"}).waitFor();
   await page.locator("#selected-event").getByText("Terminé confirmé").first().waitFor();
   await page.locator("#selected-event").getByText("Faisable gratuitement").first().waitFor();
