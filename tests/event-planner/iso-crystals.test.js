@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildIsoCrystalMatrix, parseIsoCrystalId } from '../../public/event-planner/lib/iso-crystals.js';
+import { buildIsoCrystalMatrix, evaluateIsoClassEligibility, parseIsoCrystalId } from '../../public/event-planner/lib/iso-crystals.js';
 
 test('parses the observed ISOITEM example and marks other valid combinations as derived', () => {
   assert.deepEqual(parseIsoCrystalId('ISOITEM_GREEN_SUPPORT_HEALTH_1'), {
@@ -72,7 +72,6 @@ test('normalizes numeric-string quantities and case-insensitive duplicate IDs wi
 
 
 test('eligibility requires five known positive crystal categories and stays separate from assigned class level and cost', () => {
-  const { evaluateIsoClassEligibility } = await import('../../public/event-planner/lib/iso-crystals.js');
   const items = ['HEALTH','DAMAGE','ARMOR','FOCUS','RESIST'].map((category, i) => ({
     id: `ISOITEM_ORANGE_BLASTER_${category}_1`, quantity: i + 1
   }));
