@@ -57,3 +57,15 @@ test('distinguishes explicit zero from missing and avoids duplicate double count
   assert.equal(matrix.cells.Soutien.Vie.state, 'unknown');
   assert.deepEqual(matrix.unknownIds, ['ISOITEM_GREEN_UNKNOWN_HEALTH_1']);
 });
+
+test('normalizes numeric-string quantities and case-insensitive duplicate IDs without double counting', () => {
+  const matrix = buildIsoCrystalMatrix([
+    { id: 'ISOITEM_GREEN_BRAWLER_HEALTH_1', quantity: '7' },
+    { id: 'isoitem_green_brawler_health_1', quantity: 7 },
+    { id: 'ISOITEM_GREEN_BRAWLER_DAMAGE_1', quantity: '3' }
+  ], 'P1', 1);
+  assert.equal(matrix.cells.Cogneur.Vie.quantity, 7);
+  assert.deepEqual(matrix.cells.Cogneur.Vie.ids, ['ISOITEM_GREEN_BRAWLER_HEALTH_1']);
+  assert.equal(matrix.cells.Cogneur['Dégâts'].quantity, 3);
+  assert.deepEqual(matrix.conflictingIds, []);
+});
