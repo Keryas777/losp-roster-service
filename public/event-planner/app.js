@@ -7,11 +7,12 @@ const $=id=>document.getElementById(id);
 const API="/admin/api/event-planner";
 const CATALOG_BASE="https://keryas777.github.io/msf/data/";
 const STORAGE_KEY="losp-event-planner-v1";
+const DETAIL_BUDGET_KEY="losp-event-planner-phase1-detail-attempted";
 const SESSION_NAMESPACE_RX=/^[a-f0-9]{64}$/;
 const number=new Intl.NumberFormat("fr-FR");
 const date=new Intl.DateTimeFormat("fr-FR",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit",timeZone:"Europe/Paris"});
 const syncDate=new Intl.DateTimeFormat("fr-FR",{dateStyle:"medium",timeStyle:"short",timeZone:"Europe/Paris"});
-const state={eventsEn:[],eventsFr:[],calendarEvents:[],eligibleEventIds:null,calendarError:null,roster:null,characters:[],resourceCatalog:[],storageNamespace:null,inventory:null,inventoryReason:null,inventoryTypes:{},skipped:new Set(),stock:{},history:[],details:new Map(),rewardDetails:new Map(),selectedId:null,analysis:null,observations:[],drafts:{},tab:"events",loadingStock:false,refreshing:false,detailLoading:false,listScrollY:0,initialEventId:(()=>{const id=new URLSearchParams(location.search).get("eventId");return id&&/^[A-Za-z0-9_.:-]{1,160}$/.test(id)?id:null;})()};
+const state={eventsEn:[],eventsFr:[],calendarEvents:[],eligibleEventIds:null,calendarError:null,roster:null,characters:[],resourceCatalog:[],storageNamespace:null,inventory:null,inventoryReason:null,inventoryTypes:{},skipped:new Set(),stock:{},history:[],details:new Map(),rewardDetails:new Map(),personalRequests:new Map(),detailRequestEventId:(()=>{try{return sessionStorage.getItem(DETAIL_BUDGET_KEY)==="1"?"__budget-used__":null;}catch{return null;}})(),selectedId:null,analysis:null,observations:[],drafts:{},tab:"events",loadingStock:false,refreshing:false,detailLoading:false,listScrollY:0,initialEventId:(()=>{const id=new URLSearchParams(location.search).get("eventId");return id&&/^[A-Za-z0-9_.:-]{1,160}$/.test(id)?id:null;})()};
 
 function el(tag,cls,text){const node=document.createElement(tag);if(cls)node.className=cls;if(text!==undefined&&text!==null)node.textContent=String(text);return node;}
 function fmt(value){return value==null?"Données indisponibles":number.format(value);}
@@ -58,6 +59,11 @@ async function api(params){
   if(!response.ok){const error=new Error(body.error||"request-failed");error.status=response.status;error.body=body;throw error;}
   return body;
 }
+function personalApi(params){
+  const key=new URLSearchParams(params).toString();
+  if(!state.personalRequests.has(key))state.personalRequests.set(key,api(params).catch(error=>({error})));
+  return state.personalRequests.get(key);
+}
 function loadLocal(namespace){
   if(!SESSION_NAMESPACE_RX.test(String(namespace||"")))return;
   state.storageNamespace=namespace;
@@ -75,7 +81,7 @@ function saveLocal(){
 }
 function clearPersonalState(){
   state.storageNamespace=null;state.eventsEn=[];state.eventsFr=[];state.roster=null;state.inventory=null;state.inventoryReason=null;state.inventoryTypes={};
-  state.skipped=new Set();state.stock={};state.history=[];state.details.clear();state.rewardDetails.clear();
+  state.skipped=new Set();state.stock={};state.history=[];state.details.clear();state.rewardDetails.clear();state.personalRequests.clear();
   state.selectedId=null;state.analysis=null;state.observations=[];state.drafts={};state.initialEventId=null;
   $("selected-event").hidden=true;$("event-list-view").hidden=false;
 }
@@ -120,7 +126,7 @@ function setTab(name){
 }
 function calendarView(){
   const groups=currentCalendarGroups(state.calendarEvents,state.eligibleEventIds);
-  return Object.fromEntries(Object.entries(groups).map(([key,events])=>[key,events.map(event=>mergeCalendarEvent(event,getEvent(event.id,"en")))]));
+  return Object.fromEntries(Object.entries(groups).map(([key,events])=>[key,events.map(event=>mergeCalendarEvent(event,getEvent(event.id,"fr")))]));
 }
 function activeEvents(){return Object.values(calendarView()).flat();}
 function localizedCalendarEvent(id,language="fr"){
@@ -186,14 +192,16 @@ function effectiveStock(){
 function currentAnalysis(){
   if(!state.selectedId)return null;
   const detail=state.details.get(String(state.selectedId))||{};
-  const eventEn=detail.en||getEvent(state.selectedId,"en"),eventFr=detail.fr||getEvent(state.selectedId,"fr");
-  if(!eventEn)return null;
-  return analyzeMilestoneEvent({eventEn,eventFr,roster:state.roster||[],rosterKnown:Array.isArray(state.roster),characters:state.characters,stock:effectiveStock()});
+  const eventData=detail.fr||getEvent(state.selectedId,"fr");
+  if(!eventData)return null;
+  // A French-only response may contain text the English classifier cannot verify.
+  // Such rows remain unknown; numeric progress is still read from the same source.
+  return analyzeMilestoneEvent({eventEn:eventData,eventFr:eventData,roster:state.roster||[],rosterKnown:Array.isArray(state.roster),characters:state.characters,stock:effectiveStock()});
 }
 function renderEvents(){
   const groups=calendarView(),events=Object.values(groups).flat();
   const groupedFeederIds=new Set(events.filter(isCommandCenterWrapper)
-    .flatMap(wrapper=>commandCenterFeeders(wrapper,state.eventsEn).map(feeder=>String(feeder.id))));
+    .flatMap(wrapper=>commandCenterFeeders(wrapper,state.eventsFr).map(feeder=>String(feeder.id))));
   const visible=events.filter(event=>!state.skipped.has(String(event.id))&&!groupedFeederIds.has(String(event.id)));
   const ignored=events.filter(event=>state.skipped.has(String(event.id))).length;
   $("event-count").textContent=state.calendarError?"Catalogue public LoSP indisponible · liste masquée":
@@ -314,16 +322,18 @@ function renderObjectiveGroups(rows,target){
     card.append(content);target.append(card);
   }
 }
-function loadDetailPair(id){
-  const key=String(id);if(state.details.has(key))return Promise.resolve(state.details.get(key));
+function loadSelectedDetail(id){
+  const key=String(id),listed=getEvent(key,"fr");
+  if(!listed||!isCommandCenterFeeder(listed))return Promise.resolve({fr:listed});
+  if(state.details.has(key))return Promise.resolve(state.details.get(key));
   const existing=state.details.get("loading:"+key);if(existing)return existing;
-  const refresh=state.refreshing?"1":undefined;
-  const task=Promise.allSettled([api({resource:"detail",eventId:key,lang:"en",...(refresh?{refresh}: {})}),api({resource:"detail",eventId:key,lang:"fr",...(refresh?{refresh}: {})})]).then(results=>{
-    const pair={};if(results[0].status==="fulfilled")pair.en=results[0].value.data;
-    if(results[1].status==="fulfilled")pair.fr=results[1].value.data;
-    pair.error=results.find(item=>item.status==="rejected")?.reason||null;
+  if(state.detailRequestEventId&&state.detailRequestEventId!==key)return Promise.resolve({fr:listed,detailLimitReached:true});
+  state.detailRequestEventId=key;
+  try{sessionStorage.setItem(DETAIL_BUDGET_KEY,"1");}catch{}
+  const task=personalApi({resource:"detail",eventId:key,lang:"fr"}).then(result=>{
+    const pair=result.error?{fr:listed,error:result.error}:{fr:result.data};
     state.details.set(key,pair);
-    if(pair.en)state.rewardDetails.set(key,rewardsFrom(pair.en));
+    if(pair.fr)state.rewardDetails.set(key,rewardsFrom(pair.fr));
     buildObservations();return pair;
   }).finally(()=>state.details.delete("loading:"+key));
   state.details.set("loading:"+key,task);return task;
@@ -336,14 +346,15 @@ async function showSelected(id){
   const loading=el("div","loading-state");loading.setAttribute("role","status");loading.setAttribute("aria-live","polite");
   loading.append(el("span","loading-spinner"),el("span","","Récupération de la progression, des objectifs et des récompenses…"));
   root.append(bar,loading);scrollImmediately(0);
-  const pair=await loadDetailPair(id);state.detailLoading=false;
+  const pair=await loadSelectedDetail(id);state.detailLoading=false;
   if(state.selectedId!==String(id))return;
   const curated=state.calendarEvents.find(item=>String(item.id)===String(id))||null;
-  const event=mergeCalendarEvent(curated,pair.en||getEvent(id,"en"));
-  const fr=mergeCalendarEvent(curated,pair.fr||getEvent(id,"fr"))||event;
+  const event=mergeCalendarEvent(curated,pair.fr||getEvent(id,"fr"));
+  const fr=event||mergeCalendarEvent(curated,getEvent(id,"fr"));
   if(!event){root.replaceChildren(bar,el("p","error","Les détails de cet événement n’ont pas été reçus."));return;}
   const analysis=currentAnalysis();state.analysis=analysis;
   renderSelected(event,fr,analysis,pair.error);
+  if(pair.detailLimitReached)root.append(el("p","warning","La seule fiche détaillée autorisée pour cette validation a déjà été demandée. Les autres compteurs restent ceux de la liste française."));
   if(state.tab==="objectives")renderObjectives();if(state.tab==="plan")renderPlan();if(state.tab==="stock")renderStock();
 }
 function returnToList(){
@@ -400,7 +411,7 @@ function addSafeImage(parent,url,className,alt=""){
 }
 function renderCommandCenterMissions(wrapper){
   if(!isCommandCenterWrapper(wrapper))return null;
-  const all=commandCenterFeeders(wrapper,state.eventsEn),visible=all.filter(feeder=>!state.skipped.has(String(feeder.id)));
+  const all=commandCenterFeeders(wrapper,state.eventsFr),visible=all.filter(feeder=>!state.skipped.has(String(feeder.id)));
   const section=el("section","panel-card command-center-missions");
   section.append(el("h3","","Séries d’objectifs en cours"));
   if(!all.length){
@@ -761,21 +772,13 @@ function renderStock(){
   if(state.history.length){const details=el("details","stock-card");details.append(el("summary","","Historique des déclarations · "+state.history.length));for(const entry of state.history.slice(-20).reverse())details.append(el("p","row-detail",`${resourceLabel(entry.resource)} · ${eventDate(entry.at/1000)} · ${fmt(entry.estimated)} → ${fmt(entry.declared)}`));root.append(details);}
 }
 async function refreshLedger(){
-  if(state.loadingStock)return;state.loadingStock=true;renderStock();
-  try{
-    const events=activeEvents().filter(event=>event.type==="milestone");
-    for(let start=0;start<events.length;start+=3){
-      const batch=events.slice(start,start+3).filter(event=>!state.rewardDetails.has(String(event.id)));
-      await Promise.all(batch.map(async event=>{const pair=await loadDetailPair(event.id);if(pair.en)state.rewardDetails.set(String(event.id),rewardsFrom(pair.en));}));
-    }
-    buildObservations();
-  }finally{state.loadingStock=false;renderStock();}
+  buildObservations();renderStock();
 }
 async function refreshInventory(){
   if(!state.storageNamespace)return;
-  const button=$("refresh-inventory");button.disabled=true;$("inventory-sync-status").textContent="Actualisation des deux familles d’inventaire…";
+  const button=$("refresh-inventory");button.disabled=true;$("inventory-sync-status").textContent="Réutilisation des données déjà chargées…";
   try{
-    const safe=async itemType=>{try{return await api({resource:"inventory",itemType,lang:"fr",refresh:"1"});}catch(error){return {error};}};
+    const safe=itemType=>personalApi({resource:"inventory",itemType,lang:"fr"});
     const [consumables,isoitems]=await Promise.all([safe("CONSUMABLE"),safe("ISOITEM")]);
     installInventoryResult("CONSUMABLE",consumables);installInventoryResult("ISOITEM",isoitems);
     const hasKnown=Object.values(state.inventoryTypes).some(item=>Array.isArray(item.rows)&&!item.error);
@@ -803,15 +806,15 @@ function renderConnection(status){
     box.append(el("strong","","Connexion requise"),el("p","row-detail",errorText({body:{reason:status.reason}})));
     const link=el("a","button","Autoriser LoSP avec Scopely");link.href="/admin/login/captain?returnTo=events-planner";box.append(link);return;
   }
-  const required=["m3p.f.pr.act","m3p.f.pr.ros"],missing=required.filter(scope=>!status.scopes.includes(scope));
-  const line=el("p","",missing.length?"Événements ou roster : accès manquant.":"Session Scopely active · données lues à la demande.");
+  const required=["m3p.f.pr.act"],missing=required.filter(scope=>!status.scopes.includes(scope));
+  const line=el("p","",missing.length?"Accès aux événements manquant.":"Session Scopely active · données consultées depuis les caches autorisés.");
   box.append(line);
   if(missing.length){const link=el("a","button","Réautoriser l’accès requis");link.href="/admin/login/captain?returnTo=events-planner&reauthorize=1";box.append(link);}
+  if(!Array.isArray(state.roster))box.append(el("p","row-detail","Aucun roster valide n’est disponible dans le cache privé autorisé. Aucune collecte de roster ne sera lancée pendant cette validation."));
   if(!status.scopes.includes("m3p.f.pr.inv"))box.append(el("p","row-detail","Inventaire non autorisé : le plan utilisera les déclarations de stock disponibles."));
 }
-async function loadOverview(forceRefresh=false){
-  state.refreshing=forceRefresh;
-  if(forceRefresh){state.details.clear();state.rewardDetails.clear();}
+async function loadOverview(){
+  state.refreshing=false;
   $("refresh").disabled=true;$("event-count").textContent="Chargement des événements personnels…";
   const session=await api({resource:"status"}).catch(error=>({status:"disconnected",reason:error?.body?.reason||error?.body?.error||"session-unavailable"}));
   const namespace=typeof session.storageNamespace==="string"&&SESSION_NAMESPACE_RX.test(session.storageNamespace)?session.storageNamespace:null;
@@ -822,14 +825,16 @@ async function loadOverview(forceRefresh=false){
   }
   if(state.storageNamespace!==namespace){const requestedEventId=state.initialEventId;clearPersonalState();state.initialEventId=requestedEventId;loadLocal(namespace);}
   renderConnection(session);
-  const fetchSafe=async params=>{try{return await api({...params,...(forceRefresh?{refresh:"1"}:{})});}catch(error){return {error};}};
-  const [english,french,roster,consumables,isoitems,catalogResult]=await Promise.all([
-    fetchSafe({resource:"events",lang:"en"}),fetchSafe({resource:"events",lang:"fr"}),
-    fetchSafe({resource:"roster",lang:"fr"}),fetchSafe({resource:"inventory",itemType:"CONSUMABLE",lang:"fr"}),
-    fetchSafe({resource:"inventory",itemType:"ISOITEM",lang:"fr"}),Promise.all([loadCatalog(),loadCalendar()]).then(()=>({ok:true}))
+  const [french,roster,consumables,isoitems]=await Promise.all([
+    personalApi({resource:"events",lang:"fr"}),personalApi({resource:"roster",lang:"fr"}),
+    personalApi({resource:"inventory",itemType:"CONSUMABLE",lang:"fr"}),
+    personalApi({resource:"inventory",itemType:"ISOITEM",lang:"fr"})
   ]);
-  if(english.error){banner("Les événements personnels sont indisponibles · "+errorText(english.error),"error");$("event-count").textContent="Événements indisponibles";$("events-list").replaceChildren(el("p","warning","La session est active, mais Scopely n’a pas fourni la liste."),renderDiagnostic(english.error));state.refreshing=false;$("refresh").disabled=false;return;}
-  state.eventsEn=Array.isArray(english.data)?english.data:[];state.eventsFr=Array.isArray(french.data)?french.data:[];
+  if(french.error){banner("Les événements personnels sont indisponibles · "+errorText(french.error),"error");$("event-count").textContent="Événements indisponibles";$("events-list").replaceChildren(el("p","warning","La session est active, mais Scopely n’a pas fourni la liste."),renderDiagnostic(french.error));state.refreshing=false;$("refresh").disabled=false;return;}
+  state.eventsFr=Array.isArray(french.data)?french.data:[];
+  // The Maddoxx adapter expects an English-named source and French display copy.
+  // Here both point to the sole authorized French response; unrecognized text stays unknown.
+  state.eventsEn=state.eventsFr;
   state.roster=Array.isArray(roster.data)?roster.data:null;
   const invOk=[consumables,isoitems].some(result=>!result.error);
   state.inventory=invOk?{}:null;state.inventoryReason=consumables.error||isoitems.error||null;
@@ -848,7 +853,7 @@ async function loadOverview(forceRefresh=false){
   state.refreshing=false;$("refresh").disabled=false;
 }
 
-$("refresh").addEventListener("click",()=>loadOverview(true));
+$("refresh").addEventListener("click",()=>loadOverview());
 document.querySelectorAll(".planner-tabs [role=tab]").forEach(button=>button.addEventListener("click",()=>setTab(button.dataset.tab)));
 $("events-list").addEventListener("click",event=>{
   const button=event.target.closest("[data-action]");if(!button)return;

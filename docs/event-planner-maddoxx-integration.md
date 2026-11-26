@@ -23,9 +23,9 @@ Les relevés personnels de stock ne sont pas archivés par le Worker. Une quanti
 
 | Lecture | Usage |
 |---|---|
-| `/player/v1/events` en anglais et en français | événements actifs et libellés; pagination complète |
-| `/player/v1/events/{eventId}` en anglais et en français | scoring, brackets, récompenses et détail de l’événement sélectionné |
-| `/player/v1/roster` | exigences par personnage, traits et leviers |
+| `/player/v1/events?lang=fr` | événements actifs en français; 8 pages maximum, arrêt dès la dernière page |
+| `/player/v1/events/{eventId}?lang=fr&objRewards=full` | une seule série du poste de commandement sélectionnée; aucune autre fiche détaillée |
+| `/player/v1/roster` | lecture uniquement d’une copie privée existante non expirée; cache manquant = roster inconnu, aucun appel Scopely |
 | `/player/v1/inventory` pour `CONSUMABLE` et `ISOITEM` | stock connu lorsque Scopely renvoie une quantité explicite |
 
 La liste conserve la classification de tous les événements actifs. Les calculs Maddoxx sont appliqués aux événements à jalons avec scoring; la page publique LoSP conserve ses fiches et regroupements existants pour les autres types.
@@ -101,7 +101,7 @@ Une ancienne exécution de CI testait les cookies tiers et un ticket simulé ent
 - Les modules purs Maddoxx partagés ne changent pas entre les archives. L’original du 25 novembre ajoute la reconnaissance des combats `Play Battles with …`, les cartes `lohub_wrapper`/`lohub_feeder` du poste de commandement, les marqueurs Premium, un plan de combats partagé, et des services/composants d’interface. Le port vanilla LoSP garde ses propres garde-fous contre les valeurs de progression manquantes.
 - La logique originale PC identifie les récompenses de chaque ligne via `rewardTier - 1` et sépare les objets `EVTA_META_*` des autres récompenses. Cette règle est comprise dans le code source, mais aucune fixture de détail PC anonymisée et vérifiable n’est fournie par les archives. Cette passe n’affiche donc pas de projection de points/récompenses du PC.
 - Les composants React, le serveur Express, les appels supplémentaires à la liste EN/FR et au roster, et le cache fichier durable de l’archive ne sont pas portés. Aucune nouvelle route, persistance Scopely ou dépendance n’est ajoutée.
-- Aucun fichier de licence n’a été trouvé dans les ZIP. Aucun module d’origine n’est copié intégralement.
+- Aucun fichier de licence n’a été trouvé dans les ZIP. Aucun module d’origine n’est copié intégralement. L’autorisation écrite de l’auteur pour l’adaptation n’a pas été retrouvée dans le projet ou la discussion GitHub; ce point doit être confirmé avant tout déploiement.
 
 ### Modifications appliquées à l’intégration vanilla
 
@@ -139,3 +139,29 @@ Méthode : réutiliser les structures LoSP, faire correspondre les formats, ajou
 - Les ions ISO-8 du catalogue sont des monnaies, pas des cristaux. Le coût de fusion, de pose et d’amélioration reste inconnu. Les cinq catégories de cristaux à un niveau requis ne suffisent pas à prouver que la classe ISO de combat est améliorée ni que ses monnaies sont disponibles.
 
 Les tests ciblés couvrent l’exemple observé, les combinaisons dérivées, les identifiants ambigus, les quantités nulles/inconnues/textuelles, la déduplication et la matrice synthétique de 117 cristaux. La capture associée est produite par le parcours navigateur synthétique du workflow « Event planner mobile browsers »; elle ne contient aucune donnée personnelle.
+
+
+## Validation réelle — prévol contrôlé (26 novembre 2026)
+
+### État avant déploiement
+
+- PR #218 est ouverte, en brouillon, et sa branche était au SHA `719ac67e10549a4aedf584365dc5c0d3c53fdb36`, 66 commits devant `main` et 0 derrière; aucune divergence avec `main` n’a été constatée. Le `wrangler.jsonc` de la branche ne diffère pas de `main`.
+- Le Worker actif était le déploiement `8789c2d8-62ab-46e4-81f8-cb8b285aa601`, version 235 (`1706e375-159f-4c7b-9940-0776895a61c2`), créé le 24 novembre 2026 à 23:07 UTC. La cible de restauration immédiate est le déploiement précédent `b69a4a7f-d505-4cd5-845a-efc6ab5062a9`, version 234 (`b3a34398-71ea-4e5b-a7b6-fca9d459478d`).
+- Le réglage actif contient déjà le binding R2 `CAPTAIN_BUCKET`, le service `LOSP_AUTH`, les trois namespaces Durable Objects existants, les assets `ASSETS`, les drapeaux actuels et les quatre tâches cron. Seuls les noms/types des secrets ont été vérifiés; aucune valeur secrète n’a été lue. Les versions 234 et 235 possèdent les mêmes 33 bindings, les mêmes trois classes Durable Objects et le même `migration_tag` `personal-event-cache-v1`; les changements du planificateur ne modifient pas `wrangler.jsonc` et n’ajoutent donc pas une migration de classe.
+- Le workflow de publication contrôlée reste le mécanisme prévu, avec le SHA complet en entrée. Aucun déploiement n’a encore été lancé. La restauration préparée est la création d’un déploiement pointant à 100 % sur la version 234. Les références 234 et 235 ont des bindings et tags de migration identiques; Cloudflare documente qu’un changement ultérieur du cycle de vie d’une classe Durable Object pourrait empêcher un rollback vers une version antérieure.
+
+### Correction du périmètre des lectures
+
+- Le chargement de la page ne demande plus qu’une liste d’événements en français. Le serveur refuse les lectures personnelles en anglais pour cette passe.
+- Le roster est lu uniquement depuis la copie privée Durable Object encore valide, derrière les vérifications Access, propriétaire, session et scope inchangées. Une copie absente ou expirée renvoie « cache manquant » et ne déclenche pas Scopely.
+- Les deux familles d’inventaire restent en français et réutilisent la même promesse en mémoire; l’action d’actualisation de la vue ne force plus un rafraîchissement réseau. Changer d’onglet ou recalculer les relevés ne répète pas d’appel.
+- Une fiche détaillée n’est demandée qu’après sélection d’une série du poste de commandement, en français, et une seule fois par onglet de navigateur. Les événements ordinaires utilisent les compteurs disponibles dans la liste.
+- Aucun token OAuth ne quitte le Worker. Les réponses restent privées et `no-store`; aucun nouveau stockage serveur, endpoint de collecte, binding, secret, cron ou Worker n’est ajouté.
+
+### Tests et blocage avant déploiement
+
+- La suite ciblée locale du planificateur, de ses API et des parcours personnels passe 128/128. Les vérifications syntaxiques Node et `git diff --check` passent.
+- Les tests navigateur locaux n’ont pas pu démarrer : les binaires Playwright Chromium/WebKit étaient absents; le téléchargement Playwright a reçu HTTP 403. Les dernières exécutions CI avant cette correction restent vertes, mais le parcours Chromium/WebKit après correction doit être confirmé par GitHub Actions. Aucun test réel sur iPhone Safari n’a été fait.
+- Les contrôles Worker OAuth antérieurs restent à 897/912; les 15 échecs correspondent à la même baseline `main` (collecte invitée/tardive, enqueues DD9, budgets et accès R2). Aucun test Maddoxx n’échouait sur le head antérieur.
+- Les archives Maddoxx du 21 et du 25 novembre ne contiennent pas de licence. Aucune confirmation écrite de permission d’adaptation n’est présente dans les documents ou commentaires consultés. Comme l’intégration porte une adaptation de logique et ses tests, le déploiement est suspendu jusqu’à confirmation de l’autorisation de l’auteur ou fourniture d’une licence appropriée.
+- Aucun appel personnel Scopely n’a été effectué à ce stade. La session Cloudflare Access/LoSP n’a pas été ouverte; les quotas autorisés restent inutilisés. Aucun merge, déploiement ou changement de l’adresse Worker n’a eu lieu.

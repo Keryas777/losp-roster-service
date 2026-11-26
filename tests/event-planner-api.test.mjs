@@ -57,10 +57,42 @@ test("roster language is validated before an upstream call",async()=>{
   assert.equal(response.status,400);assert.equal(f.calls.length,0);
 });
 
+test("planner rejects English personal reads outside the authorized French scope",async()=>{
+  const f=setup(()=>{throw Error("English reads are outside this validation's authorization");});
+  for(const path of [
+    "/admin/api/event-planner?resource=events&lang=en",
+    "/admin/api/event-planner?resource=detail&eventId=event-1&lang=en",
+    "/admin/api/event-planner?resource=inventory&itemType=ISOITEM&lang=en"
+  ]){
+    const response=await handleEventPlannerApi(f.request(path),f.env);
+    assert.equal(response.status,400);
+  }
+  assert.equal(f.calls.length,0);
+});
+
+test("planner roster reads only the existing unexpired private cache",async()=>{
+  const f=setup(()=>{throw Error("roster must not be collected during planner validation");});
+  const now=Date.now(),data=[{id:"CaptainAmerica",level:90}];
+  f.values.set("planner:roster:fr",{expiresAt:now+60_000,response:{status:"ok",resource:"roster",lang:"fr",
+    retrievedAt:new Date(now).toISOString(),upstream:{calls:1},data}});
+  const response=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=roster&lang=fr"),f.env,accessFetcher,now);
+  const body=await response.json();
+  assert.equal(response.status,200);assert.deepEqual(body.data,data);assert.equal(body.cache.hit,true);
+  assert.equal(f.calls.length,0);
+});
+
+test("planner roster cache miss and forced refresh never call Scopely",async()=>{
+  const f=setup(()=>{throw Error("roster must not be collected during planner validation");});
+  const miss=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=roster&lang=fr"),f.env);
+  assert.equal(miss.status,404);assert.equal((await miss.json()).error,"cache-miss");
+  const forced=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=roster&lang=fr&refresh=1"),f.env);
+  assert.equal(forced.status,400);assert.equal(f.calls.length,0);
+});
+
 test("event list follows Maddoxx's default first page and Scopely pagination metadata",async()=>{
   const f=setup(url=>{
     const parsed=new URL(url);assert.equal(parsed.pathname,"/player/v1/events");
-    assert.equal(parsed.searchParams.get("lang"),"en");
+    assert.equal(parsed.searchParams.get("lang"),"fr");
     assert.equal(parsed.searchParams.get("eventInfo"),null);assert.equal(parsed.searchParams.get("objRewards"),null);
     if(f.calls.length===1){
       assert.equal(parsed.searchParams.get("page"),null);assert.equal(parsed.searchParams.get("perPage"),null);
@@ -69,9 +101,9 @@ test("event list follows Maddoxx's default first page and Scopely pagination met
     assert.equal(parsed.searchParams.get("page"),"2");assert.equal(parsed.searchParams.get("perPage"),"2");
     return payload([{...event,id:"event-2"}],{page:2,perPage:2,perTotal:3});
   });
-  const first=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=events&lang=en"),f.env,accessFetcher,10_000);
+  const first=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=events&lang=fr"),f.env,accessFetcher,10_000);
   const firstBody=await first.json();assert.equal(first.status,200);assert.equal(firstBody.data.length,3);assert.equal(firstBody.cache.hit,false);
-  const second=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=events&lang=en"),f.env,accessFetcher,10_001);
+  const second=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=events&lang=fr"),f.env,accessFetcher,10_001);
   assert.equal((await second.json()).cache.hit,true);assert.equal(f.calls.length,2);
   assert.equal(first.headers.get("cache-control"),"private, no-store, max-age=0");
 });
@@ -80,11 +112,11 @@ test("event failures return a safe provider diagnostic without response text or 
   const f=setup(()=>Response.json({error:{code:"event-list-unavailable",message:"private account detail"}},{status:502}));
   const originalWarn=console.warn;console.warn=()=>{};
   try{
-    const response=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=events&lang=en"),f.env);
+    const response=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=events&lang=fr"),f.env);
     const body=await response.json(),serialized=JSON.stringify(body);
     assert.equal(response.status,502);assert.equal(body.diagnostic.endpoint,"/player/v1/events");
     assert.equal(body.diagnostic.httpStatus,502);assert.equal(body.diagnostic.providerCode,"event-list-unavailable");
-    assert.equal(body.diagnostic.lang,"en");assert.equal(body.diagnostic.page,1);
+    assert.equal(body.diagnostic.lang,"fr");assert.equal(body.diagnostic.page,1);
     assert.doesNotMatch(serialized,/private account detail|private-test-token|Authorization|Bearer/);
   }finally{console.warn=originalWarn;}
 });
@@ -96,11 +128,13 @@ test("nested event detail envelopes and the personal roster are unwrapped",async
     if(parsed.pathname==="/player/v1/roster")return payload([{id:"CaptainAmerica",activeYellow:7}],{perTotal:1});
     return new Response("not found",{status:404});
   });
-  const detail=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=detail&eventId=event-1&lang=en"),f.env);
+  const detail=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=detail&eventId=event-1&lang=fr"),f.env);
   assert.equal((await detail.json()).data.id,"event-1");
+  f.values.set("planner:roster:fr",{expiresAt:Date.now()+60_000,response:{status:"ok",resource:"roster",lang:"fr",
+    upstream:{calls:1},data:[{id:"CaptainAmerica",activeYellow:7}]}});
   const roster=await handleEventPlannerApi(f.request("/admin/api/event-planner?resource=roster&lang=fr"),f.env);
   assert.equal((await roster.json()).data[0].id,"CaptainAmerica");
-  assert.equal(f.calls.length,2);
+  assert.equal(f.calls.length,1);
 });
 
 test("inventory type is allowlisted and explicit missing items are not synthesized",async()=>{

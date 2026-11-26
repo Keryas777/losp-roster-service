@@ -30,7 +30,7 @@ export async function handleEventPlannerApi(request,env,fetchImpl=fetch,now=Date
   if(url.origin!==ORIGIN||(request.headers.get("Origin")&&request.headers.get("Origin")!==ORIGIN))return json({error:"forbidden"},403);
   const resource=url.searchParams.get("resource");
   const allowed=resource==="status"?new Set(["resource"]):resource==="events"?new Set(["resource","lang","refresh"]):
-    resource==="detail"?new Set(["resource","lang","eventId","refresh"]):resource==="roster"?new Set(["resource","lang","refresh"]):
+    resource==="detail"?new Set(["resource","lang","eventId","refresh"]):resource==="roster"?new Set(["resource","lang"]):
     resource==="inventory"?new Set(["resource","itemType","lang","refresh"]):null;
   if(!allowed||[...url.searchParams.keys()].some(key=>!allowed.has(key)))return json({error:"invalid-request"},400);
   const id=sessionId(request);
@@ -42,7 +42,7 @@ export async function handleEventPlannerApi(request,env,fetchImpl=fetch,now=Date
   const eventId=url.searchParams.get("eventId");
   const itemType=url.searchParams.get("itemType");
   const refresh=url.searchParams.get("refresh")==="1";
-  if(["events","detail","roster","inventory"].includes(resource)&&!['en','fr'].includes(lang))return json({error:"invalid-request"},400);
+  if(["events","detail","roster","inventory"].includes(resource)&&lang!=="fr")return json({error:"invalid-request"},400);
   if(resource==="detail"&&(!eventId||!/^[A-Za-z0-9_-]{1,128}$/.test(eventId)))return json({error:"invalid-request"},400);
   if(resource==="inventory"&&!['CONSUMABLE','ISOITEM'].includes(itemType))return json({error:"invalid-request"},400);
   if([...url.searchParams.keys()].some(key=>key==="refresh")&&!refresh)return json({error:"invalid-request"},400);
@@ -54,7 +54,8 @@ export async function handleEventPlannerApi(request,env,fetchImpl=fetch,now=Date
   try{
     const response=await stub.fetch(new Request("https://personal-event-cache.internal/planner",{
       method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({token:grant.accessToken,resource,lang,eventId,itemType,refresh,requestedAt:now})
+      body:JSON.stringify({token:grant.accessToken,resource,lang,eventId,itemType,refresh,
+        cacheOnly:resource==="roster",requestedAt:now})
     }));
     return new Response(response.body,{status:response.status,headers:HEADERS});
   }catch{return json({error:"service-unavailable"},503);}

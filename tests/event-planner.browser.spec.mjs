@@ -54,7 +54,7 @@ const server=createServer(async(req,res)=>{
   if(pathname==="/__test/profile"){const params=new URL(req.url,"http://localhost").searchParams;currentNamespace=params.get("namespace")||currentNamespace;currentConnected=params.get("connected")!=="false";res.writeHead(204);res.end();return;}
   if(pathname.startsWith("/admin/api/event-planner")){
     const params=new URL(req.url,"http://localhost").searchParams,resource=params.get("resource");
-    apiCalls.push({resource,lang:params.get("lang"),itemType:params.get("itemType"),eventId:params.get("eventId")});
+    apiCalls.push({resource,lang:params.get("lang"),itemType:params.get("itemType"),eventId:params.get("eventId"),refresh:params.get("refresh")});
     let body;
     if(resource==="status")body=currentConnected?{status:"connected",storageNamespace:currentNamespace,scopes:["m3p.f.pr.act","m3p.f.pr.ros","m3p.f.pr.inv"]}:{status:"disconnected",reason:"session-revoked"};
     else if(!currentConnected){res.writeHead(403,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"disconnected"}));return;}
@@ -117,13 +117,22 @@ try{
   assert.equal(await page.getByText("First S.T.R.I.K.E.",{exact:true}).count(),0);
   await page.locator("#selected-event h2").filter({hasText:"Événement de test Maddoxx"}).waitFor();
   assert.equal(await page.locator("#event-list-view").isHidden(),true,`${browserName} direct eventId link opens the matching event fiche`);
-  assert.deepEqual(apiCalls.filter(call=>call.resource==="detail").map(call=>call.eventId),["planner-test","planner-test"],`${browserName} direct link requests only the selected public-calendar event`);
+  assert.equal(apiCalls.filter(call=>call.resource==="detail").length,0,`${browserName} ordinary event selection does not request an unauthorized detail`);
+  assert.equal(apiCalls.filter(call=>call.resource==="events"&&call.lang==="en").length,0,`${browserName} initialization never requests a second English event list`);
+  assert.ok(apiCalls.filter(call=>call.resource==="events").every(call=>call.lang==="fr"),`${browserName} only the authorized French event list is requested`);
+  assert.ok(apiCalls.filter(call=>call.resource==="roster").every(call=>call.lang==="fr"),`${browserName} roster is only addressed in French`);
   await page.locator(`#selected-event button[data-action="back-list"]`).click();
   await page.goto(`http://127.0.0.1:${address.port}/admin/events-planner?eventId=future-test`,{waitUntil:"networkidle"});
   await page.getByText("Cet événement ne figure pas dans le calendrier LoSP actif ou est ignoré.",{exact:false}).waitFor();
-  assert.equal(apiCalls.filter(call=>call.resource==="detail").length,2,`${browserName} filtered event deep links never fetch personal details`);
+  assert.equal(apiCalls.filter(call=>call.resource==="detail").length,0,`${browserName} filtered event deep links never fetch personal details`);
   await page.goto(`http://127.0.0.1:${address.port}/admin/events-planner`,{waitUntil:"networkidle"});
   await page.locator(".planner-event-card").first().waitFor();
+  const callsBeforeTabChanges=apiCalls.length;
+  await page.getByRole("tab",{name:"Objectifs"}).click();
+  await page.getByRole("tab",{name:"Planifier"}).click();
+  await page.getByRole("tab",{name:"Mon stock"}).click();
+  await page.getByRole("tab",{name:"Événements"}).click();
+  assert.equal(apiCalls.length,callsBeforeTabChanges,`${browserName} changing tabs does not repeat personal reads`);
   await page.evaluate(()=>window.scrollTo(0,document.body.scrollHeight));
   const selectButton=page.locator('button[data-action="select"][data-event-id="planner-test"]');
   await selectButton.scrollIntoViewIfNeeded();
@@ -177,6 +186,15 @@ try{
   await page.getByText("Compteurs connus : 1/2",{exact:false}).waitFor();
   assert.equal(apiCalls.filter(call=>call.resource==="detail"&&call.eventId==="command-feeder").length,0,
     `${browserName} showing command-center feeders reuses the existing event list without requesting feeder details`);
+  await page.locator('#selected-event button[data-action="select-feeder"][data-event-id="command-feeder"]').click();
+  await page.locator("#selected-event h2").filter({hasText:"Poste de commandement de test"}).waitFor();
+  const detailCalls=apiCalls.filter(call=>call.resource==="detail");
+  assert.deepEqual(detailCalls.map(({eventId,lang})=>({eventId,lang})),[{eventId:"command-feeder",lang:"fr"}],`${browserName} a single selected command-center series uses one French detail request`);
+  await page.locator('#selected-event button[data-action="back-list"]').click();
+  await page.locator('button[data-action="select"][data-event-id="command-wrapper"]').click();
+  await page.locator('#selected-event button[data-action="select-feeder"][data-event-id="command-feeder"]').click();
+  assert.equal(apiCalls.filter(call=>call.resource==="detail").length,1,`${browserName} reopening the same command-center series does not request details again`);
+  await page.locator('#selected-event button[data-action="back-list"]').click();
   await checkMobileWidths("Poste de commandement");await capture("poste-commandement");
   await page.locator('#selected-event button[data-action="back-list"]').click();
   await page.locator('button[data-action="select"][data-event-id="planner-test"]').click();
@@ -215,8 +233,9 @@ try{
   assert.equal(await page.locator("#synced-inventory .inventory-row").count(),7,`${browserName} inventory family filter includes crystals and ions`);
   await page.locator("#inventory-family").selectOption("all");
   await page.locator("#stock-view").getByRole("button",{name:"Enregistrer la déclaration"}).waitFor();
-  await page.getByRole("button",{name:"Actualiser l’inventaire"}).click();
-  assert.ok(apiCalls.filter(call=>call.resource==="inventory").length>=4,`${browserName} refresh reads both inventory families`);
+  const inventoryCallsBeforeRepaint=apiCalls.filter(call=>call.resource==="inventory").length;
+  await page.getByRole("button",{name:"Réafficher l’inventaire"}).click();
+  assert.equal(apiCalls.filter(call=>call.resource==="inventory").length,inventoryCallsBeforeRepaint,`${browserName} inventory repaint reuses the first read instead of requesting again`);
   const width=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth}));
   assert.ok((await page.locator("#tab-events").getAttribute("class")).includes("ev-stat"));
   assert.deepEqual(consoleErrors,[],`${browserName} console errors before simulated provider failure`);
@@ -249,6 +268,7 @@ try{
   await page.locator(".planner-event-card").first().waitFor();
   assert.ok(await page.evaluate(()=>Object.keys(localStorage).includes("losp-event-planner-v1:"+"a".repeat(64))),`${browserName} previous account preferences remain partitioned`);
   failEvents=true;
+  await page.evaluate(async()=>fetch("/__test/profile?namespace="+"d".repeat(64)));
   await page.getByRole("tab",{name:"Événements"}).click();
   await page.getByRole("button",{name:"Actualiser"}).click();
   await page.getByText("Diagnostic technique · propriétaire").waitFor();
@@ -258,9 +278,9 @@ try{
   assert.doesNotMatch(await page.locator(".planner-diagnostic").textContent(),/private-test-token|Bearer/);
   assert.ok(apiCalls.some(call=>call.resource==="roster"));
   assert.ok(apiCalls.some(call=>call.resource==="inventory"&&call.itemType==="CONSUMABLE"&&call.lang==="fr"));
-  assert.ok(apiCalls.filter(call=>call.resource==="detail").length>=2);
+  assert.deepEqual(apiCalls.filter(call=>call.resource==="detail").map(call=>({eventId:call.eventId,lang:call.lang})),[{eventId:"command-feeder",lang:"fr"}]);
   assert.deepEqual(runtimeErrors,[],`${browserName} page errors`);
-  assert.ok(consoleErrors.length>=2,`${browserName} simulated provider responses were observed`);
+  assert.ok(consoleErrors.length>=1,`${browserName} simulated provider response was observed`);
   assert.ok(consoleErrors.every(error=>error.includes("502 (Bad Gateway)")),`${browserName} unexpected console errors`);
   console.log(JSON.stringify({browser:browserName,version:browser.version(),result:"passed",eligibleCards:3,apiCalls:apiCalls.length,mobileViewport:width}));
   await context.close();
