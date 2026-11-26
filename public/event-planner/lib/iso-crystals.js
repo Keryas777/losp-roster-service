@@ -67,7 +67,7 @@ export function buildIsoCrystalMatrix(items, tier = "P1", level = 1) {
     if (parsed.status === "unknown" || parsed.tier !== normalizedTier || parsed.level !== normalizedLevel) continue;
     const rawQuantity = row?.quantity;
     const quantity = Number.isSafeInteger(rawQuantity) && rawQuantity >= 0 ? rawQuantity
-      : typeof rawQuantity === "string" && /^\\d+$/.test(rawQuantity.trim()) && Number.isSafeInteger(Number(rawQuantity))
+      : typeof rawQuantity === "string" && /^\d+$/.test(rawQuantity.trim()) && Number.isSafeInteger(Number(rawQuantity))
         ? Number(rawQuantity) : null;
     const canonicalId = id.toUpperCase();
     if (!byId.has(canonicalId)) byId.set(canonicalId, { parsed: { ...parsed, id }, quantity, id });
@@ -121,7 +121,7 @@ export function evaluateIsoClassEligibility(items, characterClass, tier, level, 
   const active = typeof characterIso?.active === "string" ? characterIso.active : null;
   const assigned = active ? characterIso?.[active] : null;
   const assignedLevel = typeof assigned === "number" && Number.isSafeInteger(assigned) && assigned >= 0
-    ? assigned : typeof assigned === "string" && /^\\d+$/.test(assigned.trim()) && Number.isSafeInteger(Number(assigned))
+    ? assigned : typeof assigned === "string" && /^\d+$/.test(assigned.trim()) && Number.isSafeInteger(Number(assigned))
       ? Number(assigned) : null;
   return {
     status,
