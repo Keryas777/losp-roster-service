@@ -1,5 +1,5 @@
 import { analyzeMilestoneEvent } from "./lib/event-analysis.js";
-import { RESOURCES, classifyObjective, observeEvent, resourcesInUse, declareResource, refreshResource, estimateResource, parseQuantity } from "./lib/index.js";
+import { RESOURCES, classifyObjective, observeEvent, resourcesInUse, declareResource, refreshResource, estimateResource, parseQuantity, buildIsoCrystalMatrix, parseIsoCrystalId } from "./lib/index.js";
 import { installCalendarSnapshot, currentCalendarGroups, mergeCalendarEvent, calendarGroups } from "./lib/calendar.js";
 import { commandCenterFeeders, commandCenterPeriodLabel, isCommandCenterFeeder, isCommandCenterWrapper, summarizeFeederProgress } from "./lib/command-center.js";
 
@@ -643,23 +643,46 @@ function renderSyncedInventory(){
     section.append(list);priority.append(section);
   }
   const isoRows=rows.filter(row=>row.type==="ISOITEM");
-  const crystals=state.resourceCatalog.filter(item=>item.iso8Crystal&&item.iso8Crystal.colour&&item.iso8Crystal.level&&item.iso8Crystal.class&&item.iso8Crystal.stat);
-  if(crystals.length){
-    for(const colour of [...new Set(crystals.map(item=>item.iso8Crystal.colour))]){
-      const details=el("details","iso-matrix-group");details.open=false;details.append(el("summary","",colour+" · matrice des cristaux"));
-      const table=el("table","iso-matrix"),head=el("tr");for(const label of ["Niveau","Classe","Statistique","Quantité"])head.append(el("th","",label));
-      const thead=el("thead");thead.append(head);const tbody=el("tbody");
-      for(const record of crystals.filter(item=>item.iso8Crystal.colour===colour)){
-        const line=el("tr");
-        for(const value of [record.iso8Crystal.level,record.iso8Crystal.class,record.iso8Crystal.stat,byId.has(record.id)?inventoryQuantityText(byId.get(record.id).item):"Non communiqué"])line.append(el("td","",value));
-        tbody.append(line);
-      }
-      table.append(thead,tbody);details.append(table);matrix.append(details);
-    }
-  }else{
-    matrix.append(el("h4","","Cristaux ISO-8 · détail par couleur, niveau, classe et statistique"));
-    matrix.append(el("p","muted",`Matrice indisponible : aucune définition publique archivée ne relie de façon vérifiée les identifiants de cristaux à leur couleur, niveau, classe et statistique. ${fmt(isoRows.length)} objets ISO-8 restent consultables dans le tableau compact; les ions sont présentés séparément.`));
+  const parsedRows=isoRows.map(row=>({row,parsed:parseIsoCrystalId(row.id)}));
+  const crystalIds=new Set(parsedRows.filter(x=>x.parsed.status!=="unknown").map(x=>x.row.id));
+  const unknownIds=new Set(parsedRows.filter(x=>x.parsed.status==="unknown").map(x=>x.row.id));
+  matrix.append(el("h4","","Matrice d’inventaire des cristaux ISO-8"));
+  matrix.append(el("p","muted",`IDs reconnus dans ce relevé : ${fmt(crystalIds.size)} · non classifiés : ${fmt(unknownIds.size)}. Une absence du relevé reste inconnue, jamais zéro.`));
+  const controls=el("div","iso-matrix-controls");
+  const tierSelect=el("select","iso-matrix-select"),levelSelect=el("select","iso-matrix-select");
+  tierSelect.setAttribute("aria-label","Palier ISO-8 des cristaux");
+  levelSelect.setAttribute("aria-label","Niveau des cristaux ISO-8");
+  for(const [value,label] of [["P1","P1 · vert"],["P2","P2 · bleu"],["P3","P3 · violet"],["P4","P4 · orange"]]){
+    const option=el("option","",label);option.value=value;tierSelect.append(option);
   }
+  for(let level=1;level<=5;level++){const option=el("option","",`Niveau ${level}`);option.value=String(level);levelSelect.append(option);}
+  controls.append(el("label","","Palier"),tierSelect,el("label","","Niveau"),levelSelect);matrix.append(controls);
+  const tableHost=el("div","iso-matrix-scroll");matrix.append(tableHost);
+  const renderTable=()=>{
+    const normalized=isoRows.map(({item,id})=>{
+      const raw=item?.quantity;
+      const quantity=typeof raw==="number"&&Number.isSafeInteger(raw)&&raw>=0?raw:
+        typeof raw==="string"&&/^\\d+$/.test(raw.trim())&&Number.isSafeInteger(Number(raw))?Number(raw):null;
+      return {id,quantity};
+    });
+    const model=buildIsoCrystalMatrix(normalized,tierSelect.value,Number(levelSelect.value));
+    const table=el("table","iso-matrix"),head=el("tr");head.append(el("th","","Classe"));
+    for(const category of model.categories)head.append(el("th","",category));
+    const thead=el("thead");thead.append(head);const tbody=el("tbody");
+    for(const className of model.classes){
+      const line=el("tr");line.append(el("th","",className));
+      for(const category of model.categories){
+        const cell=model.cells[className][category],td=el("td","iso-matrix-cell iso-matrix-cell--"+cell.state);
+        td.textContent=cell.state==="known"?fmt(cell.quantity):"Inconnu";
+        td.title=cell.state==="known"?`Quantité confirmée : ${fmt(cell.quantity)}`:"Quantité inconnue : aucun compte fiable dans la réponse";
+        if(cell.ids.length){const diagnostic=el("details","iso-matrix-diagnostic");diagnostic.append(el("summary","","IDs"),el("code","",cell.ids.join(", ")));td.append(diagnostic);}
+        line.append(td);
+      }
+      tbody.append(line);
+    }
+    table.append(thead,tbody);tableHost.replaceChildren(table);
+  };
+  tierSelect.addEventListener("change",renderTable);levelSelect.addEventListener("change",renderTable);renderTable();
   const query=String($("inventory-search")?.value||"").trim().toLocaleLowerCase("fr");
   const familyFilter=$("inventory-family")?.value||"all",typeNames={CONSUMABLE:"Consommables synchronisés",ISOITEM:"Objets ISO-8 synchronisés"};
   let count=0;
