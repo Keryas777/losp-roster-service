@@ -67,7 +67,8 @@ try{
     }
     return route.fulfill({status:404,body:"not found"});
   });
-  const bootstrap=await context.newPage();await bootstrap.goto(workerOrigin+"/admin/planner-cookie-bootstrap",{waitUntil:"load"});await bootstrap.close();
+  const bootstrap=await context.newPage();await bootstrap.goto(workerOrigin+"/admin/planner-cookie-bootstrap",{waitUntil:"load"});
+  await context.addCookies([{name:cookieName,value:"SYNTHETIC_CAPTAIN_SESSION_ONLY",url:workerOrigin,secure:true,httpOnly:true,sameSite:"Lax"}]);await bootstrap.close();
   const page=await context.newPage();await page.goto(pagesUrl,{waitUntil:"load"});
   await page.waitForFunction(()=>window.__proof?.directStatus!==undefined||window.__proof?.directError!==undefined);
   assert.equal(directFetchCookie,null,`${browserName}: SameSite=Lax captain cookie is absent from the cross-site fetch`);
