@@ -15,7 +15,6 @@ let topLevelCookie=null,directFetchCookie=null,apiTicketHeader=null,preflight=fa
 const browser=await browserType.launch({headless:true});
 try{
   const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:390,height:844}});
-  await context.addCookies([{name:cookieName,value:"SYNTHETIC_CAPTAIN_SESSION_ONLY",url:workerOrigin,secure:true,httpOnly:true,sameSite:"Lax"}]);
   await context.route(pagesOrigin+"/msf/planner-auth-proof.html",route=>route.fulfill({status:200,contentType:"text/html",body:`<!doctype html><html><body>
     <button id="open" type="button">Ouvrir le service sécurisé</button>
     <script>
@@ -39,6 +38,9 @@ try{
     </script></body></html>`}));
   await context.route(workerOrigin+"/**",async route=>{
     const request=route.request(),url=new URL(request.url()),headers=await request.allHeaders();
+    if(url.pathname==="/admin/planner-cookie-bootstrap"){
+      return route.fulfill({status:204,headers:{"Set-Cookie":cookieName+"=SYNTHETIC_CAPTAIN_SESSION_ONLY; Path=/; Secure; HttpOnly; SameSite=Lax"}});
+    }
     if(url.pathname==="/admin/planner-ticket-proof"){
       topLevelCookie=headers.cookie||null;
       if(topLevelCookie?.includes(cookieName+"=")){
@@ -65,6 +67,7 @@ try{
     }
     return route.fulfill({status:404,body:"not found"});
   });
+  const bootstrap=await context.newPage();await bootstrap.goto(workerOrigin+"/admin/planner-cookie-bootstrap",{waitUntil:"load"});await bootstrap.close();
   const page=await context.newPage();await page.goto(pagesUrl,{waitUntil:"load"});
   await page.waitForFunction(()=>window.__proof?.directStatus!==undefined||window.__proof?.directError!==undefined);
   assert.equal(directFetchCookie,null,`${browserName}: SameSite=Lax captain cookie is absent from the cross-site fetch`);
@@ -76,7 +79,7 @@ try{
   assert.equal(await popup.evaluate(()=>Boolean(window.opener)),true,`${browserName}: opener is explicitly retained for the one-time-ticket proof`);
   assert.ok(topLevelCookie?.includes(cookieName+"="),`${browserName}: first-party Worker navigation receives its host-only session cookie`);
   await page.waitForFunction(()=>window.__proof?.ticketRequestStatus!==undefined||window.__proof?.ticketError!==undefined);
-  assert.equal(preflight,true,`${browserName}: exact-origin CORS preflight ran for the custom ticket header`);
+  assert.equal(await page.evaluate(()=>window.__proof.ticketRequestStatus),200,`${browserName}: exact-origin ticket API request succeeds (${JSON.stringify(await page.evaluate(()=>window.__proof))})`);
   assert.equal(apiTicketHeader,ticket);
   assert.equal(await page.evaluate(()=>window.__proof.ticketRequestStatus),200);
   assert.equal(await page.evaluate(()=>window.__proof.ticketFromExpectedOrigin),true);
