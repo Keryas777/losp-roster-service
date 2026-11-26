@@ -18,8 +18,13 @@ const cleanText = (value = '') => String(value).replace(/<[^>]*>/g, '').replace(
 // Niveau ISO continu d'un personnage du roster : niveau de sa classe active (0 sans classe)
 function isoValue(rosterEntry) {
     const iso8 = rosterEntry?.iso8;
-    const value = iso8 && typeof iso8 === 'object' ? Number(iso8[iso8.active]) : NaN;
-    return Number.isFinite(value) ? value : 0;
+    if (!iso8 || typeof iso8 !== 'object' || Array.isArray(iso8)) return null;
+    const active = typeof iso8.active === 'string' ? iso8.active.trim() : '';
+    if (!active) return null;
+    const raw = iso8[active];
+    if (raw === 0 || raw === '0') return 0;
+    const value = typeof raw === 'number' ? raw : (typeof raw === 'string' && /^\\d+$/.test(raw.trim()) ? Number(raw) : NaN);
+    return Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 const ROSTER_FIELDS = { yellowStars: 'activeYellow', redStars: 'activeRed', gearTier: 'gearTier', level: 'level' };
@@ -233,7 +238,9 @@ export function analyzeMilestoneEvent({ eventEn, eventFr, roster = [], rosterKno
         let best = null;
         rosterById.forEach((rosterEntry, id) => {
             const current = rosterValue(kind, rosterEntry);
-            if (current >= threshold || !charactersById.has(id)) return;
+            // An absent active class/level is unknown, not ISO level 0. Do not
+            // turn that missing data into a free upgrade recommendation.
+            if (current === null || current >= threshold || !charactersById.has(id)) return;
             // Toutes les sources du même type franchies entre la valeur actuelle et le seuil
             const crossed = thresholds
                 .filter((other) => other.kind === kind && other.threshold > current && other.threshold <= threshold)
