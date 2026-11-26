@@ -153,7 +153,7 @@ try{
   await page.locator(".skipped-wrap summary").click();
   await page.locator("#skipped-list").getByText("Campagne de test").waitFor();
   await page.locator('#skipped-list button[data-action="restore"][data-event-id="campaign-test"]').click();
-  assert.equal(await page.locator(".planner-event-card").count(),3,`${browserName} skipped event restored`);
+  assert.equal(await page.locator(".planner-event-card").count(),4,`${browserName} skipped event restored with one grouped command-center wrapper`);
   const widthChecks={};
   const checkMobileWidths=async tabName=>{
     widthChecks[tabName]=[];
