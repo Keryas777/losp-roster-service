@@ -10,7 +10,7 @@ const PAGE_HEADERS={"Content-Type":"text/html; charset=utf-8","Cache-Control":"p
   "Referrer-Policy":"no-referrer","X-Frame-Options":"DENY","Vary":"Cookie",
   "Content-Security-Policy":"default-src 'self'; script-src 'self'; style-src 'self' https://keryas777.github.io; connect-src 'self' https://keryas777.github.io; img-src 'self' https://assets.marvelstrikeforce.com https://keryas777.github.io; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"};
 const ASSETS=new Set(["index.html","app.js","styles.css",...[
-  "classify.js","event-analysis.js","index.js","ledger.js","plan.js","quantity.js","resources.js","subjects.js","calendar.js","command-center.js"
+  "classify.js","event-analysis.js","index.js","ledger.js","plan.js","quantity.js","resources.js","subjects.js","calendar.js","command-center.js","iso-crystals.js"
 ].map(file=>"lib/"+file)]);
 function page(html,status=200){return new Response(html,{status,headers:PAGE_HEADERS});}
 function signedInShell(message,link,linkText){
