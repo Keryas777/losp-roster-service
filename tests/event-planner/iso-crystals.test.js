@@ -69,3 +69,21 @@ test('normalizes numeric-string quantities and case-insensitive duplicate IDs wi
   assert.equal(matrix.cells.Cogneur['Dégâts'].quantity, 3);
   assert.deepEqual(matrix.conflictingIds, []);
 });
+
+
+test('eligibility requires five known positive crystal categories and stays separate from assigned class level and cost', () => {
+  const { evaluateIsoClassEligibility } = await import('../../public/event-planner/lib/iso-crystals.js');
+  const items = ['HEALTH','DAMAGE','ARMOR','FOCUS','RESIST'].map((category, i) => ({
+    id: `ISOITEM_ORANGE_BLASTER_${category}_1`, quantity: i + 1
+  }));
+  const eligible = evaluateIsoClassEligibility(items, 'BLASTER', 'P4', 1, { active: 'raider', raider: 10 });
+  assert.equal(eligible.status, 'eligible');
+  assert.equal(eligible.eligibleCombatIsoLevel, 16);
+  assert.equal(eligible.assignedCombatIsoClass, 'raider');
+  assert.equal(eligible.assignedCombatIsoLevel, 10);
+  assert.equal(eligible.costs, null);
+  const missing = evaluateIsoClassEligibility(items.slice(0, 4), 'BLASTER', 'P4', 1);
+  assert.equal(missing.status, 'unknown');
+  const zero = evaluateIsoClassEligibility(items.map((item, i) => i ? item : { ...item, quantity: 0 }), 'BLASTER', 'P4', 1);
+  assert.equal(zero.status, 'ineligible');
+});
