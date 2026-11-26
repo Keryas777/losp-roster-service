@@ -205,13 +205,13 @@ try{
   await page.locator("#inventory-iso-matrix select[aria-label='Palier ISO-8 des cristaux']").selectOption("P4");
   await page.locator("#inventory-iso-matrix select[aria-label='Niveau des cristaux ISO-8']").selectOption("1");
   const isoRow=page.locator(".iso-matrix tbody tr").filter({hasText:"Tireur"});
-  assert.deepEqual(await isoRow.locator("td").allTextContents(),["16","26","17","42","16"],`${browserName} the owner-provided P4 level-1 matrix totals 117 crystals`);
+  assert.deepEqual(await isoRow.locator("td").evaluateAll(cells=>cells.map(cell=>cell.childNodes[0].textContent.trim())),["16","26","17","42","16"],`${browserName} the owner-provided P4 level-1 matrix totals 117 crystals`);
   await capture("matrice-iso-p4-n1");
   await page.locator("#inventory-search").fill("libellé français");
   assert.equal(await page.locator("#synced-inventory .inventory-row").count(),1,`${browserName} inventory search uses the French fallback, not technical identifiers`);
   await page.locator("#inventory-search").fill("");
   await page.locator("#inventory-family").selectOption("ISOITEM");
-  assert.equal(await page.locator("#synced-inventory .inventory-row").count(),2,`${browserName} inventory family filter works`);
+  assert.equal(await page.locator("#synced-inventory .inventory-row").count(),7,`${browserName} inventory family filter includes crystals and ions`);
   await page.locator("#inventory-family").selectOption("all");
   await page.locator("#stock-view").getByRole("button",{name:"Enregistrer la déclaration"}).waitFor();
   await page.getByRole("button",{name:"Actualiser l’inventaire"}).click();
