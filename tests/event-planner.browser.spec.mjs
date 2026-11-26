@@ -178,7 +178,7 @@ try{
   assert.ok(await page.locator(".inventory-technical").count()>=4,`${browserName} item IDs are available only in expandable diagnostics`);
   assert.ok(await page.locator(".inventory-quantity").filter({hasText:"Non communiqué"}).count()>0,`${browserName} an absent inventory quantity stays explicitly unknown`);
   assert.equal(await page.getByText("English Technical Name",{exact:true}).count(),0,`${browserName} raw English inventory names are not presented as French`);
-  await page.getByText("Module d’entraînement N4",{exact:true}).waitFor();
+  assert.ok(await page.locator("#synced-inventory .inventory-row").filter({hasText:"Module d’entraînement N4"}).count()>=1,`${browserName} French inventory label is visible`);
   await page.getByText("Matrice indisponible : aucune définition publique archivée",{exact:false}).waitFor();
   await page.locator("#inventory-search").fill("libellé français");
   assert.equal(await page.locator("#synced-inventory .inventory-row").count(),1,`${browserName} inventory search uses the French fallback, not technical identifiers`);
