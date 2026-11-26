@@ -45,6 +45,7 @@ const hiddenEvents=[
 const snapshot={events:[calendarEvent,commandWrapper,commandFeeder,campaign,trial,...hiddenEvents],updatedAt:new Date().toISOString(),pages:1,locale:"fr",localizationStatus:"verified"};
 const privateById=new Map([[enEvent.id,enEvent],[commandWrapper.id,commandWrapper],[commandFeeder.id,commandFeeder],[campaign.id,campaign],[trial.id,trial],...hiddenEvents.map(item=>[item.id,item])]);
 const apiCalls=[];
+let externalResourceCatalogRequests=0;
 const captureScreenshots=process.env.CAPTURE_SCREENSHOTS==="1";
 if(captureScreenshots)await mkdir(resolve("artifacts","planner-tabs"),{recursive:true});
 let failEvents=false;
@@ -74,7 +75,7 @@ const server=createServer(async(req,res)=>{
   if(!file.startsWith(root+"/")){res.writeHead(404);res.end();return;}
   try{
     const bytes=await readFile(file),extension=file.split(".").at(-1);
-    const type=extension==="html"?"text/html; charset=utf-8":extension==="css"?"text/css; charset=utf-8":"text/javascript; charset=utf-8";
+    const type=extension==="html"?"text/html; charset=utf-8":extension==="css"?"text/css; charset=utf-8":extension==="json"?"application/json; charset=utf-8":"text/javascript; charset=utf-8";
     res.writeHead(200,{"Content-Type":type,"Cache-Control":"no-store"});res.end(bytes);
   }catch{res.writeHead(404);res.end("not found");}
 });
@@ -93,13 +94,13 @@ try{
     if(url.endsWith("msf-characters.json"))body=[{id:"CaptainAmerica",nameKey:"Captain America",nameEn:"Captain America",nameFr:"Captain America",portraitUrl:art,player_Character:true}];
     else if(url.endsWith("dd-character-traits.json"))body={characters:{CaptainAmerica:["Avenger"]}};
     else if(url.endsWith("evenements-snapshot.json"))body=snapshot;
-    else if(url.endsWith("msf-resource-catalog.json"))body={items:[
+    else if(url.endsWith("msf-resource-catalog.json")){externalResourceCatalogRequests++;body={items:[
       {id:"SC",names:{fr:"Or"},group:"gold",priority:true,sortOrder:1,categoryLabelFr:"Monnaie"},
       {id:"HC",names:{fr:"Noyaux d’énergie"},group:"cores",priority:true,sortOrder:2,categoryLabelFr:"Monnaie"},
       {id:"CONSUMABLE_XPLVL80",names:{fr:"Module d’entraînement N4"},group:"training",priority:true,sortOrder:3,icon:"https://assets.marvelstrikeforce.com/imgs/ICON_CONSUMABLE_XPLVL80_4ae2e7af.png",categoryLabelFr:"Progression"},
       {id:"ISO8-TIER-0-CURRENCY",names:{fr:"Ions P1"},group:"iso8Ions",priority:true,sortOrder:4,categoryLabelFr:"Ions ISO-8"},
       {id:"ISO8-TIER-1-A-CURRENCY",names:{fr:"Ions P2 niveau 1"},group:"iso8Ions",priority:true,sortOrder:5,categoryLabelFr:"Ions ISO-8"}
-    ]};
+    ]};}
     else body={characters:{}};
     return route.fulfill({status:200,contentType:"application/json",body:JSON.stringify(body),headers:{"Access-Control-Allow-Origin":"*"}});
   });
@@ -110,8 +111,11 @@ try{
   await page.route("https://keryas777.github.io/msf/HeaderObjectifs.webp",route=>route.fulfill({status:200,contentType:"image/gif",body:Buffer.from("R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=","base64")}));
   await page.route("https://assets.marvelstrikeforce.com/**",route=>route.fulfill({status:200,contentType:"image/gif",body:Buffer.from("R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=","base64")}));
   await page.goto(`http://127.0.0.1:${address.port}/admin/events-planner?eventId=planner-test`,{waitUntil:"networkidle"});
+  assert.equal(externalResourceCatalogRequests,0,`${browserName} resource catalog loads from the Worker assets, not unpublished MSF Pages`);
   await page.locator(".planner-event-card").first().waitFor({state:"attached"});
   assert.equal(await page.locator(".planner-event-card").count(),4,`${browserName} should use only public-calendar eligible current events and fold command-center feeders`);
+  assert.equal(await page.getByRole("tab",{name:"Mon inventaire"}).count(),1);
+  assert.equal(await page.getByText("Recalculer les relevés Maddoxx",{exact:true}).count(),0);
   assert.equal(await page.getByText("Passe de combat",{exact:true}).count(),0);
   assert.equal(await page.getByText("Jalon passé",{exact:true}).count(),0);
   assert.equal(await page.getByText("First S.T.R.I.K.E.",{exact:true}).count(),0);
@@ -130,7 +134,7 @@ try{
   const callsBeforeTabChanges=apiCalls.length;
   await page.getByRole("tab",{name:"Objectifs"}).click();
   await page.getByRole("tab",{name:"Planifier"}).click();
-  await page.getByRole("tab",{name:"Mon stock"}).click();
+  await page.getByRole("tab",{name:"Mon inventaire"}).click();
   await page.getByRole("tab",{name:"Événements"}).click();
   assert.equal(apiCalls.length,callsBeforeTabChanges,`${browserName} changing tabs does not repeat personal reads`);
   await page.evaluate(()=>window.scrollTo(0,document.body.scrollHeight));
@@ -211,21 +215,25 @@ try{
   await page.locator("#objectives-view [role=progressbar]").first().waitFor();await checkMobileWidths("Objectifs");await capture("objectifs");
   await page.getByRole("tab",{name:"Planifier"}).click();
   await page.getByRole("heading",{name:"Événement planifié"}).waitFor();await checkMobileWidths("Planifier");await capture("planifier");
-  await page.getByRole("tab",{name:"Mon stock"}).click();
-  await page.getByRole("heading",{name:"Inventaire synchronisé Scopely"}).waitFor();await checkMobileWidths("Mon stock");await capture("mon-stock");
+  await page.getByRole("tab",{name:"Mon inventaire"}).click();
+  await page.getByRole("heading",{name:"Inventaire synchronisé"}).waitFor();await checkMobileWidths("Mon inventaire");await capture("mon-inventaire");
   await page.locator(".inventory-quantity").filter({hasText:"0"}).first().waitFor();
-  assert.ok(await page.locator(".inventory-technical").count()>=4,`${browserName} item IDs are available only in expandable diagnostics`);
+  assert.ok(await page.locator(".inventory-technical").count()>=4,`${browserName} item IDs are kept in expandable admin diagnostics`);
   assert.ok(await page.locator(".inventory-quantity").filter({hasText:"Non communiqué"}).count()>0,`${browserName} an absent inventory quantity stays explicitly unknown`);
   assert.equal(await page.getByText("English Technical Name",{exact:true}).count(),0,`${browserName} raw English inventory names are not presented as French`);
   assert.ok(await page.locator("#synced-inventory .inventory-row").filter({hasText:"Module d’entraînement N4"}).count()>=1,`${browserName} French inventory label is visible`);
-  await page.getByText("IDs reconnus dans ce relevé : 5",{exact:false}).waitFor();
+  assert.equal(await page.getByText(/IDs reconnus dans ce relevé/).count(),0, `${browserName} technical identification counts stay in admin diagnostics`);
+  const isoDiagnostic=page.locator("#inventory-iso-matrix .inventory-technical");
+  await isoDiagnostic.locator("summary").click();
+  await isoDiagnostic.getByText("5 identifiants reconnus · 2 non classifiés",{exact:true}).waitFor();
+  assert.equal(await page.locator("#inventory-iso-matrix").getByText(/identifiants reconnus/).count(),1,`${browserName} recognition counts exist only in the administrator diagnostic`);
   await page.locator("#inventory-iso-matrix select[aria-label='Palier ISO-8 des cristaux']").selectOption("P4");
   await page.locator("#inventory-iso-matrix select[aria-label='Niveau des cristaux ISO-8']").selectOption("1");
   const isoRow=page.locator(".iso-matrix tbody tr").filter({hasText:"Tireur"});
-  assert.deepEqual(await isoRow.locator("td").evaluateAll(cells=>cells.map(cell=>cell.childNodes[0].textContent.trim())),["16","26","17","42","16","Éligible · niveau 16"],`${browserName} the owner-provided P4 level-1 matrix totals 117 crystals`);
+  assert.deepEqual(await isoRow.locator("td").evaluateAll(cells=>cells.map(cell=>cell.childNodes[0].textContent.trim())),["16","26","17","42","16","Possible · niveau 16"],`${browserName} the owner-provided P4 level-1 matrix totals 117 crystals`);
   await capture("matrice-iso-p4-n1");
   if(captureScreenshots){await page.setViewportSize({width:800,height:844});await page.locator(".iso-matrix-scroll").screenshot({path:resolve("artifacts","planner-tabs",`${browserName}-matrice-iso-table-complete.png`)});await page.setViewportSize({width:390,height:844});}
-  await page.locator("#inventory-search").fill("libellé français");
+  await page.locator("#inventory-search").fill("identifier");
   assert.equal(await page.locator("#synced-inventory .inventory-row").count(),1,`${browserName} inventory search uses the French fallback, not technical identifiers`);
   await page.locator("#inventory-search").fill("");
   await page.locator("#inventory-family").selectOption("ISOITEM");
@@ -233,7 +241,7 @@ try{
   await page.locator("#inventory-family").selectOption("all");
   await page.locator("#stock-view").getByRole("button",{name:"Enregistrer la déclaration"}).waitFor();
   const inventoryCallsBeforeRepaint=apiCalls.filter(call=>call.resource==="inventory").length;
-  await page.getByRole("button",{name:"Réafficher l’inventaire"}).click();
+  await page.getByRole("button",{name:"Réutiliser l’inventaire"}).click();
   assert.equal(apiCalls.filter(call=>call.resource==="inventory").length,inventoryCallsBeforeRepaint,`${browserName} inventory repaint reuses the first read instead of requesting again`);
   const width=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth}));
   assert.ok((await page.locator("#tab-events").getAttribute("class")).includes("ev-stat"));

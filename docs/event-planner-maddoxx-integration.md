@@ -15,7 +15,7 @@ Cette note décrit l’intégration Maddoxx portée par la branche `work/maddoxx
 
 La logique pure originale est portée dans `public/event-planner/lib/` : classification des lignes, résolution personnages/traits, calcul des actions faisables, leviers du roster, paliers, besoins par ressource, alternatives et registre des stocks/récompenses. Les 29 tests originaux du moteur accompagnent le port. Le catalogue issu du JSON Maddoxx est embarqué dans un module JavaScript statique afin de garder le même moteur utilisable dans le navigateur et le Worker; l’interface a été adaptée en JavaScript natif pour rester compatible avec GitHub Pages et Safari iOS.
 
-Le moteur conserve séparément les données personnelles Scopely et ses projections. Un `soFar`, un score global, un palier réclamé ou une ressource absente ne sont jamais convertis en zéro. Lorsque le score agrégé manque, Maddoxx permet d’afficher la somme des compteurs plafonnés; elle est utilisée comme score de départ uniquement si tous les compteurs distincts sont numériques et elle est étiquetée comme estimation. Une somme partielle reste visible comme telle, sans calcul de palier. Un roster indisponible laisse les conditions liées aux personnages inconnues plutôt que bloquées.
+Le moteur conserve séparément les données personnelles Scopely et ses projections. Un `soFar`, un score global, un palier réclamé ou une ressource absente ne sont jamais convertis en zéro. Lorsque le score agrégé manque, Maddoxx permet d’afficher la somme des compteurs plafonnés; elle est utilisée comme score de départ uniquement si tous les compteurs distincts sont numériques et elle est étiquetée comme estimation. Une somme partielle reste visible comme telle, sans calcul de palier. Une équipe indisponible laisse les conditions liées aux personnages inconnues plutôt que bloquées.
 
 Les relevés personnels de stock ne sont pas archivés par le Worker. Une quantité d’inventaire explicite de `0` est utilisée; une ressource absente de la réponse reste inconnue. Quand les compteurs Scopely nécessaires au registre sont incomplets, seule la dernière déclaration locale est utilisée et l’interface indique que l’estimation des dépenses est indisponible.
 
@@ -25,7 +25,7 @@ Les relevés personnels de stock ne sont pas archivés par le Worker. Une quanti
 |---|---|
 | `/player/v1/events?lang=fr` | événements actifs en français; 8 pages maximum, arrêt dès la dernière page |
 | `/player/v1/events/{eventId}?lang=fr&objRewards=full` | une seule série du poste de commandement sélectionnée; aucune autre fiche détaillée |
-| `/player/v1/roster` | lecture uniquement d’une copie privée existante non expirée; cache manquant = roster inconnu, aucun appel Scopely |
+| Ressource `roster` du planificateur | lecture directe de la copie privée R2 `connected-personal-rosters/<session-hash>/latest.json` via le helper LoSP existant; copie absente/expirée = équipe inconnue, aucun appel Scopely |
 | `/player/v1/inventory` pour `CONSUMABLE` et `ISOITEM` | stock connu lorsque Scopely renvoie une quantité explicite |
 
 La liste conserve la classification de tous les événements actifs. Les calculs Maddoxx sont appliqués aux événements à jalons avec scoring; la page publique LoSP conserve ses fiches et regroupements existants pour les autres types.
@@ -38,7 +38,7 @@ Les fixtures de test sont synthétiques. Les tests vérifient le moteur original
 
 Les workflows GitHub Actions valident les adaptations, les profils d’accès et les navigateurs Chromium/WebKit sur un viewport mobile. Sur `main` au SHA `5af430a10cd636badb0f18d9055e44693a96ef90`, la suite générale du Worker échoue déjà sur 15 tests sur 897 (collecteurs, budgets, fixtures temporelles R2 et accès de roster R2). Le même ensemble de 15 échecs apparaît sur la branche; les tests du planificateur passent séparément.
 
-Aucun appel en direct à un compte Scopely n’a été fait. Les formes des données réelles accessibles dans les archives et les scopes déjà déclarés sont documentées dans `personal-event-progress-v1.md`, mais les réponses personnelles d’événement, roster et inventaire n’ont pas été revalidées en direct dans cette PR.
+Aucun nouvel appel personnel Scopely n’est déclenché par cette correction. Les données observées lors de la validation propriétaire du 26 novembre servent à corriger la lecture du cache existant; les ID bruts non accessibles ne sont pas extrapolés.
 
 ## Exploitation et périmètre
 
@@ -62,7 +62,7 @@ Cette navigation entre deux pages existantes est la décision définitive pour c
 - Le calcul Maddoxx et ses classifieurs ne sont pas modifiés. Les libellés français Scopely restent prioritaires; lorsque la traduction manque, les actions courantes (connexion, combats par mode, dépenses et prérequis du roster) ont une formulation française construite à partir des champs structurés. Les cas non reconnus restent signalés comme à vérifier sans exposer les codes internes.
 - Les actions sont regroupées par personnage avec un portrait unique, progression en barre uniquement lorsque Scopely fournit un compteur exploitable, et sections repliables pour les actions terminées. Le score d’événement et les paliers continuent d’utiliser leurs champs Scopely séparés.
 - L’inventaire est filtrable par famille et par texte, replié par famille sur les grands volumes; un identifiant technique n’est visible qu’à l’ouverture de son détail. Les quantités absentes restent « Quantité indisponible ». Les métadonnées réellement livrées par l’inventaire ne suffisent pas à reconstituer les catégories ISO-8 couleur/niveau/classe/statistique; la vue les regroupe donc seulement selon la famille retournée. Les noms français inconnus restent génériques plutôt que d’afficher un texte anglais ou un ID comme nom.
-- Les correspondances XPLVL20/40/60 n’ont pas été retrouvées dans les référentiels versionnés examinés; elles ne sont pas ajoutées par déduction. Un catalogue central partagé d’objets, alimenté depuis les définitions publiques /game/v1/items/{itemId} et livré depuis le dépôt msf, reste à préparer lorsqu’une source complète versionnée sera disponible.
+- Les correspondances XPLVL20/40/60 n’ont pas été retrouvées dans les référentiels versionnés examinés; elles ne sont pas ajoutées par déduction. Le catalogue central statique du dépôt `msf` est embarqué dans les assets allowlistés du Worker pour rester disponible sans publication simultanée de GitHub Pages. Les référentiels personnage/traits et le calendrier déjà publiés continuent d’être lus depuis MSF; aucune donnée personnelle n’y est déplacée.
 - La persistance des ressources déclarées et des événements ignorés reste dans la clé locale existante du navigateur. Le planificateur étant encore propriétaire uniquement, cette passe ne migre pas les données vers un stockage par compte. Avant ouverture à plusieurs capitaines/joueurs, il faudra scoper ces préférences par identité de compte stable côté service; le statut actuel n’expose pas une telle identité et aucune requête Scopely supplémentaire n’est ajoutée ici.
 - Les tests navigateur utilisent des réponses Scopely anonymisées/simulées. Ils vérifient le routage réel des imports de Worker déjà couvert par la PR #217, le deep-link filtré, l’interface, les valeurs nulles/absentes, les quatre onglets et les styles LoSP chargés depuis la page publique. Ils ne revalident pas les données personnelles réelles de l’administrateur.
 ## Reprise de finalisation (PR #218)
@@ -77,7 +77,7 @@ GET /admin/api/event-planner?resource=status renvoie maintenant un identifiant l
 - Le résumé met l’or, les noyaux, les modules d’entraînement et les ions connus avant le détail. Les quatre modules archivés L1–L4 sont traduits en N1–N4; leurs icônes officielles proviennent des définitions publiques. Les ions sont listés par identifiant exact et niveau observé, sans les additionner.
 - Le détail des objets reste compact, repliable par famille et consultable par recherche française. L’identifiant brut reste dans un élément « Diagnostic » replié. Une quantité explicite 0 reste zéro; une quantité absente ou un objet non renvoyé reste « Non communiqué ».
 - La matrice cristal ISO-8 est volontairement signalée indisponible. L’archive publique consultée a livré des définitions d’ions/monnaies ISO-8, fragments et énergies, mais aucune définition de cristal reliant un ID à la couleur, au niveau, à la classe et à la statistique. Ni les noms d’identifiants ni docs/data/iso-icons.json (icônes de classe) ne suffisent à établir ces propriétés. Aucun cristal n’est classé par supposition.
-- Les libellés français proviennent du référentiel central public de msf lorsqu’il est disponible; les noms anglais bruts d’objets inconnus ne sont pas montrés. Les valeurs de stock inconnues ne deviennent jamais zéro.
+- Les libellés français viennent du catalogue statique embarqué lorsqu’ils sont disponibles; les noms anglais bruts d’objets inconnus ne sont pas montrés. Les identifiants et compteurs de reconnaissance restent dans les détails « Diagnostic administrateur », sur cette route protégée. Les valeurs de stock inconnues ne deviennent jamais zéro.
 
 ### Planification et fidélité au moteur
 
@@ -111,7 +111,7 @@ Les séries PC identifiées par le nom, les marqueurs officiels et leur fenêtre
 
 ### Ressources et données sources
 
-Le catalogue central livré dans la PR #739 contient 15 identifiants : 12 correspondances depuis des définitions publiques officielles et 3 mappings LoSP déjà observés (SC, HC et énergie de campagne). L’état de preuve est explicite; les libellés français internes ne sont pas présentés comme des traductions officielles.
+Le catalogue central livré dans la PR #739 contient 15 identifiants : 12 correspondances depuis des définitions publiques officielles et 3 mappings LoSP déjà observés (SC, HC et énergie de campagne). Le fichier JSON est embarqué comme asset statique sur la branche Worker; ses libellés français internes ne sont pas présentés comme des traductions officielles.
 
 Les archives du client MSF 10.5.0, le manuel API LoSP et la spécification vivante ont été examinés. Aucun identifiant de cristal `ISOITEM_…` exploitable n’a été trouvé dans les trois assets client fournis. Les ions ISO-8 connus restent séparés des cristaux. La matrice cristaux couleur/niveau/classe/statistique et son parseur restent indisponibles jusqu’à l’obtention d’une source vérifiable; aucun stock personnel n’a été relu ou ajouté aux fixtures.
 
@@ -153,7 +153,7 @@ Les tests ciblés couvrent l’exemple observé, les combinaisons dérivées, le
 ### Correction du périmètre des lectures
 
 - Le chargement de la page ne demande plus qu’une liste d’événements en français. Le serveur refuse les lectures personnelles en anglais pour cette passe.
-- Le roster est lu uniquement depuis la copie privée Durable Object encore valide, derrière les vérifications Access, propriétaire, session et scope inchangées. Une copie absente ou expirée renvoie « cache manquant » et ne déclenche pas Scopely.
+- Le roster est lu depuis la copie privée R2 existante `connected-personal-rosters/.../latest.json`, via l’identifiant de session déjà vérifié et les contrôles Access, propriétaire et scope inchangés. Une copie absente ou expirée renvoie « cache manquant » et ne déclenche pas Scopely.
 - Les deux familles d’inventaire restent en français et réutilisent la même promesse en mémoire; l’action d’actualisation de la vue ne force plus un rafraîchissement réseau. Changer d’onglet ou recalculer les relevés ne répète pas d’appel.
 - Une fiche détaillée n’est demandée qu’après sélection d’une série du poste de commandement, en français, et une seule fois par onglet de navigateur. Les événements ordinaires utilisent les compteurs disponibles dans la liste.
 - Aucun token OAuth ne quitte le Worker. Les réponses restent privées et `no-store`; aucun nouveau stockage serveur, endpoint de collecte, binding, secret, cron ou Worker n’est ajouté.

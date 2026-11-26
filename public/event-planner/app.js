@@ -32,10 +32,10 @@ function eventTypeLabel(event){
 }
 function errorText(error){
   if(error?.body?.error==="scope-insufficient")return "Cette autorisation ne donne pas accès à cette donnée.";
-  if(error?.body?.reason==="not-connected"||error?.body?.reason==="consent-revoked")return "Session Scopely absente ou révoquée.";
-  if(error?.body?.error==="rate-limited")return "Scopely limite temporairement les requêtes. Réessaie dans un instant.";
-  if(error?.body?.error==="scope-or-access-denied")return "Scopely a refusé cette requête. Consulte le diagnostic technique.";
-  if(error?.body?.error==="provider-error")return "Scopely a répondu avec une erreur. Consulte le diagnostic technique.";
+  if(error?.body?.reason==="not-connected"||error?.body?.reason==="consent-revoked")return "Compte MSF non connecté ou autorisation révoquée.";
+  if(error?.body?.error==="rate-limited")return "Le service limite temporairement les demandes. Réessaie dans un instant.";
+  if(error?.body?.error==="scope-or-access-denied")return "Cette demande a été refusée. Les détails sont réservés à l’administration.";
+  if(error?.body?.error==="provider-error")return "Les données ne sont pas disponibles pour le moment.";
   return "Donnée indisponible pour le moment.";
 }
 function renderDiagnostic(error){
@@ -213,10 +213,10 @@ function renderEvents(){
     .flatMap(wrapper=>commandCenterFeeders(wrapper,state.eventsFr).map(feeder=>String(feeder.id))));
   const visible=events.filter(event=>!state.skipped.has(String(event.id))&&!groupedFeederIds.has(String(event.id)));
   const ignored=events.filter(event=>state.skipped.has(String(event.id))).length;
-  $("event-count").textContent=state.calendarError?"Catalogue public LoSP indisponible · liste masquée":
+  $("event-count").textContent=state.calendarError?"Calendrier indisponible · liste masquée":
     `${visible.length} événement${visible.length===1?"":"s"} affiché${visible.length===1?"":"s"} · ${ignored} ignoré${ignored===1?"":"s"}`;
   const list=$("events-list");list.replaceChildren();
-  if(state.calendarError){list.append(el("div","empty-card","Le catalogue utilisé par la page publique n’a pas pu être chargé. La liste personnelle non filtrée reste masquée."));}
+  if(state.calendarError){list.append(el("div","empty-card","Le calendrier LoSP n’a pas pu être chargé. La liste des événements reste masquée."));}
   else if(!visible.length){list.append(el("div","empty-card",events.length?"Tous les événements LoSP en cours sont ignorés.":"Aucun événement LoSP n’est actuellement en cours."));}
   for(const group of calendarGroups){
     const entries=(groups[group.key]||[]).filter(event=>!state.skipped.has(String(event.id))&&!groupedFeederIds.has(String(event.id)));
@@ -255,7 +255,7 @@ function renderEvents(){
   for(const event of skipped){const row=el("div","event-card");row.append(el("span","",displayName(getEvent(event.id,"fr")||event)));const restore=el("button","small-button","Réintégrer");restore.type="button";restore.dataset.action="restore";restore.dataset.eventId=String(event.id);row.append(restore);skippedList.append(row);}
   if(state.selectedId&&!events.some(event=>String(event.id)===String(state.selectedId))){state.selectedId=null;$("selected-event").hidden=true;$("event-list-view").hidden=false;}
 }
-function statusTag(status){const labels={done:"Terminé confirmé",doable:"Faisable gratuitement",resource:"Ressource à prévoir",blocked:"Prérequis du roster à améliorer",unknown:"Progression ou faisabilité inconnue"};return labels[status]||"Données indisponibles";}
+function statusTag(status){const labels={done:"Terminé confirmé",doable:"Faisable gratuitement",resource:"Ressource à prévoir",blocked:"Personnages à améliorer",unknown:"Progression ou faisabilité inconnue"};return labels[status]||"Données indisponibles";}
 function modeLabelFr(mode){
   const labels={raid:"Raid",war:"Guerre",arena:"Arène",blitz:"Blitz",crucible:"Épreuve cosmique",rta:"Arène en temps réel",campaign:"Campagne",battleworld:"Battleworld",any:"combat"};
   return labels[mode]||null;
@@ -305,7 +305,7 @@ function rosterRequirementText(code,reason){
   if(code==="level")return have===null||need===null?"Niveau requis indisponible.":"Niveau : "+have+"/"+need;
   return null;
 }
-function reasonLabel(code){const labels={unknownName:"Personnage absent du catalogue",ambiguousName:"Nom de personnage ambigu",unknownResource:"Ressource non reconnue",unknownIon:"Ion ISO-8 non reconnu",unknownMode:"Mode de jeu non reconnu",unknownForm:"Condition non interprétée",multiMethod:"Plusieurs actions combinées",meta:"Points portés par un sous-événement",earn:"Gain non calculable"};return labels[code]||"Données nécessaires indisponibles";}
+function reasonLabel(code){const labels={unknownName:"Personnage non identifié",ambiguousName:"Nom de personnage ambigu",unknownResource:"Ressource non reconnue",unknownIon:"Ion ISO-8 non reconnu",unknownMode:"Mode de jeu non reconnu",unknownForm:"Condition non interprétée",multiMethod:"Plusieurs actions combinées",meta:"Points portés par un sous-événement",earn:"Gain non calculable"};return labels[code]||"Données nécessaires indisponibles";}
 function unparsedObjectiveLabel(item){
   if(item?.label&&item?.label!==item?.labelEn)return item.label;
   return "Objectif à vérifier · "+reasonLabel(item?.reason);
@@ -375,7 +375,7 @@ function addActionRow(list,action,{portrait=true}={}){
   if(portrait)addSafeImage(row,action.character?.portrait,"character-portrait");
   const copy=el("div","action-row__copy");copy.append(el("strong","",name),el("span","status status--"+action.status,statusTag(action.status)));
   const details=[];
-  if(action.premium)details.push("Objectif associé au Passe Premium · indicateur fourni par Scopely");
+  if(action.premium)details.push("Objectif associé au Passe Premium · indication fournie par le jeu");
   if(action.progressState==="unknown")details.push("Progression : données indisponibles");
   else if(Number.isFinite(action.progress)&&Number.isFinite(action.cap))details.push(fmt(action.progress)+" / "+fmt(action.cap)+" pts");
   if(action.remainingUnits!=null)details.push(fmt(action.soFarUnits)+" / "+fmt(action.capUnits)+" unités");
@@ -385,8 +385,8 @@ function addActionRow(list,action,{portrait=true}={}){
     if(rosterText)details.push(rosterText);
     else if(action.reason.code==="traitShort")details.push("Équipe : "+action.reason.have+"/"+action.reason.need+" personnages admissibles");
     else if(action.reason.code==="external")details.push("Objectif associé à une offre ou un achat; faisabilité hors jeu non vérifiée");
-    else if(action.reason.code==="rosterUnavailable")details.push("Roster indisponible : faisabilité inconnue");
-    else if(action.reason.code==="noCharacter")details.push("Aucun personnage du roster ne remplit les prérequis");
+    else if(action.reason.code==="rosterUnavailable")details.push("Ton équipe n’est pas disponible; faisabilité inconnue");
+    else if(action.reason.code==="noCharacter")details.push("Aucun de tes personnages ne remplit les prérequis");
     else details.push(reasonText(action));
   }
   if(action.resourceLabel)details.push(action.resourceLabel);
@@ -402,9 +402,9 @@ function addActionRow(list,action,{portrait=true}={}){
 }
 function reasonText(action){
   const reason=action.reason||{};
-  if(reason.code==="notOwned")return "Personnage absent du roster reçu";
-  if(reason.code==="noCharacter")return "Aucun personnage du roster ne remplit les prérequis";
-  if(reason.code==="rosterUnavailable")return "Roster indisponible : faisabilité inconnue";
+  if(reason.code==="notOwned")return "Personnage non présent dans ton équipe";
+  if(reason.code==="noCharacter")return "Aucun de tes personnages ne remplit les prérequis";
+  if(reason.code==="rosterUnavailable")return "Ton équipe n’est pas disponible; faisabilité inconnue";
   if(reason.code==="external")return "Objectif associé à une offre ou un achat";
   if(reason.code==="traitShort")return Number.isFinite(reason.have)&&Number.isFinite(reason.need)?"Équipe : "+reason.have+"/"+reason.need+" personnages admissibles":"Prérequis d’équipe non remplis";
   return rosterRequirementText(reason.code,reason)||"Condition de personnage non remplie";
@@ -431,7 +431,7 @@ function renderCommandCenterMissions(wrapper){
     section.append(el("p","muted","Toutes les séries identifiées sont ignorées dans cette session."));
     return section;
   }
-  section.append(el("p","row-detail","Les points de phase du poste ne sont pas estimés à partir de lignes ou récompenses manquantes. Ouvre une série pour l’analyse Maddoxx détaillée."));
+  section.append(el("p","row-detail","Les points de phase du poste ne sont pas estimés à partir de lignes ou récompenses manquantes. Ouvre une série pour l’analyse détaillée."));
   const list=el("ul","action-list");
   for(const feeder of visible){
     const summary=summarizeFeederProgress(feeder),localized=getEvent(feeder.id,"fr")||feeder;
@@ -465,23 +465,23 @@ function renderSelected(event,fr,analysis,detailError=null){
   skip.type="button";skip.dataset.action=state.skipped.has(String(event.id))?"restore":"skip";skip.dataset.eventId=String(event.id);
   const planLink=el("button","button","Planifier cet événement →");planLink.type="button";planLink.dataset.action="open-plan";actions.append(planLink,skip);root.append(actions);
   if(detailError){const failure=el("section","panel-card");failure.append(el("p","warning","Les détails personnels complets n’ont pas été chargés. Les éléments présents dans la liste sont conservés, sans confirmer les données manquantes."),renderDiagnostic(detailError));root.append(failure);}
-  if(!state.roster){root.append(el("p","warning","Roster personnel indisponible. Les conditions liées aux personnages et les actions faisables ne sont pas estimées."));}
-  if(!analysis){root.append(el("p","warning","Données de scoring indisponibles pour cette réponse. Aucun objectif n’est déclaré terminé."));renderObjectives();renderPlan();return;}
+  if(!state.roster){root.append(el("p","warning","Ton équipe n’est pas disponible. Les objectifs qui en dépendent ne peuvent pas encore être évalués."));}
+  if(!analysis){root.append(el("p","warning","Données de calcul des points indisponibles. Aucun objectif n’est déclaré terminé."));renderObjectives();renderPlan();return;}
   if(!analysis.supported){
-    const message=event.type!=="milestone"?"Événement classé et consultable. Le moteur Maddoxx calcule la planification pour les événements à jalons avec des données de scoring; le calendrier public garde les détails de cet événement.":"Données de scoring insuffisantes. Les calculs Maddoxx restent actifs pour les lignes reconnues dès que Scopely fournit leurs valeurs.";
+    const message=event.type!=="milestone"?"Événement classé et consultable. La planification est disponible pour les événements à jalons disposant des données de calcul des points; le calendrier garde les détails des autres événements.":"Données de calcul des points insuffisantes. Les lignes reconnues seront analysées lorsque leurs valeurs seront disponibles.";
     root.append(el("p","warning",message));
     const details=stripTags(fr?.description||fr?.details||fr?.subName||event?.description||event?.details||"");
     if(details)root.append(el("section","panel-card",details));
     renderObjectives();renderPlan();return;
   }
   const metrics=el("div","metric-row");
-  const progressLabel=analysis.event.progressState==="available"?`${fmt(analysis.event.points)} pts · progression Scopely`:
-    analysis.event.progressState==="estimated"?`${fmt(analysis.event.points)} pts · somme Maddoxx estimée`:
+  const progressLabel=analysis.event.progressState==="available"?`${fmt(analysis.event.points)} pts · progression confirmée`:
+    analysis.event.progressState==="estimated"?`${fmt(analysis.event.points)} pts · estimation calculée`:
     analysis.event.progressState==="partial"?`${fmt(analysis.event.reportedActionPoints)} pts recensés · total incomplet`:
     "Données indisponibles";
   metrics.append(el("span","metric",`Progression : ${progressLabel}`));
   metrics.append(el("span","metric",`Actions gratuites connues : ${fmt(analysis.event.doablePoints)} pts`));
-  metrics.append(el("span","metric",`Roster : ${state.roster.length} personnages`));root.append(metrics);
+  metrics.append(el("span","metric",`Personnages : ${state.roster.length}`));root.append(metrics);
   const rows=el("div","analysis-grid");
   const done=analysis.actions.filter(action=>action.status==="done");
   const remaining=analysis.actions.filter(action=>action.status!=="done");
@@ -500,9 +500,9 @@ function renderSelected(event,fr,analysis,detailError=null){
   const claim=analysis.event.claimableTiersKnown?analysis.event.claimableTiers.length?analysis.event.claimableTiers.join(", "):"Aucun":"Données indisponibles";
   const premium=Array.isArray(analysis.event.claimableTiersPremium)?analysis.event.claimableTiersPremium.length?analysis.event.claimableTiersPremium.join(", "):"Aucun":"Données indisponibles";
   tiers.append(el("p","row-detail",`Paliers terminés confirmés : ${analysis.event.completedTierKnown?fmt(analysis.event.currentTier):"Données indisponibles"} · À réclamer : ${claim} · Premium : ${premium}`));rows.append(tiers);
-  const grouped=el("section","panel-card");grouped.append(el("h3","","Actions et leviers du roster"));
+  const grouped=el("section","panel-card");grouped.append(el("h3","","Actions et améliorations de personnages"));
   if(analysis.groups.length){const list=el("ul","action-list");for(const group of analysis.groups){const representative=analysis.actions.find(action=>group.actions.includes(action.index));if(representative)addActionRow(list,{...representative,status:group.status,doablePoints:group.doablePoints,remaining:representative.remaining,fightsLeft:group.fightsLeft});}grouped.append(list);}
-  else grouped.append(el("p","muted","Aucune action classée à partir du scoring reçu."));
+  else grouped.append(el("p","muted","Aucune action n’a pu être identifiée à partir des données de calcul des points."));
   if(analysis.levers.length){grouped.append(el("h4","","Améliorations possibles"));const list=el("ul","action-list");for(const lever of analysis.levers){const li=el("li","action-row");addSafeImage(li,lever.character.portrait,"character-portrait");const copy=el("div");copy.append(el("strong","",`${characterNameFr(lever.character)} · ${lever.kind} ${lever.from} → ${lever.to}`),el("p","row-detail",`+${fmt(lever.gain)} pts · ${lever.steps} niveau(x)`));li.append(copy);list.append(li);}grouped.append(list);}
   rows.append(grouped);root.append(rows);
   if(analysis.unparsed.length){const unknown=el("details","panel-card");unknown.append(el("summary","","Lignes non analysées · "+analysis.unparsed.length));const list=el("ul","action-list");for(const item of analysis.unparsed){const li=el("li","action-row");li.append(el("strong","",unparsedObjectiveLabel(item)),el("p","row-detail",reasonLabel(item.reason)+(item.premium?" · Objectif associé au Passe Premium":"")));list.append(li);}unknown.append(list);root.append(unknown);}
@@ -511,7 +511,7 @@ function renderSelected(event,fr,analysis,detailError=null){
 function renderObjectives(){
   const target=$("objectives-view");target.replaceChildren();
   const analysis=state.analysis;
-  if(!analysis?.supported){target.append(el("p","warning",!state.roster?"Roster indisponible : progression et faisabilité restent inconnues.":"Choisis un événement dont les données de scoring sont disponibles."));return;}
+  if(!analysis?.supported){target.append(el("p","warning",!state.roster?"Ton équipe n’est pas disponible; progression et faisabilité restent inconnues.":"Choisis un événement dont les données de calcul des points sont disponibles."));return;}
   renderObjectiveGroups(analysis.actions,target);
   if(!analysis.actions.length)target.append(el("p","muted","Aucun objectif individuel exploitable n’a été reçu."));
   if(analysis.event.progressState==="unknown")target.append(el("p","warning","Le score global et les compteurs utiles ne sont pas fournis. Le plan ne leur substitue pas zéro."));
@@ -527,7 +527,7 @@ function renderPlan(){
   const selected=state.selectedId&&(localizedCalendarEvent(state.selectedId,"fr")||localizedCalendarEvent(state.selectedId,"en")||activeEvents().find(item=>String(item.id)===String(state.selectedId)));
   $("plan-event-name").textContent=selected?displayName(selected):"Aucun événement sélectionné";
   $("plan-back").hidden=!selected;
-  if(!analysis?.supported){target.append(el("p","warning","Les données de scoring nécessaires à cette planification ne sont pas disponibles pour l’événement sélectionné."));return;}
+  if(!analysis?.supported){target.append(el("p","warning","Les données de calcul des points nécessaires à cette planification ne sont pas disponibles pour l’événement sélectionné."));return;}
   if(analysis.plan?.status==="unavailable"){
     const message=analysis.event.progressState==="partial"?"Une partie des compteurs manque. Le score total et la faisabilité des paliers ne sont pas déterminés à partir de ce relevé.":"Le score ou les paliers n’ont pas été fournis. Aucune quantité manquante n’est remplacée par zéro.";
     target.append(el("p","warning",message));return;
@@ -535,8 +535,8 @@ function renderPlan(){
   const plan=analysis.plan,event=analysis.event,score=event.points,scoreKnown=Number.isFinite(score)&&["available","estimated"].includes(event.progressState);
   const uncertain=event.progressState==="partial"||event.progressState==="unknown"||!Array.isArray(state.roster)||
     analysis.unparsed.length>0||analysis.actions.some(action=>action.status==="unknown");
-  const scoreSource=event.progressState==="available"?"Progression personnelle fournie par Scopely":
-    event.progressState==="estimated"?"Estimation Maddoxx · somme des compteurs plafonnés":"Progression indisponible";
+  const scoreSource=event.progressState==="available"?"Progression personnelle du compte MSF":
+    event.progressState==="estimated"?"Estimation à partir des compteurs plafonnés":"Progression indisponible";
   const nextTier=scoreKnown?analysis.tiers.filter(tier=>tier.goal>score).sort((a,b)=>a.goal-b.goal)[0]:null;
   const summary=el("section","plan-event-card");
   summary.append(el("h3","","Événement planifié"),el("p","plan-event-name",displayName(selected||getEvent(state.selectedId,"en")||{})));
@@ -559,8 +559,8 @@ function renderPlan(){
     else progressWrap.append(el("p","row-detail","Le rythme quotidien reste indisponible tant que le score actuel n’est pas confirmé."));
     if(nextTier.rewards?.length){const rewards=el("div","plan-rewards");for(const reward of nextTier.rewards){const item=el("span","plan-reward");addSafeImage(item,reward.icon,"reward-icon");item.append(el("span","",`${fmt(reward.quantity)} ${reward.name}`));rewards.append(item);}progressWrap.append(rewards);}
     summary.append(progressWrap);
-  }else if(scoreKnown)summary.append(el("p","ok",event.completedTierKnown?"Le score connu a dépassé les paliers fournis; le dernier palier réclamé reste celui confirmé par Scopely.":"Aucun palier suivant n’est fourni dans les données reçues."));
-  if(event.completedTierKnown)summary.append(el("p","stock-note",`Paliers terminés confirmés par Scopely : jusqu’au palier ${fmt(event.currentTier)}.`));
+  }else if(scoreKnown)summary.append(el("p","ok",event.completedTierKnown?"Le score connu dépasse les paliers fournis; le dernier palier réclamé reste celui confirmé dans le compte MSF.":"Aucun palier suivant n’est fourni dans les données reçues."));
+  if(event.completedTierKnown)summary.append(el("p","stock-note",`Paliers terminés confirmés dans le compte MSF : jusqu’au palier ${fmt(event.currentTier)}.`));
   else summary.append(el("p","warning","Le nombre de paliers réclamés n’est pas fourni. Le score ne sert pas à inventer un palier terminé."));
   target.append(summary);
 
@@ -575,7 +575,7 @@ function renderPlan(){
     const status=ready?"Atteignable avec les données connues":uncovered?"Points non couverts · action non identifiée":potential?"Potentiel · ressources à réunir":"Faisabilité inconnue";
     const box=el("article","plan-tier"),head=el("div","plan-tier-head");head.append(el("strong","",`Palier ${step.tier} · ${fmt(step.goal)} pts`),el("span","plan-tier-state plan-tier-state--"+stateKey,status));box.append(head);
     box.append(el("p","",`${fmt(step.missing)} points manquent après les actions gratuites identifiées.`));
-    if(step.leverPoints)box.append(el("p","",`Le roster peut apporter jusqu’à ${fmt(step.leverPoints)} pts par les améliorations listées.`));
+    if(step.leverPoints)box.append(el("p","",`Tes personnages peuvent apporter jusqu’à ${fmt(step.leverPoints)} pts par les améliorations listées.`));
     for(const spend of step.spends||[])box.append(el("p","row-detail",`${spend.fromStock?"Pris en compte dans le stock connu : ":"Ressource nécessaire : "}${resourcePlanLabel(spend)}`));
     for(const spend of step.shortfall||[])box.append(el("p","row-detail",`À prévoir : ${resourcePlanLabel(spend)}`));
     for(const alternative of step.alternatives||[])box.append(el("p","row-detail",`Alternative : ${resourcePlanLabel(alternative)}`));
@@ -586,13 +586,13 @@ function renderPlan(){
 
   const actions=el("section","panel-card");actions.append(el("h3","","Actions possibles pour gagner des points"));
   const actionable=analysis.actions.filter(action=>action.status!=="done");
-  if(!actionable.length)actions.append(el("p","muted","Aucune action restante n’est reconnue dans les données de scoring."));
+  if(!actionable.length)actions.append(el("p","muted","Aucune action restante n’est reconnue dans les données de calcul des points."));
   else{const list=el("ul","action-list");for(const group of analysis.groups){const representative=analysis.actions.find(action=>group.actions.includes(action.index));if(representative)addActionRow(list,{...representative,status:group.status,fightsLeft:group.fightsLeft});}actions.append(list);}
-  if(plan.levers?.length){const list=el("ul","action-list");for(const lever of plan.levers){const row=el("li","action-row");addSafeImage(row,lever.character?.portrait,"character-portrait");row.append(el("span","action-row__copy",`${characterNameFr(lever.character)} · ${upgradeKindLabel(lever.kind)} ${lever.from} → ${lever.to} · +${fmt(lever.points)} pts`));list.append(row);}actions.append(el("h4","","Améliorations de roster à envisager"),list);}
+  if(plan.levers?.length){const list=el("ul","action-list");for(const lever of plan.levers){const row=el("li","action-row");addSafeImage(row,lever.character?.portrait,"character-portrait");row.append(el("span","action-row__copy",`${characterNameFr(lever.character)} · ${upgradeKindLabel(lever.kind)} ${lever.from} → ${lever.to} · +${fmt(lever.points)} pts`));list.append(row);}actions.append(el("h4","","Améliorations de personnages à envisager"),list);}
   target.append(actions);
-  if(uncertain){const notes=[];if(event.progressState!=="available")notes.push("le score n’est pas un total Scopely confirmé");if(!Array.isArray(state.roster))notes.push("le roster est indisponible");if(analysis.unparsed.length)notes.push(`${analysis.unparsed.length} ligne(s) de scoring ne sont pas interprétées`);if(analysis.actions.some(action=>action.status==="unknown"))notes.push("certaines conditions restent inconnues");
+  if(uncertain){const notes=[];if(event.progressState!=="available")notes.push("le score n’est pas un total confirmé");if(!Array.isArray(state.roster))notes.push("ton équipe n’est pas disponible");if(analysis.unparsed.length)notes.push(`${analysis.unparsed.length} objectif(s) dont les points restent à vérifier`);if(analysis.actions.some(action=>action.status==="unknown"))notes.push("certaines conditions restent inconnues");
     const warning=el("section","plan-warning-group");warning.append(el("strong","","À vérifier avant de viser un palier"));const list=el("ul");for(const note of notes)list.append(el("li","",note));warning.append(list);target.append(warning);}
-  if(analysis.offRoster.length){const outside=el("section","panel-card");outside.append(el("h3","","Objectifs hors roster connu"));for(const item of analysis.offRoster)outside.append(el("p","row-detail",`${item.label&&item.label!==item.labelEn?item.label:"Action supplémentaire hors roster · détail français indisponible"} · ${fmt(item.points)} pts`));target.append(outside);}
+  if(analysis.offRoster.length){const outside=el("section","panel-card");outside.append(el("h3","","Objectifs hors équipe connue"));for(const item of analysis.offRoster)outside.append(el("p","row-detail",`${item.label&&item.label!==item.labelEn?item.label:"Action supplémentaire · détail français indisponible"} · ${fmt(item.points)} pts`));target.append(outside);}
 }
 function resourceLabel(key){return RESOURCES[key]?.label?.fr||"Ressource non identifiée";}
 function resourceForItemId(id){return Object.values(RESOURCES).find(resource=>resource.itemId===id)||null;}
@@ -611,7 +611,7 @@ function inventoryItemName(item,id){
   const resource=resourceForItemId(id);
   if(resource?.names?.fr)return resource.names.fr;
   if(resource?.label?.fr)return resource.label.fr;
-  return "Ressource sans libellé français dans le référentiel";
+  return "Ressource à identifier";
 }
 function inventoryCatalogItem(id){return state.resourceCatalog.find(entry=>entry.id===id)||isoCrystalCatalogItem(id);}
 function safeInventoryIcon(item,id){
@@ -636,8 +636,8 @@ function renderInventoryItemRow(row,{priority=false}={}){
   if(icon){const image=el("img","inventory-icon");image.src=icon;image.alt="";image.loading="lazy";line.append(image);}
   else line.append(el("span","inventory-icon inventory-icon--empty","◈"));
   const copy=el("div");copy.append(el("strong","inventory-name",inventoryItemName(item,id)));
-  copy.append(el("span","inventory-source",priority?"Inventaire synchronisé Scopely":(record?.categoryLabelFr||(type==="ISOITEM"?"Objet ISO-8 synchronisé":"Objet synchronisé Scopely"))));
-  const technical=el("details","inventory-technical");technical.append(el("summary","","Diagnostic"),el("code","",id));copy.append(technical);
+  copy.append(el("span","inventory-source",priority?"Inventaire synchronisé":(record?.categoryLabelFr||(type==="ISOITEM"?"Cristal ISO-8":"Objet synchronisé"))));
+  const technical=el("details","inventory-technical");technical.append(el("summary","","Diagnostic administrateur"),el("code","",id));copy.append(technical);
   line.append(copy,el("strong","inventory-quantity",inventoryQuantityText(item)));return line;
 }
 function renderSyncedInventory(){
@@ -645,13 +645,13 @@ function renderSyncedInventory(){
   target.replaceChildren();priority.replaceChildren();matrix.replaceChildren();
   if(!state.inventory){
     target.append(el("p","warning",`Inventaire non disponible${state.inventoryReason?" · "+errorText(state.inventoryReason):""}. Les quantités restent inconnues.`));
-    priority.append(el("p","muted","Aucune quantité synchronisée disponible; aucune valeur n’est remplacée par zéro."));
+    priority.append(el("p","muted","Aucun inventaire synchronisé disponible; les quantités restent inconnues."));
     matrix.append(el("p","muted","Matrice ISO-8 indisponible sans définitions de cristaux vérifiées."));return;
   }
   const rows=inventoryAllRows(),byId=new Map(rows.map(row=>[row.id,row]));
   const groups={gold:"Or",cores:"Noyaux d’énergie",training:"Modules d’entraînement",iso8Ions:"Ions ISO-8"};
   const priorities=state.resourceCatalog.filter(item=>item.priority===true).sort((a,b)=>(a.sortOrder||99)-(b.sortOrder||99));
-  if(!priorities.length)priority.append(el("p","warning","Le référentiel central des ressources prioritaires n’est pas disponible."));
+  if(!priorities.length)priority.append(el("p","muted","Les noms de certaines ressources ne sont pas encore disponibles."));
   for(const groupKey of Object.keys(groups)){
     const items=priorities.filter(item=>item.group===groupKey);if(!items.length)continue;
     const section=el("section","inventory-summary-group"),heading=el("h4","",groups[groupKey]),list=el("div","inventory-priority-list");
@@ -664,8 +664,8 @@ function renderSyncedInventory(){
         if(record.icon){const icon=el("img","inventory-icon");icon.src=record.icon;icon.alt="";icon.loading="lazy";unknown.append(icon);}
         else unknown.append(el("span","inventory-icon inventory-icon--empty","◈"));
         const copy=el("div");copy.append(el("strong","inventory-name",record.names?.fr||"Ressource sans libellé français"));
-        copy.append(el("span","inventory-source","Non communiqué dans la réponse Scopely"));
-        const diagnostic=el("details","inventory-technical");diagnostic.append(el("summary","","Diagnostic"),el("code","",record.id));copy.append(diagnostic);
+        copy.append(el("span","inventory-source","Non communiqué"));
+        const diagnostic=el("details","inventory-technical");diagnostic.append(el("summary","","Diagnostic administrateur"),el("code","",record.id));copy.append(diagnostic);
         unknown.append(copy,el("strong","inventory-quantity","Non communiqué"));list.append(unknown);
       }
     }
@@ -675,9 +675,14 @@ function renderSyncedInventory(){
   const parsedRows=isoRows.map(row=>({row,parsed:parseIsoCrystalId(row.id)}));
   const crystalIds=new Set(parsedRows.filter(x=>x.parsed.status!=="unknown").map(x=>x.row.id));
   const unknownIds=new Set(parsedRows.filter(x=>x.parsed.status==="unknown").map(x=>x.row.id));
-  matrix.append(el("h4","","Matrice d’inventaire des cristaux ISO-8"));
-  matrix.append(el("p","muted",`IDs reconnus dans ce relevé : ${fmt(crystalIds.size)} · non classifiés : ${fmt(unknownIds.size)}. Une absence du relevé reste inconnue, jamais zéro.`));
-  matrix.append(el("p","muted","L’éligibilité ci-dessous vérifie les cinq catégories de cristaux pour le niveau sélectionné. Elle ne confirme ni le niveau ISO de combat actuellement attribué, ni les monnaies/coûts supplémentaires."));
+  matrix.append(el("h4","","Cristaux ISO-8"));
+  matrix.append(el("p","muted","Les quantités indisponibles restent inconnues. L’éligibilité dépend des cinq catégories sélectionnées."));
+  matrix.append(el("p","muted","Cette éligibilité ne confirme ni le niveau de classe ISO-8 attribué ni les ressources nécessaires."));
+  const identification=el("details","inventory-technical");
+  identification.append(el("summary","","Diagnostic administrateur"),
+    el("p","row-detail",`${fmt(crystalIds.size)} identifiants reconnus · ${fmt(unknownIds.size)} non classifiés`));
+  if(unknownIds.size)identification.append(el("code","",[...unknownIds].join(", ")));
+  matrix.append(identification);
   const controls=el("div","iso-matrix-controls");
   const tierSelect=el("select","iso-matrix-select"),levelSelect=el("select","iso-matrix-select");
   tierSelect.setAttribute("aria-label","Palier ISO-8 des cristaux");
@@ -699,7 +704,7 @@ function renderSyncedInventory(){
     const model=buildIsoCrystalMatrix(normalized,tierSelect.value,Number(levelSelect.value));
     const table=el("table","iso-matrix"),head=el("tr");head.append(el("th","","Classe"));
     for(const category of model.categories)head.append(el("th","",category));
-    head.append(el("th","","Éligibilité ISO combat"));
+    head.append(el("th","","Amélioration de classe possible"));
     const thead=el("thead");thead.append(head);const tbody=el("tbody");
     for(const className of model.classes){
       const line=el("tr");line.append(el("th","",className));
@@ -707,14 +712,14 @@ function renderSyncedInventory(){
         const cell=model.cells[className][category],td=el("td","iso-matrix-cell iso-matrix-cell--"+cell.state);
         td.textContent=cell.state==="known"?fmt(cell.quantity):"Inconnu";
         td.title=cell.state==="known"?`Quantité confirmée : ${fmt(cell.quantity)}`:"Quantité inconnue : aucun compte fiable dans la réponse";
-        if(cell.ids.length){const diagnostic=el("details","iso-matrix-diagnostic");diagnostic.append(el("summary","","IDs"),el("code","",cell.ids.join(", ")));td.append(diagnostic);}
+        if(cell.ids.length){const diagnostic=el("details","iso-matrix-diagnostic");diagnostic.append(el("summary","","Diagnostic administrateur"),el("code","",cell.ids.join(", ")));td.append(diagnostic);}
         line.append(td);
       }
       const classCodes={Cogneur:"BRAWLER",Tireur:"BLASTER",Contrôleur:"CONTROLLER",Protecteur:"PROTECTOR",Soutien:"SUPPORT"};
       const eligibility=evaluateIsoClassEligibility(normalized,classCodes[className],tierSelect.value,Number(levelSelect.value));
       const eligibilityCell=el("td","iso-matrix-cell iso-matrix-cell--"+eligibility.status);
-      eligibilityCell.textContent=eligibility.status==="eligible"?`Éligible · niveau ${eligibility.eligibleCombatIsoLevel}`:eligibility.status==="ineligible"?"Non éligible":"Indéterminée";
-      eligibilityCell.title=eligibility.status==="eligible"?"Les cinq catégories sont disponibles; l’attribution et les coûts restent séparés.":eligibility.status==="ineligible"?"Au moins une quantité requise est connue comme nulle.":"Au moins une quantité nécessaire est inconnue.";
+      eligibilityCell.textContent=eligibility.status==="eligible"?`Possible · niveau ${eligibility.eligibleCombatIsoLevel}`:eligibility.status==="ineligible"?"Cristaux insuffisants":"Données incomplètes";
+      eligibilityCell.title=eligibility.status==="eligible"?"Les cinq catégories sont présentes; l’amélioration n’est ni attribuée ni confirmée.":eligibility.status==="ineligible"?"Au moins une catégorie ne contient pas les cristaux nécessaires.":"Les quantités ne permettent pas de confirmer l’amélioration.";
       line.append(eligibilityCell);
       tbody.append(line);
     }
@@ -729,7 +734,7 @@ function renderSyncedInventory(){
     count+=items.length;if(familyFilter!=="all"&&familyFilter!==type)continue;
     const section=el("details","inventory-type inventory-family");section.open=items.length<=8;
     const summary=el("summary","inventory-family-summary"),verified=snapshot.retrievedAt?syncDate.format(new Date(snapshot.retrievedAt)):"date inconnue";
-    summary.append(el("strong","",`${typeNames[type]} · ${fmt(items.length)} objets`),el("span","inventory-family-date",`Synchronisé ${verified}${snapshot.unchanged?" · inchangé":""}`));section.append(summary);
+    summary.append(el("strong","",`${typeNames[type]} · ${fmt(items.length)} objets`),el("span","inventory-family-date",`Synchronisé ${verified}`));section.append(summary);
     if(snapshot.error){section.append(el("p","warning",errorText(snapshot.error)));target.append(section);continue;}
     if(snapshot.refreshError)section.append(el("p","warning",`Actualisation échouée; dernier inventaire conservé. ${errorText(snapshot.refreshError)}`));
     const filtered=items.map(item=>({type,item,id:inventoryItemId(item)})).filter(row=>{
@@ -737,47 +742,47 @@ function renderSyncedInventory(){
       const category=String(inventoryCatalogItem(row.id)?.categoryLabelFr||"").toLocaleLowerCase("fr");
       return !query||label.includes(query)||category.includes(query);
     });
-    if(!filtered.length)section.append(el("p","muted",items.length?"Aucun objet ne correspond à la recherche.":"Scopely a renvoyé 0 objet dans cette famille."));
+    if(!filtered.length)section.append(el("p","muted",items.length?"Aucun objet ne correspond à la recherche.":"Aucun objet de cette catégorie n’a été communiqué."));
     else{const list=el("div","inventory-list");for(const row of filtered)list.append(renderInventoryItemRow(row));section.append(list);}
     target.append(section);
   }
   if(!target.childElementCount)target.append(el("p","muted","Aucune famille d’inventaire ne correspond au filtre."));
   const dates=Object.values(state.inventoryTypes).map(item=>item?.retrievedAt).filter(Boolean).map(Date.parse).filter(Number.isFinite);
   const latest=dates.length?new Date(Math.max(...dates)):null;
-  $("inventory-sync-status").textContent=latest?`${fmt(count)} objets reçus · dernière synchronisation ${syncDate.format(latest)}. Une absence de la réponse ne vaut pas zéro.`:"Aucun horodatage de synchronisation n’est disponible dans la réponse Scopely.";
+  $("inventory-sync-status").textContent=latest?`${fmt(count)} objets reçus · dernière synchronisation ${syncDate.format(latest)}. Une absence de la réponse ne vaut pas zéro.` :"La date de mise à jour n’est pas disponible.";
 }
 function renderStock(){
   renderSyncedInventory();
   const root=$("stock-view");root.replaceChildren();const unknown=$("unavailable-stock");unknown.replaceChildren();
   const used=resourcesInUse(state.observations,[...state.skipped]);
-  if(!state.eventsEn.length){root.append(el("p","warning","Les événements personnels n’ont pas été reçus; les ressources utilisées par le moteur ne peuvent pas être établies."));unknown.append(el("p","muted","Les quantités sont inconnues tant que les événements personnels restent indisponibles."));return;}
+  if(!state.eventsEn.length){root.append(el("p","warning","Les événements du compte ne sont pas disponibles; les ressources utiles à la planification restent inconnues."));unknown.append(el("p","muted","Les quantités restent inconnues tant que les événements du compte ne sont pas disponibles."));return;}
   if(!used.length)root.append(el("p","muted","Aucune ressource de stock n’est requise par les événements LoSP en cours."));
   for(const key of used){
     const card=el("article","stock-card");card.append(el("h3","",resourceLabel(key)));
     const involved=state.observations.filter(item=>item.uses.includes(key)).map(item=>displayName(getEvent(item.id,"fr")||getEvent(item.id,"en")||activeEvents().find(event=>String(event.id)===String(item.id))||{}));
     card.append(el("p","stock-note",involved.length?"Demandé par : "+[...new Set(involved)].join(", "):"Demandé par les événements en cours."));
     const apiValue=inventoryValue(key),saved=stockEstimate(key);
-    if(apiValue!==null)card.append(el("p","ok",`Inventaire Scopely : ${fmt(apiValue)}. La synchronisation est conservée séparément de la saisie manuelle.`));
+    if(apiValue!==null)card.append(el("p","ok",`Inventaire synchronisé : ${fmt(apiValue)}. Il reste séparé des quantités ajoutées manuellement.`));
     if(saved){
-      card.append(el("p","row-detail",`${saved.source==="estimated"?"Estimation Maddoxx":"Dernière déclaration manuelle"} : ${fmt(saved.value)}${saved.declaredAt?` · mise à jour ${syncDate.format(new Date(saved.declaredAt))}`:""}${saved.spentSince?` · ${fmt(saved.spentSince)} dépensées estimées`:""}${saved.earnedSince?` · ${fmt(saved.earnedSince)} reçues estimées`:""}`));
-      if(saved.dataUnavailable)card.append(el("p","warning","Des compteurs Scopely manquent; les dépenses et le stock estimé ne sont pas confirmés."));
+      card.append(el("p","row-detail",`${saved.source==="estimated"?"Estimation calculée":"Dernière déclaration manuelle"} : ${fmt(saved.value)}${saved.declaredAt?` · mise à jour ${syncDate.format(new Date(saved.declaredAt))}`:""}${saved.spentSince?` · ${fmt(saved.spentSince)} dépensées estimées`:""}${saved.earnedSince?` · ${fmt(saved.earnedSince)} reçues estimées`:""}`));
+      if(saved.dataUnavailable)card.append(el("p","warning","Des compteurs manquent; les dépenses et l’estimation ne sont pas confirmées."));
       if(saved.declaredAt&&Date.now()-saved.declaredAt>86400000)card.append(el("p","warning","Cette déclaration date de plus de 24 h; vérifie-la avant de planifier."));
     }
-    const row=el("div","stock-row"),label=el("label","","Ta quantité manuelle");
+    const row=el("div","stock-row"),label=el("label","","Quantité ajoutée");
     const input=el("input");input.type="text";input.inputMode="decimal";input.autocomplete="off";input.placeholder="Quantité inconnue";input.value=state.drafts[key]??"";input.dataset.stockKey=key;label.append(input);row.append(label);
     const save=el("button","button button-secondary","Enregistrer la déclaration");save.type="button";save.dataset.action="save-stock";save.dataset.resource=key;row.append(save);
     if(saved&&saved.source==="estimated"){const confirm=el("button","small-button","Confirmer cette estimation");confirm.type="button";confirm.dataset.action="confirm-stock";confirm.dataset.resource=key;row.append(confirm);}
     card.append(row);root.append(card);
     if(apiValue===null){
       const itemId=RESOURCES[key]?.itemId,unavailable=el("article","unknown-resource-row");
-      const message=saved?.source==="estimated"?`Estimation Maddoxx : ${fmt(saved.value)}. L’objet n’a pas été reçu dans les familles synchronisées; cette estimation n’est pas un inventaire Scopely.`:saved?.source==="declared"?`Scopely n’a pas renvoyé cette ressource. La déclaration manuelle (${fmt(saved.value)}) reste une donnée séparée.`:"Scopely n’a pas renvoyé cette ressource dans les familles d’inventaire synchronisées. Quantité inconnue, jamais ramenée à zéro.";
+      const message=saved?.source==="estimated"?`Estimation calculée : ${fmt(saved.value)}. L’objet ne figure pas dans l’inventaire synchronisé; cette estimation reste distincte de ton inventaire.`:saved?.source==="declared"?`Le jeu n’a pas communiqué cette ressource. La quantité ajoutée (${fmt(saved.value)}) reste séparée.`:"Le jeu ne l’a pas communiquée dans l’inventaire synchronisé. Quantité inconnue.";
       unavailable.append(el("strong","",resourceLabel(key)),el("p","",message));
-      if(itemId){const diagnostic=el("details","inventory-technical");diagnostic.append(el("summary","","Diagnostic"),el("code","",itemId));unavailable.append(diagnostic);}
+      if(itemId){const diagnostic=el("details","inventory-technical");diagnostic.append(el("summary","","Diagnostic administrateur"),el("code","",itemId));unavailable.append(diagnostic);}
       unknown.append(unavailable);
     }
   }
   if(!used.length)unknown.append(el("p","muted","Aucune ressource de planification n’est identifiée pour les événements en cours."));
-  if(state.loadingStock)root.prepend(el("p","muted","Lecture des détails d’événements pour actualiser les récompenses Maddoxx…"));
+  if(state.loadingStock)root.prepend(el("p","muted","Lecture des détails d’événements pour actualiser les récompenses des événements…"));
   if(state.history.length){const details=el("details","stock-card");details.append(el("summary","","Historique des déclarations · "+state.history.length));for(const entry of state.history.slice(-20).reverse())details.append(el("p","row-detail",`${resourceLabel(entry.resource)} · ${eventDate(entry.at/1000)} · ${fmt(entry.estimated)} → ${fmt(entry.declared)}`));root.append(details);}
 }
 async function refreshLedger(){
@@ -813,14 +818,14 @@ function renderConnection(status){
   const box=$("connection");box.replaceChildren();
   if(status.status!=="connected"){
     box.append(el("strong","","Connexion requise"),el("p","row-detail",errorText({body:{reason:status.reason}})));
-    const link=el("a","button","Autoriser LoSP avec Scopely");link.href="/admin/login/captain?returnTo=events-planner";box.append(link);return;
+    const link=el("a","button","Connecter mon compte MSF");link.href="/admin/login/captain?returnTo=events-planner";box.append(link);return;
   }
   const required=["m3p.f.pr.act"],missing=required.filter(scope=>!status.scopes.includes(scope));
-  const line=el("p","",missing.length?"Accès aux événements manquant.":"Session Scopely active · données consultées depuis les caches autorisés.");
+  const line=el("p","",missing.length?"Ton compte MSF ne donne pas accès aux événements.":"Compte MSF connecté.");
   box.append(line);
   if(missing.length){const link=el("a","button","Réautoriser l’accès requis");link.href="/admin/login/captain?returnTo=events-planner&reauthorize=1";box.append(link);}
-  if(!Array.isArray(state.roster))box.append(el("p","row-detail","Aucun roster valide n’est disponible dans le cache privé autorisé. Aucune collecte de roster ne sera lancée pendant cette validation."));
-  if(!status.scopes.includes("m3p.f.pr.inv"))box.append(el("p","row-detail","Inventaire non autorisé : le plan utilisera les déclarations de stock disponibles."));
+  if(!Array.isArray(state.roster))box.append(el("p","row-detail","Ton équipe n’est pas disponible. Les objectifs qui en dépendent ne peuvent pas encore être évalués."));
+  if(!status.scopes.includes("m3p.f.pr.inv"))box.append(el("p","row-detail","Ton compte MSF n’autorise pas l’inventaire; seules les quantités ajoutées sont disponibles."));
 }
 async function loadOverview(){
   state.refreshing=false;
@@ -840,7 +845,7 @@ async function loadOverview(){
     personalApi({resource:"inventory",itemType:"ISOITEM",lang:"fr"}),
     Promise.all([loadCatalog(),loadCalendar()])
   ]);
-  if(french.error){banner("Les événements personnels sont indisponibles · "+errorText(french.error),"error");$("event-count").textContent="Événements indisponibles";$("events-list").replaceChildren(el("p","warning","La session est active, mais Scopely n’a pas fourni la liste."),renderDiagnostic(french.error));state.refreshing=false;$("refresh").disabled=false;return;}
+  if(french.error){banner("Les événements personnels sont indisponibles · "+errorText(french.error),"error");$("event-count").textContent="Événements indisponibles";$("events-list").replaceChildren(el("p","warning","Le compte est connecté, mais la liste des événements n’est pas disponible."),renderDiagnostic(french.error));state.refreshing=false;$("refresh").disabled=false;return;}
   state.eventsFr=Array.isArray(french.data)?french.data:[];
   // The Maddoxx adapter expects an English-named source and French display copy.
   // Here both point to the sole authorized French response; unrecognized text stays unknown.
