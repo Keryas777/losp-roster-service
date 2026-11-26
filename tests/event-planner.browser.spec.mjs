@@ -106,7 +106,7 @@ try{
   assert.equal(await page.getByText("Passe de combat",{exact:true}).count(),0);
   assert.equal(await page.getByText("Jalon passé",{exact:true}).count(),0);
   assert.equal(await page.getByText("First S.T.R.I.K.E.",{exact:true}).count(),0);
-  try{await page.locator("#selected-event h2").filter({hasText:"Événement de test Maddoxx"}).waitFor({timeout:8000});}catch(error){console.error("DETAIL_RENDER_DIAGNOSTIC",JSON.stringify({runtimeErrors,consoleErrors,apiCalls,selected:await page.locator("#selected-event").innerText().catch(()=>""),status:await page.locator("#selected-event [role=status]").innerText().catch(()=>""),url:page.url()}));throw error;}
+  try{await page.locator("#selected-event h2").filter({hasText:"Événement de test Maddoxx"}).waitFor({timeout:8000});}catch(error){console.error("DETAIL_RENDER_DIAGNOSTIC",JSON.stringify({runtimeErrors,consoleErrors,apiCalls,selected:await page.locator("#selected-event").innerText().catch(()=>""),status:await page.locator("#selected-event [role=status]").innerText().catch(()=>""),eventCount:await page.locator("#event-count").innerText().catch(()=>""),events:await page.locator("#events-list").innerText().catch(()=>""),connection:await page.locator("#connection").innerText().catch(()=>""),url:page.url()}));throw error;}
   assert.equal(await page.locator("#event-list-view").isHidden(),true,`${browserName} direct eventId link opens the matching event fiche`);
   assert.deepEqual(apiCalls.filter(call=>call.resource==="detail").map(call=>call.eventId),["planner-test","planner-test"],`${browserName} direct link requests only the selected public-calendar event`);
   await page.locator(`#selected-event button[data-action="back-list"]`).click();
