@@ -38,7 +38,7 @@ try{
         .then(value=>window.__proof.directResponse=value).catch(error=>window.__proof.directError=String(error));
     </script></body></html>`}));
   await context.route(workerOrigin+"/**",async route=>{
-    const request=route.request(),url=new URL(request.url()),headers=request.headers();
+    const request=route.request(),url=new URL(request.url()),headers=await request.allHeaders();
     if(url.pathname==="/admin/planner-ticket-proof"){
       topLevelCookie=headers.cookie||null;
       if(topLevelCookie?.includes(cookieName+"=")){
