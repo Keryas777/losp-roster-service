@@ -672,7 +672,7 @@ function renderSyncedInventory(){
     const normalized=isoRows.map(({item,id})=>{
       const raw=item?.quantity;
       const quantity=typeof raw==="number"&&Number.isSafeInteger(raw)&&raw>=0?raw:
-        typeof raw==="string"&&/^\\d+$/.test(raw.trim())&&Number.isSafeInteger(Number(raw))?Number(raw):null;
+        typeof raw==="string"&&/^\d+$/.test(raw.trim())&&Number.isSafeInteger(Number(raw))?Number(raw):null;
       return {id,quantity};
     });
     const model=buildIsoCrystalMatrix(normalized,tierSelect.value,Number(levelSelect.value));
