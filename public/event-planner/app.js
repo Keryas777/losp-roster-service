@@ -1,5 +1,5 @@
 import { analyzeMilestoneEvent } from "./lib/event-analysis.js";
-import { RESOURCES, classifyObjective, observeEvent, resourcesInUse, declareResource, refreshResource, estimateResource, parseQuantity, buildIsoCrystalMatrix, parseIsoCrystalId } from "./lib/index.js";
+import { RESOURCES, classifyObjective, observeEvent, resourcesInUse, declareResource, refreshResource, estimateResource, parseQuantity, buildIsoCrystalMatrix, evaluateIsoClassEligibility, parseIsoCrystalId } from "./lib/index.js";
 import { installCalendarSnapshot, currentCalendarGroups, mergeCalendarEvent, calendarGroups } from "./lib/calendar.js";
 import { commandCenterFeeders, commandCenterPeriodLabel, isCommandCenterFeeder, isCommandCenterWrapper, summarizeFeederProgress } from "./lib/command-center.js";
 
@@ -657,6 +657,7 @@ function renderSyncedInventory(){
   const unknownIds=new Set(parsedRows.filter(x=>x.parsed.status==="unknown").map(x=>x.row.id));
   matrix.append(el("h4","","Matrice d’inventaire des cristaux ISO-8"));
   matrix.append(el("p","muted",`IDs reconnus dans ce relevé : ${fmt(crystalIds.size)} · non classifiés : ${fmt(unknownIds.size)}. Une absence du relevé reste inconnue, jamais zéro.`));
+  matrix.append(el("p","muted","L’éligibilité ci-dessous vérifie les cinq catégories de cristaux pour le niveau sélectionné. Elle ne confirme ni le niveau ISO de combat actuellement attribué, ni les monnaies/coûts supplémentaires."));
   const controls=el("div","iso-matrix-controls");
   const tierSelect=el("select","iso-matrix-select"),levelSelect=el("select","iso-matrix-select");
   tierSelect.setAttribute("aria-label","Palier ISO-8 des cristaux");
@@ -677,6 +678,7 @@ function renderSyncedInventory(){
     const model=buildIsoCrystalMatrix(normalized,tierSelect.value,Number(levelSelect.value));
     const table=el("table","iso-matrix"),head=el("tr");head.append(el("th","","Classe"));
     for(const category of model.categories)head.append(el("th","",category));
+    head.append(el("th","","Éligibilité ISO combat"));
     const thead=el("thead");thead.append(head);const tbody=el("tbody");
     for(const className of model.classes){
       const line=el("tr");line.append(el("th","",className));
@@ -687,6 +689,12 @@ function renderSyncedInventory(){
         if(cell.ids.length){const diagnostic=el("details","iso-matrix-diagnostic");diagnostic.append(el("summary","","IDs"),el("code","",cell.ids.join(", ")));td.append(diagnostic);}
         line.append(td);
       }
+      const classCodes={Cogneur:"BRAWLER",Tireur:"BLASTER",Contrôleur:"CONTROLLER",Protecteur:"PROTECTOR",Soutien:"SUPPORT"};
+      const eligibility=evaluateIsoClassEligibility(normalized,classCodes[className],tierSelect.value,Number(levelSelect.value));
+      const eligibilityCell=el("td","iso-matrix-cell iso-matrix-cell--"+eligibility.status);
+      eligibilityCell.textContent=eligibility.status==="eligible"?`Éligible · niveau ${eligibility.eligibleCombatIsoLevel}`:eligibility.status==="ineligible"?"Non éligible":"Indéterminée";
+      eligibilityCell.title=eligibility.status==="eligible"?"Les cinq catégories sont disponibles; l’attribution et les coûts restent séparés.":eligibility.status==="ineligible"?"Au moins une quantité requise est connue comme nulle.":"Au moins une quantité nécessaire est inconnue.";
+      line.append(eligibilityCell);
       tbody.append(line);
     }
     table.append(thead,tbody);tableHost.replaceChildren(table);
