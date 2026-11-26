@@ -69,7 +69,7 @@ try{
   await page.waitForFunction(()=>window.__proof?.directStatus!==undefined||window.__proof?.directError!==undefined);
   assert.equal(directFetchCookie,null,`${browserName}: SameSite=Lax captain cookie is absent from the cross-site fetch`);
   const popupOpened=context.waitForEvent("page",{timeout:10000}).catch(()=>null);
-  await page.getByRole("button",{name:"Ouvrir le service sécurisé"}).click();
+  await page.locator("#open").waitFor({state:"visible"});await page.locator("#open").click();
   const popup=await popupOpened;
   if(!popup)throw new Error(`${browserName}: named ticket window did not open; opener state ${JSON.stringify(await page.evaluate(()=>window.__proof))}`);
   await popup.waitForLoadState("load");
