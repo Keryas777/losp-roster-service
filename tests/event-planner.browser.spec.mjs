@@ -219,6 +219,8 @@ try{
   await manualInput.fill("12345");
   await page.locator('#stock-view button[data-action="save-stock"]').first().click();
   await page.getByRole("tab",{name:"Événements"}).click();
+  await page.locator('#selected-event button[data-action="back-list"]').click();
+  await page.locator("#event-list-view").waitFor({state:"visible"});
   await page.locator('button[data-action="skip"][data-event-id="campaign-test"]').click();
   const savedForA=await page.evaluate(()=>localStorage.getItem("losp-event-planner-v1:"+"a".repeat(64)));
   const parsedForA=JSON.parse(savedForA||"{}");
