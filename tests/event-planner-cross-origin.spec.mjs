@@ -21,7 +21,7 @@ try{
     <script>
       const workerOrigin=${JSON.stringify(workerOrigin)},apiUrl=${JSON.stringify(apiUrl)},pagesOrigin=${JSON.stringify(pagesOrigin)};
       window.__proof={};
-      document.getElementById("open").addEventListener("click",()=>window.open(workerOrigin+"/admin/planner-ticket-proof","_blank"));
+      document.getElementById("open").addEventListener("click",()=>window.open(workerOrigin+"/admin/planner-ticket-proof","maddoxx-proof","popup"));
       window.addEventListener("message",async event=>{
         if(event.origin!==workerOrigin||event.data?.type!=="planner-ticket-proof")return;
         const received=event.data.ticket;
