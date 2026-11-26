@@ -61,7 +61,7 @@ const server=createServer(async(req,res)=>{
     else if(resource==="events"&&failEvents){res.writeHead(502,{"Content-Type":"application/json"});res.end(JSON.stringify({error:"provider-error",upstreamStatus:502,diagnostic:{endpoint:"/player/v1/events",httpStatus:502,providerCode:"event-list-unavailable",error:"provider-error",lang:params.get("lang"),page:1}}));return;}
     else if(resource==="events")body={status:"ok",data:[...privateById.values()].map(item=>item.id===enEvent.id&&params.get("lang")==="fr"?frEvent:item)};
     else if(resource==="roster")body={status:"ok",data:[{id:"CaptainAmerica",activeYellow:7,activeRed:0,gearTier:20,level:90,iso8:{active:"raider",raider:10}}]};
-    else if(resource==="inventory")body={status:"ok",retrievedAt:new Date().toISOString(),upstream:{asOf:"inventory-test"},data:params.get("itemType")==="ISOITEM"?[{item:"ISO8-TIER-0-CURRENCY",quantity:0},{item:"ISO8-TIER-1-A-CURRENCY",quantity:125}]:[{item:"SC",quantity:0},{item:"CONSUMABLE_XPLVL80",quantity:24},{item:"UNMAPPED_ITEM",name:"English Technical Name",icon:art}]};
+    else if(resource==="inventory")body={status:"ok",retrievedAt:new Date().toISOString(),upstream:{asOf:"inventory-test"},data:params.get("itemType")==="ISOITEM"?[{item:"ISO8-TIER-0-CURRENCY",quantity:0},{item:"ISO8-TIER-1-A-CURRENCY",quantity:125},{item:"ISOITEM_ORANGE_BLASTER_HEALTH_1",quantity:16},{item:"ISOITEM_ORANGE_BLASTER_DAMAGE_1",quantity:26},{item:"ISOITEM_ORANGE_BLASTER_ARMOR_1",quantity:17},{item:"ISOITEM_ORANGE_BLASTER_FOCUS_1",quantity:42},{item:"ISOITEM_ORANGE_BLASTER_RESIST_1",quantity:16}]:[{item:"SC",quantity:0},{item:"CONSUMABLE_XPLVL80",quantity:24},{item:"UNMAPPED_ITEM",name:"English Technical Name",icon:art}]};
     else if(resource==="detail"){await new Promise(resolve=>setTimeout(resolve,180));const item=privateById.get(params.get("eventId"))||enEvent;body={status:"ok",data:item.id===enEvent.id&&params.get("lang")==="fr"?frEvent:item};}
     else {res.writeHead(400);res.end("{}");return;}
     res.writeHead(200,{"Content-Type":"application/json","Cache-Control":"no-store"});res.end(JSON.stringify(body));return;
@@ -201,7 +201,12 @@ try{
   assert.ok(await page.locator(".inventory-quantity").filter({hasText:"Non communiqué"}).count()>0,`${browserName} an absent inventory quantity stays explicitly unknown`);
   assert.equal(await page.getByText("English Technical Name",{exact:true}).count(),0,`${browserName} raw English inventory names are not presented as French`);
   assert.ok(await page.locator("#synced-inventory .inventory-row").filter({hasText:"Module d’entraînement N4"}).count()>=1,`${browserName} French inventory label is visible`);
-  await page.getByText("Matrice indisponible : aucune définition publique archivée",{exact:false}).waitFor();
+  await page.getByText("IDs reconnus dans ce relevé : 5",{exact:false}).waitFor();
+  await page.locator("#inventory-iso-matrix select[aria-label='Palier ISO-8 des cristaux']").selectOption("P4");
+  await page.locator("#inventory-iso-matrix select[aria-label='Niveau des cristaux ISO-8']").selectOption("1");
+  const isoRow=page.locator(".iso-matrix tbody tr").filter({hasText:"Tireur"});
+  assert.deepEqual(await isoRow.locator("td").allTextContents(),["16","26","17","42","16"],`${browserName} the owner-provided P4 level-1 matrix totals 117 crystals`);
+  await capture("matrice-iso-p4-n1");
   await page.locator("#inventory-search").fill("libellé français");
   assert.equal(await page.locator("#synced-inventory .inventory-row").count(),1,`${browserName} inventory search uses the French fallback, not technical identifiers`);
   await page.locator("#inventory-search").fill("");
