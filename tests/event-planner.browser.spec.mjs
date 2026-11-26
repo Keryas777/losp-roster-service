@@ -12,7 +12,7 @@ const root=resolve(new URL("../public/event-planner/",import.meta.url).pathname)
 const now=Math.floor(Date.now()/1000);
 const enEvent={id:"planner-test",name:"Maddoxx Planner Test",type:"milestone",startTime:now-3600,endTime:now+86400,
   milestone:{type:"solo",scoring:{methods:[],cappedScorings:[
-    {cap:10,soFar:5,methods:[{description:"Play Blitz with Captain America at 7 Yellow Stars",points:5}]},
+    {cap:10,soFar:5,isPremium:true,methods:[{description:"Play Blitz with Captain America at 7 Yellow Stars",points:5}]},
     {cap:1,soFar:1,methods:[{description:"Daily Login",points:1}]},
     {cap:5,methods:[{description:"Play Blitz with Captain America at 8 Yellow Stars",points:1}]},
     {cap:100,soFar:0,methods:[{description:"Spend Gold",points:1}]}
@@ -20,6 +20,15 @@ const enEvent={id:"planner-test",name:"Maddoxx Planner Test",type:"milestone",st
     1:{goal:10,rewards:{allOf:[]}},2:{goal:20,rewards:{allOf:[]}}
   }}}]}};
 const frEvent={...enEvent,name:"Événement de test Maddoxx"};
+const commandWrapper={id:"command-wrapper",name:"Poste de commandement de test",type:"milestone",locationHints:["lohub_wrapper"],
+  startTime:now-3600,endTime:now+86400,
+  milestone:{type:"solo",scoring:{methods:[],cappedScorings:[]},brackets:[]}};
+const commandFeeder={id:"command-feeder",name:"Poste de commandement de test",type:"milestone",locationHints:["lohub_feeder"],
+  startTime:now-1800,endTime:now+43200,milestone:{type:"solo",scoring:{methods:[],cappedScorings:[
+    {cap:10,soFar:10,methods:[{description:"Play Blitz with Captain America",points:1}]},
+    {cap:10,methods:[{description:"Daily Login",points:1}]}
+  ]},brackets:[{id:"default",objective:{progress:{points:10},tiers:{}}}]}};
+
 const art="https://assets.marvelstrikeforce.com/key_art/PlannerTest.webp";
 const calendarEvent={...enEvent,cardArt:art,popupArt:art};
 const campaign={id:"campaign-test",name:"Campagne de test",type:"episodic",startTime:now-1200,endTime:now+2*86400,
@@ -33,8 +42,8 @@ const hiddenEvents=[
   {...calendarEvent,id:"onboarding-test",name:"First S.T.R.I.K.E."},
   {...calendarEvent,id:"feeder-test",name:"Jalon secondaire",locationHints:["lohub_feeder"]}
 ];
-const snapshot={events:[calendarEvent,campaign,trial,...hiddenEvents],updatedAt:new Date().toISOString(),pages:1,locale:"fr",localizationStatus:"verified"};
-const privateById=new Map([[enEvent.id,enEvent],[campaign.id,campaign],[trial.id,trial],...hiddenEvents.map(item=>[item.id,item])]);
+const snapshot={events:[calendarEvent,commandWrapper,commandFeeder,campaign,trial,...hiddenEvents],updatedAt:new Date().toISOString(),pages:1,locale:"fr",localizationStatus:"verified"};
+const privateById=new Map([[enEvent.id,enEvent],[commandWrapper.id,commandWrapper],[commandFeeder.id,commandFeeder],[campaign.id,campaign],[trial.id,trial],...hiddenEvents.map(item=>[item.id,item])]);
 const apiCalls=[];
 const captureScreenshots=process.env.CAPTURE_SCREENSHOTS==="1";
 if(captureScreenshots)await mkdir(resolve("artifacts","planner-tabs"),{recursive:true});
@@ -102,7 +111,7 @@ try{
   await page.route("https://assets.marvelstrikeforce.com/**",route=>route.fulfill({status:200,contentType:"image/gif",body:Buffer.from("R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=","base64")}));
   await page.goto(`http://127.0.0.1:${address.port}/admin/events-planner?eventId=planner-test`,{waitUntil:"networkidle"});
   await page.locator(".planner-event-card").first().waitFor({state:"attached"});
-  assert.equal(await page.locator(".planner-event-card").count(),3,`${browserName} should use only public-calendar eligible current events`);
+  assert.equal(await page.locator(".planner-event-card").count(),4,`${browserName} should use only public-calendar eligible current events and fold command-center feeders`);
   assert.equal(await page.getByText("Passe de combat",{exact:true}).count(),0);
   assert.equal(await page.getByText("Jalon passé",{exact:true}).count(),0);
   assert.equal(await page.getByText("First S.T.R.I.K.E.",{exact:true}).count(),0);
@@ -125,6 +134,7 @@ try{
   await page.locator("#selected-event h2").filter({hasText:"Événement de test Maddoxx"}).waitFor();
   await page.locator("#selected-event").getByText("Terminé confirmé").first().waitFor();
   await page.locator("#selected-event").getByText("Faisable gratuitement").first().waitFor();
+  await page.locator("#selected-event").getByText(/Objectif associé au Passe Premium/).first().waitFor();
   await page.getByRole("button",{name:"Planifier cet événement"}).click();
   await page.getByRole("heading",{name:"Événement planifié"}).waitFor();
   assert.equal(await page.locator("#plan-event-name").textContent(),"Événement de test Maddoxx");
@@ -159,6 +169,16 @@ try{
   const capture=async name=>{if(captureScreenshots)await page.screenshot({path:resolve("artifacts","planner-tabs",`${browserName}-${name}.png`),fullPage:true});};
   await page.getByRole("tab",{name:"Événements"}).click();
   await page.locator("#panel-events").waitFor({state:"visible"});await checkMobileWidths("Événements");await capture("evenements");
+  assert.equal(await page.locator('.planner-event-card[data-event-id="command-feeder"]').count(),0,
+    `${browserName} command-center objectives are nested under their wrapper instead of duplicated in the event list`);
+  await page.locator('button[data-action="select"][data-event-id="command-wrapper"]').click();
+  await page.locator("#selected-event h2").filter({hasText:"Poste de commandement de test"}).waitFor();
+  await page.getByRole("heading",{name:"Séries d’objectifs en cours"}).waitFor();
+  await page.getByText("Compteurs connus : 1/2",{exact:false}).waitFor();
+  assert.equal(apiCalls.filter(call=>call.resource==="detail"&&call.eventId==="command-feeder").length,0,
+    `${browserName} showing command-center feeders reuses the existing event list without requesting feeder details`);
+  await checkMobileWidths("Poste de commandement");await capture("poste-commandement");
+  await page.locator('#selected-event button[data-action="back-list"]').click();
   await page.getByRole("tab",{name:"Objectifs"}).click();
   await page.locator("#objectives-view .objective-group").first().waitFor();
   const loginObjective=page.locator("#objectives-view").getByText("Connexion quotidienne",{exact:true}).first();

@@ -4,6 +4,7 @@ export { createSubjectResolver } from './subjects.js';
 export { planDays, planEvent, unitsFor } from './plan.js';
 export { declareResource, estimateResource, isStockResource, observeEvent, refreshResource, resourcesInUse } from './ledger.js';
 export { parseQuantity } from './quantity.js';
+export { commandCenterFeeders, commandCenterPeriod, commandCenterPeriodLabel, isCommandCenterFeeder, isCommandCenterWrapper, summarizeFeederProgress } from './command-center.js';
 
 // Hypothèses de jeu non confirmées (MSF.md §7.8), remontées en codes dans les réponses
 export const HYPOTHESES = {

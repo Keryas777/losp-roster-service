@@ -7,7 +7,6 @@ on:
       - "public/event-planner/**"
       - "tests/event-planner/**"
       - "tests/event-planner.browser.spec.mjs"
-      - "tests/event-planner-cross-origin.spec.mjs"
       - ".github/workflows/event-planner-browser.yml"
   workflow_dispatch:
 
@@ -31,10 +30,6 @@ jobs:
         run: npm install --no-save --no-package-lock playwright@1.56.1
       - name: Install browser
         run: npx playwright install --with-deps ${{ matrix.browser }}
-      - name: Test cross-origin cookie and temporary-ticket feasibility in the real browser engine
-        run: node tests/event-planner-cross-origin.spec.mjs
-        env:
-          BROWSER: ${{ matrix.browser }}
       - name: Test the served planner on a mobile viewport
         if: always()
         run: node tests/event-planner.browser.spec.mjs

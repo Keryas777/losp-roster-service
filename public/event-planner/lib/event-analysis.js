@@ -122,7 +122,9 @@ export function analyzeMilestoneEvent({ eventEn, eventFr, roster = [], rosterKno
         const remaining = capKnown && progressKnown ? Math.max(0, cap - progressSoFar) : null;
         const parsed = mergeClassified(entryMethods.map((method) => classifyObjective(method.description)));
         const pointsPerAction = Math.max(0, ...entryMethods.map((method) => Number(method.points) || 0));
-        const skip = (reason) => unparsed.push({ source: 'capped', index, label, labelEn, reason });
+        // Maddoxx expose isPremium comme indication de la ligne; cela ne décide pas si elle est faisable gratuitement.
+        const premium = Boolean(entry.isPremium);
+        const skip = (reason) => unparsed.push({ source: 'capped', index, label, labelEn, reason, premium });
         if (parsed.kind === 'unknown') return skip(parsed.reasonCode);
         if (['earn', 'meta', 'upgrade'].includes(parsed.kind)) return skip(parsed.kind === 'upgrade' ? 'unknownForm' : parsed.kind);
 
@@ -164,7 +166,7 @@ export function analyzeMilestoneEvent({ eventEn, eventFr, roster = [], rosterKno
             soFarUnits: Math.floor(progressSoFar / pointsPerAction), capUnits: Math.ceil(cap / pointsPerAction), remainingUnits: Math.ceil(remaining / pointsPerAction)
         } : {};
         actions.push({
-            index, kind: parsed.kind, mode: parsed.mode || null, modes: parsed.modes || [], label, labelEn, character, subject, progressState: progressKnown && capKnown ? 'available' : 'unknown',
+            index, kind: parsed.kind, mode: parsed.mode || null, modes: parsed.modes || [], label, labelEn, premium, character, subject, progressState: progressKnown && capKnown ? 'available' : 'unknown',
             requirements: parsed.requirements || {}, ...resourceFields(parsed.resource), pointsPerAction, cap, progress: progressSoFar, remaining, ...units,
             fightsLeft: remaining !== null && pointsPerAction > 0 && !isSpend ? Math.ceil((status === 'doable' ? doablePoints : remaining) / pointsPerAction) : null,
             doablePoints, status, reason: ['blocked', 'unknown'].includes(status) ? unmet : null,

@@ -1,6 +1,7 @@
 import { analyzeMilestoneEvent } from "./lib/event-analysis.js";
 import { RESOURCES, classifyObjective, observeEvent, resourcesInUse, declareResource, refreshResource, estimateResource, parseQuantity } from "./lib/index.js";
 import { installCalendarSnapshot, currentCalendarGroups, mergeCalendarEvent, calendarGroups } from "./lib/calendar.js";
+import { commandCenterFeeders, commandCenterPeriodLabel, isCommandCenterFeeder, isCommandCenterWrapper, summarizeFeederProgress } from "./lib/command-center.js";
 
 const $=id=>document.getElementById(id);
 const API="/admin/api/event-planner";
@@ -20,6 +21,8 @@ function milestoneObjective(event){return event?.milestone?.brackets?.find(row=>
 function stripTags(value){return String(value??"").replace(/<[^>]*>/g,"").replace(/\s+/g," ").trim();}
 function displayName(event){return stripTags(event?.name)||"Événement sans titre";}
 function eventTypeLabel(event){
+  if(isCommandCenterWrapper(event))return "Poste de commandement";
+  if(isCommandCenterFeeder(event))return "Série du poste de commandement";
   const labels={info:"Information",bonus:"Bonus",blitz:"Blitz",episodic:"Épisodique",milestone:"Jalons",raid:"Raid",raidSeason:"Saison de raid",warSeason:"Saison de guerre",donation:"Don",battlePass:"Battle Pass",strikePass:"Strike Pass",tower:"Tour",pickYourPoison:"À vous de choisir"};
   const type=labels[event?.type]||stripTags(event?.type)||"Événement";
   if(event?.type==="milestone"&&event?.milestone?.type)return `${type} · ${event.milestone.type}`;
@@ -188,14 +191,18 @@ function currentAnalysis(){
   return analyzeMilestoneEvent({eventEn,eventFr,roster:state.roster||[],rosterKnown:Array.isArray(state.roster),characters:state.characters,stock:effectiveStock()});
 }
 function renderEvents(){
-  const groups=calendarView(),events=Object.values(groups).flat(),visible=events.filter(event=>!state.skipped.has(String(event.id)));
+  const groups=calendarView(),events=Object.values(groups).flat();
+  const groupedFeederIds=new Set(events.filter(isCommandCenterWrapper)
+    .flatMap(wrapper=>commandCenterFeeders(wrapper,state.eventsEn).map(feeder=>String(feeder.id))));
+  const visible=events.filter(event=>!state.skipped.has(String(event.id))&&!groupedFeederIds.has(String(event.id)));
+  const ignored=events.filter(event=>state.skipped.has(String(event.id))).length;
   $("event-count").textContent=state.calendarError?"Catalogue public LoSP indisponible · liste masquée":
-    `${visible.length} événement${visible.length===1?"":"s"} affiché${visible.length===1?"":"s"} · ${events.length-visible.length} ignoré${events.length-visible.length===1?"":"s"}`;
+    `${visible.length} événement${visible.length===1?"":"s"} affiché${visible.length===1?"":"s"} · ${ignored} ignoré${ignored===1?"":"s"}`;
   const list=$("events-list");list.replaceChildren();
   if(state.calendarError){list.append(el("div","empty-card","Le catalogue utilisé par la page publique n’a pas pu être chargé. La liste personnelle non filtrée reste masquée."));}
   else if(!visible.length){list.append(el("div","empty-card",events.length?"Tous les événements LoSP en cours sont ignorés.":"Aucun événement LoSP n’est actuellement en cours."));}
   for(const group of calendarGroups){
-    const entries=(groups[group.key]||[]).filter(event=>!state.skipped.has(String(event.id)));
+    const entries=(groups[group.key]||[]).filter(event=>!state.skipped.has(String(event.id))&&!groupedFeederIds.has(String(event.id)));
     if(!entries.length)continue;
     const section=el("section","ev-calendar-group"),head=el("div","ev-calendar-group-head");
     head.append(el("h3","ev-calendar-group-title",group.icon+" "+group.label),el("span","ev-calendar-group-count",entries.length));
@@ -348,6 +355,7 @@ function addActionRow(list,action,{portrait=true}={}){
   if(portrait)addSafeImage(row,action.character?.portrait,"character-portrait");
   const copy=el("div","action-row__copy");copy.append(el("strong","",name),el("span","status status--"+action.status,statusTag(action.status)));
   const details=[];
+  if(action.premium)details.push("Objectif associé au Passe Premium · indicateur fourni par Scopely");
   if(action.progressState==="unknown")details.push("Progression : données indisponibles");
   else if(Number.isFinite(action.progress)&&Number.isFinite(action.cap))details.push(fmt(action.progress)+" / "+fmt(action.cap)+" pts");
   if(action.remainingUnits!=null)details.push(fmt(action.soFarUnits)+" / "+fmt(action.capUnits)+" unités");
@@ -390,6 +398,40 @@ function addSafeImage(parent,url,className,alt=""){
   if(typeof url!=="string"||!/^https:\/\/assets\.marvelstrikeforce\.com\//.test(url))return;
   const image=el("img",className);image.src=url;image.alt=alt;image.loading="lazy";parent.append(image);
 }
+function renderCommandCenterMissions(wrapper){
+  if(!isCommandCenterWrapper(wrapper))return null;
+  const all=commandCenterFeeders(wrapper,state.eventsEn),visible=all.filter(feeder=>!state.skipped.has(String(feeder.id)));
+  const section=el("section","panel-card command-center-missions");
+  section.append(el("h3","","Séries d’objectifs en cours"));
+  if(!all.length){
+    section.append(el("p","muted","Aucune série d’objectifs en cours n’a été identifiée dans la liste personnelle. Cela ne confirme pas que le poste de commandement est terminé."));
+    return section;
+  }
+  if(!visible.length){
+    section.append(el("p","muted","Toutes les séries identifiées sont ignorées dans cette session."));
+    return section;
+  }
+  section.append(el("p","row-detail","Les points de phase du poste ne sont pas estimés à partir de lignes ou récompenses manquantes. Ouvre une série pour l’analyse Maddoxx détaillée."));
+  const list=el("ul","action-list");
+  for(const feeder of visible){
+    const summary=summarizeFeederProgress(feeder),localized=getEvent(feeder.id,"fr")||feeder;
+    const stateLabel=summary.status==="complete-lines"?"Toutes les lignes plafonnées terminées":
+      summary.status==="open-lines"?"Lignes plafonnées en cours":
+      summary.status==="partial"?"Progression partiellement connue":"Progression indisponible";
+    const progress=summary.status==="complete-lines"||summary.status==="open-lines"
+      ?`Lignes terminées : ${summary.completed}/${summary.total}`
+      :summary.status==="partial"
+        ?`Compteurs connus : ${summary.known}/${summary.total} · ${summary.completed} ligne(s) terminée(s) confirmée(s)`
+        :"Les compteurs manquants restent inconnus";
+    const row=el("li","action-row"),copy=el("div","action-row__copy");
+    copy.append(el("strong","",displayName(localized)),el("span","status status--"+(summary.status==="complete-lines"?"done":summary.status==="open-lines"?"doable":"unknown"),stateLabel));
+    copy.append(el("span","row-detail",commandCenterPeriodLabel(feeder)+" · "+progress));
+    const button=el("button","button button-secondary","Analyser cette série");
+    button.type="button";button.dataset.action="select-feeder";button.dataset.eventId=String(feeder.id);
+    row.append(copy,button);list.append(row);
+  }
+  section.append(list);return section;
+}
 function renderSelected(event,fr,analysis,detailError=null){
   const host=$("selected-event");host.replaceChildren();
   const bar=el("div","planner-detail-bar"),back=el("button","planner-back","‹  Liste des événements");
@@ -398,6 +440,7 @@ function renderSelected(event,fr,analysis,detailError=null){
   const hero=el("header","planner-detail-hero"),imageUrl=event.cardArt||event.popupArt||event.icon;
   if(typeof imageUrl==="string"&&/^https:\/\/assets\.marvelstrikeforce\.com\/(?:key_art|imgs)\/[\w.%-]+\.(?:png|jpg|jpeg|webp)$/i.test(imageUrl)){const img=el("img");img.alt="";img.src=imageUrl;img.loading="lazy";img.decoding="async";hero.append(img);}
   const copy=el("div","planner-detail-hero-copy");copy.append(el("span","ev-category",eventTypeLabel(event)),el("h2","",displayName(fr||event)),el("p","",`Fin ${eventDate(event.endTime)}`));hero.append(copy);root.append(hero);
+  const commandCenter=renderCommandCenterMissions(event);if(commandCenter)root.append(commandCenter);
   const actions=el("div","detail-action-bar"),skip=el("button","button button-secondary",state.skipped.has(String(event.id))?"Réintégrer":"Ignorer cet événement");
   skip.type="button";skip.dataset.action=state.skipped.has(String(event.id))?"restore":"skip";skip.dataset.eventId=String(event.id);
   const planLink=el("button","button","Planifier cet événement →");planLink.type="button";planLink.dataset.action="open-plan";actions.append(planLink,skip);root.append(actions);
@@ -442,7 +485,7 @@ function renderSelected(event,fr,analysis,detailError=null){
   else grouped.append(el("p","muted","Aucune action classée à partir du scoring reçu."));
   if(analysis.levers.length){grouped.append(el("h4","","Améliorations possibles"));const list=el("ul","action-list");for(const lever of analysis.levers){const li=el("li","action-row");addSafeImage(li,lever.character.portrait,"character-portrait");const copy=el("div");copy.append(el("strong","",`${characterNameFr(lever.character)} · ${lever.kind} ${lever.from} → ${lever.to}`),el("p","row-detail",`+${fmt(lever.gain)} pts · ${lever.steps} niveau(x)`));li.append(copy);list.append(li);}grouped.append(list);}
   rows.append(grouped);root.append(rows);
-  if(analysis.unparsed.length){const unknown=el("details","panel-card");unknown.append(el("summary","","Lignes non analysées · "+analysis.unparsed.length));const list=el("ul","action-list");for(const item of analysis.unparsed){const li=el("li","action-row");li.append(el("strong","",unparsedObjectiveLabel(item)),el("p","row-detail",reasonLabel(item.reason)));list.append(li);}unknown.append(list);root.append(unknown);}
+  if(analysis.unparsed.length){const unknown=el("details","panel-card");unknown.append(el("summary","","Lignes non analysées · "+analysis.unparsed.length));const list=el("ul","action-list");for(const item of analysis.unparsed){const li=el("li","action-row");li.append(el("strong","",unparsedObjectiveLabel(item)),el("p","row-detail",reasonLabel(item.reason)+(item.premium?" · Objectif associé au Passe Premium":"")));list.append(li);}unknown.append(list);root.append(unknown);}
   renderObjectives();renderPlan();
 }
 function renderObjectives(){
@@ -777,6 +820,7 @@ $("selected-event").addEventListener("click",event=>{
   const button=event.target.closest("[data-action]");if(!button)return;const id=button.dataset.eventId;
   if(button.dataset.action==="back-list"){returnToList();return;}
   if(button.dataset.action==="open-plan"){setTab("plan");return;}
+  if(button.dataset.action==="select-feeder"){showSelected(id);return;}
   if(button.dataset.action==="skip"){state.skipped.add(id);state.selectedId=null;saveLocal();returnToList();renderEvents();return;}
   if(button.dataset.action==="restore"){state.skipped.delete(id);saveLocal();renderEvents();}
 });

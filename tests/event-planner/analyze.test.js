@@ -52,6 +52,20 @@ test("known total score does not turn a missing capped counter into zero",()=>{
   assert.notEqual(result.plan.status,"unavailable");
 });
 
+test("premium flag is preserved as information on parsed and unparsed capped objectives",()=>{
+  const known=event({points:0,completedTier:0,claimableTiers:[]},0);
+  known.milestone.scoring.cappedScorings[0].isPremium=true;
+  const parsed=analyzeMilestoneEvent({eventEn:known,eventFr:known,roster,characters,now:1_900_000_000});
+  assert.equal(parsed.actions[0].premium,true);
+  assert.equal(parsed.actions[0].status,"doable");
+
+  const unknown=event({points:0,completedTier:0,claimableTiers:[]},0);
+  unknown.milestone.scoring.cappedScorings[0].isPremium=true;
+  unknown.milestone.scoring.cappedScorings[0].methods=[{description:"Complete a new unknown task",points:1}];
+  const skipped=analyzeMilestoneEvent({eventEn:unknown,eventFr:unknown,roster,characters,now:1_900_000_000});
+  assert.equal(skipped.unparsed.find(item=>item.source==="capped").premium,true);
+});
+
 test("missing roster keeps character action feasibility unknown without blocking the rest of the analysis",()=>{
   const result=analyzeMilestoneEvent({eventEn:event({points:10,completedTier:0,claimableTiers:[]},5),eventFr:event({points:10,completedTier:0,claimableTiers:[]},5),roster:[],rosterKnown:false,characters,now:1_900_000_000});
   assert.equal(result.supported,true);
