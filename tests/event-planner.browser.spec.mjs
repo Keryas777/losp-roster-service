@@ -246,7 +246,7 @@ try{
   const width=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth}));
   assert.ok((await page.locator("#tab-events").getAttribute("class")).includes("ev-stat"));
   assert.deepEqual(consoleErrors,[],`${browserName} console errors before simulated provider failure`);
-  await page.getByRole("tab",{name:"Mon stock"}).click();
+  await page.getByRole("tab",{name:"Mon inventaire"}).click();
   const manualInput=page.locator("#stock-view input[data-stock-key]").first();
   await manualInput.fill("12345");
   await page.locator('#stock-view button[data-action="save-stock"]').first().click();
