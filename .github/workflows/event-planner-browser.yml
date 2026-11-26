@@ -36,11 +36,12 @@ jobs:
         env:
           BROWSER: ${{ matrix.browser }}
       - name: Test the served planner on a mobile viewport
+        if: always()
         run: node tests/event-planner.browser.spec.mjs
         env:
           BROWSER: ${{ matrix.browser }}
       - name: Capture the four mobile tabs with LoSP styles
-        if: matrix.browser == 'chromium'
+        if: always() && matrix.browser == 'chromium'
         run: node tests/event-planner.browser.spec.mjs
         env:
           BROWSER: chromium
