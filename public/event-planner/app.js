@@ -667,6 +667,7 @@ function renderSyncedInventory(){
   }
   for(let level=1;level<=5;level++){const option=el("option","",`Niveau ${level}`);option.value=String(level);levelSelect.append(option);}
   controls.append(el("label","","Palier"),tierSelect,el("label","","Niveau"),levelSelect);matrix.append(controls);
+  matrix.append(el("p","muted","Balayez horizontalement le tableau pour afficher les cinq catégories et l’éligibilité."));
   const tableHost=el("div","iso-matrix-scroll");matrix.append(tableHost);
   const renderTable=()=>{
     const normalized=isoRows.map(({item,id})=>{
