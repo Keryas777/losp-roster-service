@@ -102,3 +102,36 @@ export function buildIsoCrystalMatrix(items, tier = "P1", level = 1) {
     conflictingIds: [...conflicts].map(key => byId.get(key)?.id).filter(Boolean),
   };
 }
+
+
+// Check only the owner-confirmed prerequisite for one selected crystal tier/level.
+// This reports eligibility to raise a combat-class ISO level; it does not imply
+// that the upgrade was applied, nor that its additional currency cost is known.
+export function evaluateIsoClassEligibility(items, characterClass, tier, level, characterIso = null) {
+  const model = buildIsoCrystalMatrix(items, tier, level);
+  const classCode = String(characterClass || "").toUpperCase();
+  const className = CHARACTER_CLASSES[classCode];
+  if (!className) throw new TypeError("Invalid ISO-8 character class");
+  const required = model.categories.map(category => ({ category, ...model.cells[className][category] }));
+  const hasKnownZero = required.some(cell => cell.state === "known" && cell.quantity === 0);
+  const allKnown = required.every(cell => cell.state === "known");
+  const eligible = allKnown && required.every(cell => cell.quantity > 0);
+  const status = eligible ? "eligible" : hasKnownZero ? "ineligible" : "unknown";
+  const tierNumber = Number(model.tier.slice(1));
+  const active = typeof characterIso?.active === "string" ? characterIso.active : null;
+  const assigned = active ? characterIso?.[active] : null;
+  const assignedLevel = typeof assigned === "number" && Number.isSafeInteger(assigned) && assigned >= 0
+    ? assigned : typeof assigned === "string" && /^\\d+$/.test(assigned.trim()) && Number.isSafeInteger(Number(assigned))
+      ? Number(assigned) : null;
+  return {
+    status,
+    characterClass: className,
+    tier: model.tier,
+    crystalLevel: model.level,
+    eligibleCombatIsoLevel: eligible ? (tierNumber - 1) * 5 + model.level : null,
+    assignedCombatIsoClass: active,
+    assignedCombatIsoLevel: assignedLevel,
+    costs: null,
+    requirements: required.map(({ category, state, quantity, ids }) => ({ category, state, quantity, ids })),
+  };
+}
