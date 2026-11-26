@@ -39,7 +39,7 @@ try{
   await context.route(workerOrigin+"/**",async route=>{
     const request=route.request(),url=new URL(request.url()),headers=await request.allHeaders();
     if(url.pathname==="/admin/planner-cookie-bootstrap"){
-      return route.fulfill({status:204,headers:{"Set-Cookie":cookieName+"=SYNTHETIC_CAPTAIN_SESSION_ONLY; Path=/; Secure; HttpOnly; SameSite=Lax"}});
+      return route.fulfill({status:200,contentType:"text/html",headers:{"Set-Cookie":cookieName+"=SYNTHETIC_CAPTAIN_SESSION_ONLY; Path=/; Secure; HttpOnly; SameSite=Lax"},body:"<!doctype html><title>Cookie bootstrap</title>"});
     }
     if(url.pathname==="/admin/planner-ticket-proof"){
       topLevelCookie=headers.cookie||null;
