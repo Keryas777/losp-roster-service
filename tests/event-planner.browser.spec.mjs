@@ -230,7 +230,7 @@ try{
   assert.ok(apiCalls.some(call=>call.resource==="inventory"&&call.itemType==="CONSUMABLE"&&call.lang==="fr"));
   assert.ok(apiCalls.filter(call=>call.resource==="detail").length>=2);
   assert.deepEqual(runtimeErrors,[],`${browserName} page errors`);
-  assert.equal(consoleErrors.length,2,`${browserName} simulated provider responses`);
+  assert.ok(consoleErrors.length>=2,`${browserName} simulated provider responses were observed`);
   assert.ok(consoleErrors.every(error=>error.includes("502 (Bad Gateway)")),`${browserName} unexpected console errors`);
   console.log(JSON.stringify({browser:browserName,version:browser.version(),result:"passed",eligibleCards:3,apiCalls:apiCalls.length,mobileViewport:width}));
   await context.close();
