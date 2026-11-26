@@ -17,10 +17,11 @@ try{
   const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:390,height:844}});
   await context.addCookies([{name:cookieName,value:"SYNTHETIC_CAPTAIN_SESSION_ONLY",url:workerOrigin,secure:true,httpOnly:true,sameSite:"Lax"}]);
   await context.route(pagesOrigin+"/msf/planner-auth-proof.html",route=>route.fulfill({status:200,contentType:"text/html",body:`<!doctype html><html><body>
-    <a id="open" href="${workerOrigin}/admin/planner-ticket-proof" target="_blank" rel="opener">Ouvrir le service sécurisé</a>
+    <button id="open" type="button">Ouvrir le service sécurisé</button>
     <script>
       const workerOrigin=${JSON.stringify(workerOrigin)},apiUrl=${JSON.stringify(apiUrl)},pagesOrigin=${JSON.stringify(pagesOrigin)};
       window.__proof={};
+      document.getElementById("open").addEventListener("click",()=>window.open(workerOrigin+"/admin/planner-ticket-proof","_blank"));
       window.addEventListener("message",async event=>{
         if(event.origin!==workerOrigin||event.data?.type!=="planner-ticket-proof")return;
         const received=event.data.ticket;
@@ -68,7 +69,7 @@ try{
   await page.waitForFunction(()=>window.__proof?.directStatus!==undefined||window.__proof?.directError!==undefined);
   assert.equal(directFetchCookie,null,`${browserName}: SameSite=Lax captain cookie is absent from the cross-site fetch`);
   const popupOpened=page.waitForEvent("popup");
-  await page.getByRole("link",{name:"Ouvrir le service sécurisé"}).click();
+  await page.getByRole("button",{name:"Ouvrir le service sécurisé"}).click();
   const popup=await popupOpened;await popup.waitForLoadState("load");
   assert.equal(await popup.evaluate(()=>Boolean(window.opener)),true,`${browserName}: opener is explicitly retained for the one-time-ticket proof`);
   assert.ok(topLevelCookie?.includes(cookieName+"="),`${browserName}: first-party Worker navigation receives its host-only session cookie`);
