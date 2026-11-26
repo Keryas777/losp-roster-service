@@ -196,7 +196,6 @@ try{
   assert.equal(apiCalls.filter(call=>call.resource==="detail").length,1,`${browserName} reopening the same command-center series does not request details again`);
   await page.locator('#selected-event button[data-action="back-list"]').click();
   await checkMobileWidths("Poste de commandement");await capture("poste-commandement");
-  await page.locator('#selected-event button[data-action="back-list"]').click();
   await page.locator('button[data-action="select"][data-event-id="planner-test"]').click();
   await page.locator("#selected-event h2").filter({hasText:"Événement de test Maddoxx"}).waitFor();
   await page.getByRole("tab",{name:"Objectifs"}).click();
