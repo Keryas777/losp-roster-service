@@ -90,12 +90,12 @@ test("every shipped planner JavaScript module is served through the authenticate
     if(!file.startsWith(PLANNER_ASSET_ROOT+"/"))return new Response("Not Found",{status:404});
     try{
       const body=await readFile(file),type=asset.endsWith(".js")?"text/javascript; charset=utf-8":
-        asset.endsWith(".css")?"text/css; charset=utf-8":"text/html; charset=utf-8";
+        asset.endsWith(".css")?"text/css; charset=utf-8":asset.endsWith(".json")?"application/json; charset=utf-8":"text/html; charset=utf-8";
       return new Response(body,{headers:{"Content-Type":type}});
     }catch{return new Response("Not Found",{status:404});}
   }};
 
-  const paths=["index.html","styles.css",...modules];
+  const paths=["index.html","styles.css",...modules,"data/msf-resource-catalog.json"];
   for(const asset of paths){
     const response=await handleEventPlannerPage(new Request(ORIGIN+"/admin/events-planner/"+asset,{headers}),f.env,accessFetch());
     assert.equal(response.status,200,"Worker planner route serves "+asset);
