@@ -21,7 +21,7 @@ try{
     <script>
       const workerOrigin=${JSON.stringify(workerOrigin)},apiUrl=${JSON.stringify(apiUrl)},pagesOrigin=${JSON.stringify(pagesOrigin)};
       window.__proof={};
-      document.getElementById("open").addEventListener("click",()=>window.open(workerOrigin+"/admin/planner-ticket-proof","maddoxx-proof","popup"));
+      document.getElementById("open").addEventListener("click",()=>{window.__proof.openAttempted=true;window.__proof.openReturned=Boolean(window.open(workerOrigin+"/admin/planner-ticket-proof","maddoxx-proof","popup"));});
       window.addEventListener("message",async event=>{
         if(event.origin!==workerOrigin||event.data?.type!=="planner-ticket-proof")return;
         const received=event.data.ticket;
@@ -68,9 +68,11 @@ try{
   const page=await context.newPage();await page.goto(pagesUrl,{waitUntil:"load"});
   await page.waitForFunction(()=>window.__proof?.directStatus!==undefined||window.__proof?.directError!==undefined);
   assert.equal(directFetchCookie,null,`${browserName}: SameSite=Lax captain cookie is absent from the cross-site fetch`);
-  const popupOpened=page.waitForEvent("popup");
+  const popupOpened=context.waitForEvent("page",{timeout:10000}).catch(()=>null);
   await page.getByRole("button",{name:"Ouvrir le service sécurisé"}).click();
-  const popup=await popupOpened;await popup.waitForLoadState("load");
+  const popup=await popupOpened;
+  if(!popup)throw new Error(`${browserName}: named ticket window did not open; opener state ${JSON.stringify(await page.evaluate(()=>window.__proof))}`);
+  await popup.waitForLoadState("load");
   assert.equal(await popup.evaluate(()=>Boolean(window.opener)),true,`${browserName}: opener is explicitly retained for the one-time-ticket proof`);
   assert.ok(topLevelCookie?.includes(cookieName+"="),`${browserName}: first-party Worker navigation receives its host-only session cookie`);
   await page.waitForFunction(()=>window.__proof?.ticketRequestStatus!==undefined||window.__proof?.ticketError!==undefined);
