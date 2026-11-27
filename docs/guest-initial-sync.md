@@ -4,7 +4,7 @@ Le chemin `/admin#rosters` permet d'approuver une alliance **invitée** et de lu
 
 ## Déclenchement
 
-Lorsque **l'approbation ET la liaison `allianceKey` sont présentes**, `handleGuestAllianceApproval` inscrit d'abord une intention `initialSyncStatus: "pending"` dans le registre d'approbation, puis crée la file `roster-batches/v1/guest-initial-sync/<fingerprint>.json` dans le R2 privé (règle de rétention existante de 7 jours). Le marqueur durable empêche de recréer une demande terminée après l'expiration de sa file courte.
+Lorsque **l'approbation ET la liaison `allianceKey` sont présentes**, `handleGuestAllianceApproval` inscrit d'abord une intention dans l'objet R2 privé `roster-batches/v1/guest-initial-sync-state/<fingerprint>.json`, puis crée la file `roster-batches/v1/guest-initial-sync/<fingerprint>.json` (règle de rétention existante de 7 jours). Le marqueur durable est séparé du registre d'approbation compact : les Workers antérieurs continuent à lire ce registre pendant un retour arrière, et un état `complete` empêche de recréer une demande après l'expiration de la file courte.
 
 - Aucun appel Scopely supplémentaire n'est effectué par ce déclencheur.
 - Le Cron Cloudflare **déjà existant** (`* * * * *`) récupère les intentions `pending` dont la file manque et traite une seule alliance par passage, même après fermeture du navigateur.

@@ -7,6 +7,7 @@ import {captainConfigReady} from "./captain-vault.js";
 import {enqueueGuestInitialSync} from "./guest-initial-sync.js";
 
 export const GUEST_APPROVAL_KEY="roster-sync/v1/approved-guest-alliances.json";
+export const GUEST_INITIAL_SYNC_STATE_ROOT="roster-batches/v1/guest-initial-sync-state/";
 const FP=/^[a-f0-9]{64}$/;
 const ALLIANCE_KEY=/^[a-z][a-z0-9-]{1,63}$/;
 const HEADERS={"Cache-Control":"private, no-store",
@@ -28,13 +29,10 @@ async function readGuestApprovalSnapshot(env){
     for(const a of record.alliances){
       const names=Object.keys(a||{});
       if(!a||!FP.test(a.fingerprint)||seen.has(a.fingerprint)||
-         names.length<1||names.length>3||
-         names.some(key=>!["fingerprint","allianceKey","initialSyncStatus"].includes(key))||
+         names.length<1||names.length>2||
+         names.some(key=>!["fingerprint","allianceKey"].includes(key))||
          (a.allianceKey!==undefined&&(!ALLIANCE_KEY.test(a.allianceKey)||
-           keys.has(a.allianceKey)))||
-         (a.initialSyncStatus!==undefined&&
-           !["pending","restart-requested","complete","stopped","failed","binding-changed"]
-             .includes(a.initialSyncStatus)))
+           keys.has(a.allianceKey))))
         return {status:"invalid-registry",alliances:[],etag:null};
       seen.add(a.fingerprint);
       if(a.allianceKey)keys.add(a.allianceKey);
@@ -48,30 +46,70 @@ export async function readGuestApprovals(env){
   return {status,alliances};
 }
 
-// Durable lifecycle marker lives beside the non-expiring approval registry,
-// not beside the seven-day queue object. It prevents a completed or terminal
-// onboarding from being recreated when its short-lived queue expires.
-export async function setGuestInitialSyncState(env,fingerprint,allianceKey,state){
+const INITIAL_SYNC_STATES=["pending","restart-requested","complete","stopped",
+  "failed","binding-changed"];
+const initialSyncStateKey=fingerprint=>
+  GUEST_INITIAL_SYNC_STATE_ROOT+fingerprint+".json";
+
+// Lifecycle state is stored separately from the strict approval registry.
+// Older Workers can therefore continue reading approvals during rollback.
+export async function readGuestInitialSyncState(env,fingerprint,allianceKey){
+  if(!FP.test(fingerprint||"")||
+     (allianceKey!==undefined&&!ALLIANCE_KEY.test(allianceKey||"")))
+    return {status:"invalid-selection"};
+  try{
+    const item=await env?.CAPTAIN_BUCKET?.get(initialSyncStateKey(fingerprint));
+    if(!item)return {status:"not-found"};
+    const raw=await item.text();
+    if(raw.length>2000)return {status:"invalid-state"};
+    const record=JSON.parse(raw);
+    if(record?.version!==1||record.fingerprint!==fingerprint||
+       Object.keys(record).length!==5||
+       Object.keys(record).some(name=>![
+         "version","fingerprint","allianceKey","status","updatedAt"
+       ].includes(name))||
+       !ALLIANCE_KEY.test(record.allianceKey||"")||
+       !INITIAL_SYNC_STATES.includes(record.status)||
+       !Number.isFinite(Date.parse(record.updatedAt)))
+      return {status:"invalid-state"};
+    if(allianceKey!==undefined&&record.allianceKey!==allianceKey)
+      return {status:"binding-changed",allianceKey:record.allianceKey};
+    return {...record,etag:item.etag||null};
+  }catch{return {status:"storage-unavailable"};}
+}
+
+// The permanent status lives outside the seven-day queue object. It protects
+// completed and stopped runs while remaining backward-compatible with older
+// Workers that strictly validate the approval registry's compact schema.
+export async function setGuestInitialSyncState(env,fingerprint,allianceKey,state,
+    {allowUnbound=false}={}){
   if(!FP.test(fingerprint||"")||!ALLIANCE_KEY.test(allianceKey||"")||
-     !["pending","restart-requested","complete","stopped","failed"]
-       .includes(state))
+     !INITIAL_SYNC_STATES.includes(state))
     return {status:"invalid-selection"};
   for(let attempt=0;attempt<8;attempt++){
     const guest=await readGuestApprovalSnapshot(env);
     if(guest.status==="invalid-registry")return {status:"invalid-registry"};
     const row=guest.alliances.find(a=>a.fingerprint===fingerprint);
-    if(!row||row.allianceKey!==allianceKey)return {status:"not-approved-and-bound"};
-    if(row.initialSyncStatus===state)return {status:"unchanged"};
+    if((!row||row.allianceKey!==allianceKey)&&!allowUnbound)
+      return {status:"not-approved-and-bound"};
+    const key=initialSyncStateKey(fingerprint);
+    const current=await readGuestInitialSyncState(env,fingerprint);
+    if(current.status==="invalid-state"||current.status==="storage-unavailable")
+      return current;
+    const reviewedRebind=row?.allianceKey===allianceKey&&
+      ["pending","restart-requested"].includes(state);
+    if(current.status!=="not-found"&&current.allianceKey!==allianceKey&&
+       state!=="binding-changed"&&!reviewedRebind)
+      return {status:"binding-changed"};
+    if(current.status!=="not-found"&&current.allianceKey===allianceKey&&
+       current.status===state)return {status:"unchanged"};
     if(["pending","restart-requested"].includes(state)&&
-       row.initialSyncStatus==="complete")
+       current.status==="complete")
       return {status:"already-complete"};
-    const alliances=guest.alliances.map(a=>a.fingerprint===fingerprint?
-      {...a,initialSyncStatus:state}:a);
-    const saved=await env.CAPTAIN_BUCKET.put(GUEST_APPROVAL_KEY,
-      JSON.stringify({version:1,
-        ...(guest.approvedAt!==undefined?{approvedAt:guest.approvedAt}:{}),
-        alliances}),{
-        onlyIf:guest.etag?{etagMatches:guest.etag}:{etagDoesNotMatch:"*"},
+    const record={version:1,fingerprint,allianceKey,status:state,
+      updatedAt:new Date().toISOString()};
+    const saved=await env.CAPTAIN_BUCKET.put(key,JSON.stringify(record),{
+        onlyIf:current.etag?{etagMatches:current.etag}:{etagDoesNotMatch:"*"},
         httpMetadata:{contentType:"application/json",cacheControl:"private, no-store"}
       });
     if(saved)return {status:state};
@@ -151,13 +189,15 @@ export async function handleGuestAllianceApproval(request,env,fetchImpl=fetch){
         if(!verified)return reply({error:"alliance-not-currently-verifiable"},409);
       }
     }
-    let alliances,already=false,changed=false;
+    let alliances,already=false,changed=false,previousAllianceKey;
     let written=false;
     for(let attempt=0;attempt<8;attempt++){
       const guest=await readGuestApprovalSnapshot(env);
       if(guest.status==="invalid-registry")
         return reply({error:"invalid-registry"},503);
-      already=guest.alliances.some(a=>a.fingerprint===fingerprint);
+      const previous=guest.alliances.find(a=>a.fingerprint===fingerprint);
+      already=Boolean(previous);
+      previousAllianceKey=previous?.allianceKey;
       if(["bind","unbind"].includes(action)&&!already)
         return reply({error:"guest-not-approved"},409);
       if(["approve","bind"].includes(action)&&allianceKey&&
@@ -172,20 +212,17 @@ export async function handleGuestAllianceApproval(request,env,fetchImpl=fetch){
       if(action==="approve"){
         alliances=already?guest.alliances.map(a=>{
           if(a.fingerprint!==fingerprint||!allianceKey||a.allianceKey)return a;
-          return {...a,allianceKey,
-            ...(!a.initialSyncStatus?{initialSyncStatus:"pending"}:{})};
+          return {...a,allianceKey};
         }):[...guest.alliances,{fingerprint,
-          ...(allianceKey?{allianceKey,initialSyncStatus:"pending"}:{})}];
+          ...(allianceKey?{allianceKey}:{})}];
       }else if(action==="revoke"){
         alliances=guest.alliances.filter(a=>a.fingerprint!==fingerprint);
       }else{
         alliances=guest.alliances.map(a=>{
           if(a.fingerprint!==fingerprint)return a;
-      if(action==="unbind")return {fingerprint,
-            initialSyncStatus:"stopped"};
+          if(action==="unbind")return {fingerprint};
           if(a.allianceKey===allianceKey)return a;
-          return {...a,allianceKey,initialSyncStatus:a.allianceKey?
-            "binding-changed":a.initialSyncStatus||"pending"};
+          return {...a,allianceKey};
         });
       }
       changed=JSON.stringify(guest.alliances)!==JSON.stringify(alliances);
@@ -205,18 +242,41 @@ export async function handleGuestAllianceApproval(request,env,fetchImpl=fetch){
       action==="revoke"?(already?"revoked":"not-approved"):
       action==="bind"?(changed?"bound":"already-bound"):
       (changed?"unbound":"already-unbound");
+    const row=alliances.find(a=>a.fingerprint===fingerprint);
+    let confirmedBinding=false;
+    if(action==="bind"&&!changed&&row?.allianceKey){
+      const current=await readGuestInitialSyncState(env,fingerprint,row.allianceKey);
+      if(current.status==="binding-changed"){
+        const reviewed=await setGuestInitialSyncState(env,fingerprint,
+          row.allianceKey,"pending");
+        confirmedBinding=["pending","unchanged"].includes(reviewed.status);
+      }
+    }
+    const initialEnrollment=Boolean(
+      (row?.allianceKey&&!previousAllianceKey&&changed)||confirmedBinding);
+    if((action==="revoke"||action==="unbind")&&previousAllianceKey){
+      try{await setGuestInitialSyncState(env,fingerprint,previousAllianceKey,
+        "stopped",{allowUnbound:true});}catch{}
+    }
+    if(row?.allianceKey&&previousAllianceKey&&
+       previousAllianceKey!==row.allianceKey){
+      try{await setGuestInitialSyncState(env,fingerprint,row.allianceKey,
+        "binding-changed");}catch{}
+    }
     // Queue all initial private captures only when explicit guest approval and
     // canonical WebApp binding are BOTH present. OAuth alone is never enough.
     // The queue is idempotent and resumes on the existing minute Cron.
     let initialSync=null;
     if(["approve","bind"].includes(action)){
-      const row=alliances.find(a=>a.fingerprint===fingerprint);
-      if(row?.allianceKey){
+      if(row?.allianceKey&&!(previousAllianceKey&&
+         previousAllianceKey!==row.allianceKey)){
         try{
           const queued=await enqueueGuestInitialSync(env,fingerprint,
-            row.allianceKey);
+            row.allianceKey,Date.now(),{initialEnrollment});
           initialSync=queued.status;
         }catch{initialSync="unavailable";}
+      }else if(row?.allianceKey){
+        initialSync="binding-changed-requires-review";
       }
     }
     return reply({status,count:alliances.length,

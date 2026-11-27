@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
 import {CAPTAIN_PREFIX} from "../src/captain-vault.js";
 import {ROSTER_APPROVAL_KEY,readApproval} from "../src/roster-sync-preflight.js";
-import {GUEST_APPROVAL_KEY,readGuestApprovals,readCollectibleApprovals,
-  handleGuestAllianceApproval} from "../src/guest-alliance-approvals.js";
+import {GUEST_APPROVAL_KEY,GUEST_INITIAL_SYNC_STATE_ROOT,readGuestApprovals,
+  readGuestInitialSyncState,readCollectibleApprovals,handleGuestAllianceApproval}
+  from "../src/guest-alliance-approvals.js";
 
 const origin="https://losp-roster-service.deliriousfan7.workers.dev";
 const hash=s=>createHash("sha256").update(s).digest("hex");
@@ -172,8 +173,7 @@ test("an approved guest can be bound to exactly one stable WebApp key",async()=>
   assert.equal((await response.json()).status,"bound");
   assert.equal(f.calls.length,beforeCalls,"binding needs no new Scopely scan");
   assert.deepEqual((await readGuestApprovals(f.env)).alliances,
-    [{fingerprint:guest,allianceKey:"endgame-revolution-red",
-      initialSyncStatus:"pending"}]);
+    [{fingerprint:guest,allianceKey:"endgame-revolution-red"}]);
   const second=hash("another-invited-aid");
   f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
     {fingerprint:guest,allianceKey:"endgame-revolution-red"},
@@ -187,13 +187,13 @@ test("an approved guest can be bound to exactly one stable WebApp key",async()=>
   assert.equal((await response.json()).status,"bound");
   assert.equal((await readGuestApprovals(f.env)).alliances[0].allianceKey,
     "endgame-revolution-orange");
-  assert.equal((await readGuestApprovals(f.env)).alliances[0].initialSyncStatus,
-    "binding-changed");
+  assert.equal((await readGuestInitialSyncState(f.env,guest,
+    "endgame-revolution-orange")).status,"binding-changed");
   response=await handleGuestAllianceApproval(
     action(guest,"unbind"),f.env,f.provider);
   assert.equal((await response.json()).status,"unbound");
   assert.deepEqual((await readGuestApprovals(f.env)).alliances[0],
-    {fingerprint:guest,initialSyncStatus:"stopped"});
+    {fingerprint:guest});
   assert.equal((await handleGuestAllianceApproval(
     action(second,"bind","zeus !!"),f.env,f.provider)).status,400);
   assert.deepEqual((await readApproval(f.env)).alliances,
@@ -212,8 +212,12 @@ test("admin approval records the guest WebApp key atomically",async()=>{
   assert.equal(response.status,200);
   assert.equal((await response.json()).status,"approved");
   assert.deepEqual((await readGuestApprovals(f.env)).alliances,
-    [{fingerprint:guest,allianceKey:"endgame-revolution-orange",
-      initialSyncStatus:"pending"}]);
+    [{fingerprint:guest,allianceKey:"endgame-revolution-orange"}]);
+  const lifecycle=JSON.parse(f.store.get(
+    GUEST_INITIAL_SYNC_STATE_ROOT+guest+".json"));
+  assert.equal(lifecycle.status,"pending");
+  assert.deepEqual(Object.keys(JSON.parse(f.store.get(GUEST_APPROVAL_KEY))
+    .alliances[0]).sort(),["allianceKey","fingerprint"]);
   assert.ok(f.calls.every(url=>!url.includes("/roster")));
   const repeat=await handleGuestAllianceApproval(
     req(guest,"endgame-revolution-orange"),f.env,f.provider);
@@ -237,8 +241,7 @@ test("previously approved unbound alliance can be bound without new Scopely call
   assert.equal((await response.json()).status,"already-approved");
   assert.equal(f.calls.length,before);
   assert.deepEqual((await readGuestApprovals(f.env)).alliances,
-    [{fingerprint:guest,allianceKey:"marines",
-      initialSyncStatus:"pending"}]);
+    [{fingerprint:guest,allianceKey:"marines"}]);
 });
 test("atomic binding refuses a duplicate or malformed guest key",async()=>{
   const f=fixture(),other=hash("another-aid");
