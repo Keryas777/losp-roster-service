@@ -1,6 +1,6 @@
 // Same-origin, session-bound routes for on-demand Maddoxx planner data.
 import { captainSessionKey } from "./captain-vault.js";
-import { readConnectedPersonalRoster } from "./connected-personal-rosters.js";
+import { readEventPlannerRoster } from "./event-planner-roster.js";
 import { getPersonalEventGrant } from "./personal-event-progress.js";
 import {eventPlannerAccessStatus,eventPlannerAccessResponse} from "./event-planner-auth.js";
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
@@ -32,6 +32,7 @@ export async function handleEventPlannerApi(request,env,fetchImpl=fetch,now=Date
   const resource=url.searchParams.get("resource");
   const allowed=resource==="status"?new Set(["resource"]):resource==="events"?new Set(["resource","lang","refresh"]):
     resource==="detail"?new Set(["resource","lang","eventId","refresh"]):resource==="roster"?new Set(["resource","lang"]):
+    resource==="diagnostics"?new Set(["resource"]):
     resource==="inventory"?new Set(["resource","itemType","lang","refresh"]):null;
   if(!allowed||[...url.searchParams.keys()].some(key=>!allowed.has(key)))return json({error:"invalid-request"},400);
   const id=sessionId(request);
@@ -39,6 +40,38 @@ export async function handleEventPlannerApi(request,env,fetchImpl=fetch,now=Date
   if(grant.error)return json({status:"disconnected",reason:grant.error},grant.status);
   const granted=new Set((grant.scope||"").split(/\s+/).filter(Boolean));
   if(resource==="status")return json({status:"connected",scopes:[...granted],storageNamespace:await localStorageNamespace(id)});
+  if(resource==="diagnostics"){
+    const missing=["m3p.f.pr.ros","m3p.f.pr.inv"].filter(scope=>!granted.has(scope));
+    if(missing.length)return json({error:"scope-insufficient",requiredScope:missing[0]},403);
+    if(!id)return json({error:"not-configured"},503);
+    const key=await captainSessionKey(id);
+    let roster;
+    try{roster=await readEventPlannerRoster(env,key,now);}
+    catch{roster={status:"unavailable",stage:"r2-read"};}
+    if(!env?.PERSONAL_EVENT_CACHE?.idFromName||!env?.PERSONAL_EVENT_CACHE?.get)
+      return json({error:"not-configured"},503);
+    const stub=env.PERSONAL_EVENT_CACHE.get(env.PERSONAL_EVENT_CACHE.idFromName(key));
+    const cached=await Promise.all(["CONSUMABLE","ISOITEM"].map(async itemType=>{
+      try{
+        const response=await stub.fetch(new Request("https://personal-event-cache.internal/planner",{
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({token:grant.accessToken,resource:"inventory",lang:"fr",
+            itemType,refresh:false,cacheOnly:true,requestedAt:now})
+        }));
+        const body=await response.json();
+        return {itemType,status:response.ok?"available":body.error||"unavailable",
+          retrievedAt:body.retrievedAt||null,rows:Array.isArray(body.data)?body.data.map(row=>({
+            id:typeof row?.item==="string"?row.item:typeof row?.item?.id==="string"?row.item.id:
+              typeof row?.id==="string"?row.id:null,
+            quantity:row?.quantity??null
+          })).filter(row=>row.id):[]};
+      }catch{return {itemType,status:"cache-unavailable",retrievedAt:null,rows:[]};}
+    }));
+    return json({status:"ok",resource,roster:{status:roster.status,
+      stage:roster.stage||"available",retrievedAt:roster.capturedAt||null,
+      expiresAt:roster.expiresAt||null,characterCount:roster.characters?.length??0},
+      inventories:cached});
+  }
   const lang=url.searchParams.get("lang")||"fr";
   const eventId=url.searchParams.get("eventId");
   const itemType=url.searchParams.get("itemType");
@@ -53,9 +86,9 @@ export async function handleEventPlannerApi(request,env,fetchImpl=fetch,now=Date
   if(resource==="roster"){
     if(!env?.CAPTAIN_BUCKET?.get)return json({error:"not-configured"},503);
     let saved;
-    try{saved=await readConnectedPersonalRoster(env,await captainSessionKey(id),now);}
+    try{saved=await readEventPlannerRoster(env,await captainSessionKey(id),now);}
     catch{return json({error:"cache-unavailable",calls:0},503);}
-    if(!saved)return json({error:"cache-miss",calls:0},404);
+    if(saved.status!=="ok")return json({error:"roster-unavailable",calls:0},404);
     return json({status:"ok",resource,lang,retrievedAt:saved.capturedAt,
       cache:{hit:true,expiresAt:saved.expiresAt},
       upstream:{calls:0,asOf:saved.asOf??null},

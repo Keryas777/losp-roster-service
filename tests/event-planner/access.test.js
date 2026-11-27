@@ -43,13 +43,27 @@ async function withAccessFetch(run){
 test("owner sees the admin entry and can open the planner shell",async()=>{
   const f=setup();
   const admin=await withAccessFetch(()=>worker.fetch(request("/admin",{jwt:OWNER_JWT}),f.env));
-  assert.equal(admin.status,200);assert.match(await admin.text(),/Planifier avec mon roster/);
+  const adminText=await admin.text();
+  assert.equal(admin.status,200);assert.match(adminText,/Planifier mes événements/);
+  assert.match(adminText,/href="\/admin\/events-planner\/diagnostics"/);
   const shell=await withAccessFetch(()=>worker.fetch(request("/admin/events-planner",{jwt:OWNER_JWT}),f.env));
   assert.equal(shell.status,200);
   const shellText=await shell.text();
   assert.match(shellText,/Aucun compte MSF n’est connecté/);assert.doesNotMatch(shellText,/Scopely|OAuth|jeton/i);
   assert.match(shellText,/\/admin\/login\/captain\?returnTo=events-planner/);
   assert.equal(f.calls.sessions,0);assert.equal(f.calls.assets,0);assert.equal(f.calls.scopely,0);
+});
+
+test("planner diagnostics remain in the owner-only administration area",async()=>{
+  const f=setup();
+  const owner=await withAccessFetch(()=>worker.fetch(request("/admin/events-planner/diagnostics",{jwt:OWNER_JWT,session:true}),f.env));
+  assert.equal(owner.status,200);assert.match(await owner.text(),/Planner/);
+  const other=await withAccessFetch(()=>worker.fetch(request("/admin/events-planner/diagnostics",{jwt:OTHER_JWT,session:true}),f.env));
+  assert.equal(other.status,403);
+  const api=await withAccessFetch(()=>worker.fetch(request("/admin/api/event-planner?resource=diagnostics",{jwt:OTHER_JWT,session:true}),f.env));
+  assert.equal(api.status,403);
+  assert.equal(f.calls.assets,1);
+  assert.equal(f.calls.scopely,0);
 });
 
 test("a LoSP member with an active Scopely cookie is denied before session or API access",async()=>{
@@ -89,7 +103,7 @@ test("a visitor or guest cannot access routes or initiate planner Scopely consen
 test("another configured admin has no planner button and cannot enter",async()=>{
   const f=setup();
   const admin=await handleAdmin(request("/admin",{jwt:OTHER_JWT}),f.env,mockFetch);
-  assert.equal(admin.status,200);assert.doesNotMatch(await admin.text(),/Planifier avec mon roster/);
+  assert.equal(admin.status,200);assert.doesNotMatch(await admin.text(),/Planifier mes événements|events-planner\/diagnostics/);
   const page=await handleEventPlannerPage(request("/admin/events-planner",{jwt:OTHER_JWT,session:true}),f.env,mockFetch);
   const api=await handleEventPlannerApi(request("/admin/api/event-planner?resource=status",{jwt:OTHER_JWT,session:true}),f.env,mockFetch);
   assert.equal(page.status,403);assert.equal(api.status,403);

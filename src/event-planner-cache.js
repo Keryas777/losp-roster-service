@@ -146,7 +146,8 @@ export async function handleEventPlannerCache(request,fetchImpl=fetch){
     input.lang!=="fr"&&['events','detail','inventory'].includes(input.resource)||
     input.resource==="detail"&&!/^[A-Za-z0-9_-]{1,128}$/.test(input.eventId||"")||
     input.resource==="inventory"&&!['CONSUMABLE','ISOITEM'].includes(input.itemType)||
-    typeof input.refresh!=="boolean")return json({error:"invalid-request"},400);
+    typeof input.refresh!=="boolean"||
+    input.cacheOnly!==undefined&&typeof input.cacheOnly!=="boolean")return json({error:"invalid-request"},400);
   const suffix=input.resource==="detail"?input.eventId:input.resource==="inventory"?input.itemType:
     input.resource==="events"?input.lang:"";
   const slot="planner:"+[input.resource,suffix].filter(Boolean).join(":");
@@ -155,6 +156,11 @@ export async function handleEventPlannerCache(request,fetchImpl=fetch){
   const task=(async()=>{
     const now=Number.isSafeInteger(input.requestedAt)?input.requestedAt:Date.now();
     let cached=null;try{cached=await this.ctx.storage.get(slot);}catch{return json({error:"cache-unavailable"},503);}
+    if(input.cacheOnly===true){
+      if(!cached||!Number.isSafeInteger(cached.expiresAt)||cached.expiresAt<=now)
+        return json({error:"cache-miss",calls:0},404);
+      return json({...cached.response,cache:{hit:true,expiresAt:new Date(cached.expiresAt).toISOString()}});
+    }
     if(cached&&Number.isSafeInteger(cached.expiresAt)&&cached.expiresAt>now&&!input.refresh)
       return json({...cached.response,cache:{hit:true,expiresAt:new Date(cached.expiresAt).toISOString()}});
     const loaded=await loadResource({...input,previous:cached?.response},fetchImpl);

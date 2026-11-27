@@ -9,7 +9,7 @@ const PAGE_HEADERS={"Content-Type":"text/html; charset=utf-8","Cache-Control":"p
   "CDN-Cache-Control":"no-store","X-Robots-Tag":"noindex","X-Content-Type-Options":"nosniff",
   "Referrer-Policy":"no-referrer","X-Frame-Options":"DENY","Vary":"Cookie",
   "Content-Security-Policy":"default-src 'self'; script-src 'self'; style-src 'self' https://keryas777.github.io; connect-src 'self' https://keryas777.github.io; img-src 'self' https://assets.marvelstrikeforce.com https://keryas777.github.io; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"};
-const ASSETS=new Set(["index.html","app.js","styles.css","data/msf-resource-catalog.json",...[
+const ASSETS=new Set(["index.html","app.js","styles.css","diagnostics.html","diagnostics.js","data/msf-resource-catalog.json",...[
   "classify.js","event-analysis.js","index.js","ledger.js","plan.js","quantity.js","resources.js","subjects.js","calendar.js","command-center.js","iso-crystals.js"
 ].map(file=>"lib/"+file)]);
 function page(html,status=200){return new Response(html,{status,headers:PAGE_HEADERS});}
@@ -23,7 +23,7 @@ export async function handleEventPlannerPage(request,env,fetchImpl=fetch){
   const url=new URL(request.url);
   if(!url.pathname.startsWith(ROOT))return new Response("Not Found",{status:404});
   const suffix=url.pathname.slice(ROOT.length).replace(/^\//,"");
-  const asset=suffix||"index.html";
+  const asset=suffix==="diagnostics"?"diagnostics.html":suffix||"index.html";
   if(!ASSETS.has(asset)||asset.includes(".."))return new Response("Not Found",{status:404,headers:{"Cache-Control":"no-store","X-Robots-Tag":"noindex"}});
   const status=await handleCaptainSession(request,env);
   let session={status:"temporarily-unavailable"};

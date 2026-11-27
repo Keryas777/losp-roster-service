@@ -121,6 +121,56 @@ function projectMember(row,fp,manifest,index,now){
     // Never include volatileMemberId in any browser response.
     _privateId:row.volatileMemberId};
 }
+
+// Owner-only planner projection. It reads exactly the scheduler's self record,
+// validates it with the same rules as the alliance projection, and never reads
+// another member's roster.
+export async function projectPersonalRoster(bucket,fp,now=Date.now()){
+  if(!bucket?.get||!FP.test(fp||""))return {status:"unavailable"};
+  const root=PREFIX+fp+"/";
+  let manifest;
+  try{manifest=await read(bucket,root+"latest-complete.json",MAX_RECEIPT);}
+  catch{return {status:"invalid-manifest"};}
+  if(!manifest)return {status:"not-collected"};
+  if(!manifestValid(manifest,fp,now))return {status:"no-valid-snapshot"};
+  let row;
+  try{row=await read(bucket,root+manifest.runId+"/member-self.json",MAX_OBJECT);}
+  catch{return {status:"invalid-self-roster"};}
+  if(!row)return {status:"self-roster-missing"};
+  try{projectMember(row,fp,manifest,"self",now);}
+  catch{return {status:"invalid-self-roster"};}
+  let current;
+  try{current=await read(bucket,root+"latest-complete.json",MAX_RECEIPT);}
+  catch{return {status:"snapshot-changed"};}
+  if(!manifestValid(current,fp,now)||current.runId!==manifest.runId||
+     current.membershipDigest!==manifest.membershipDigest||
+     current.capturedAt!==manifest.capturedAt)
+    return {status:"snapshot-changed"};
+  return {status:"ok",capturedAt:row.capturedAt,expiresAt:row.expiresAt,
+    asOf:typeof row.asOf==="string"?row.asOf:null,
+    // The scheduler stores the authenticated player's own Scopely roster.
+    // Keep only fields consumed by the planner and preserve the provider ID.
+    characters:row.characters.map(raw=>{
+      const character={id:raw.id,power:raw.power};
+      for(const [target,candidate] of [["level",raw.level],
+        ["gearTier",raw.gearTier??raw.gear],
+        ["activeYellow",raw.activeYellow??raw.yellowStars],
+        ["activeRed",raw.activeRed??raw.redStars],
+        ["basic",raw.basic],["special",raw.special],
+        ["ultimate",raw.ultimate],["passive",raw.passive]])
+        if(int(candidate))character[target]=candidate;
+      if(typeof raw.iso8==="string")character.iso8=raw.iso8;
+      else if(obj(raw.iso8)){
+        const iso8={};
+        for(const key of ["active","activeClass","class","matrixColor",
+          "raider","striker","fortifier","healer","skirmisher"])
+          if(typeof raw.iso8[key]==="string"||int(raw.iso8[key]))iso8[key]=raw.iso8[key];
+        if(Object.keys(iso8).length)character.iso8=iso8;
+      }
+      return character;
+    })};
+}
+
 export async function projectAlliance(bucket,fp,alliance,now){
   const root=PREFIX+fp+"/";
   const m=await read(bucket,root+"latest-complete.json",MAX_RECEIPT);

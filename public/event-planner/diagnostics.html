@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <title>Diagnostic du planificateur — LoSP</title>
+  <link rel="stylesheet" href="/admin/events-planner/styles.css">
+  <script type="module" src="/admin/events-planner/diagnostics.js"></script>
+</head>
+<body class="ev-body">
+  <main class="admin-diagnostics">
+    <p><a href="/admin">← Administration</a></p>
+    <h1>Diagnostic du planificateur</h1>
+    <p class="muted">Lecture seule des données privées et temporaires déjà disponibles. Cette page ne lance aucune collecte Scopely.</p>
+    <button id="reload" class="button button-secondary" type="button">Relire les données en cache</button>
+    <p id="status" role="status" aria-live="polite">Chargement…</p>
+    <section><h2>Roster personnel</h2><div id="roster"></div></section>
+    <section><h2>Inventaires reçus</h2><div id="inventory"></div></section>
+    <section><h2>Couverture du catalogue</h2><div id="catalog"></div></section>
+  </main>
+</body>
+</html>
