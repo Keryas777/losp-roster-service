@@ -216,3 +216,12 @@ La correction invalide uniquement cette entrée de mémorisation à chaque actua
 - Tests unitaires/API/accès du planificateur après correction locale : 79/79 réussis.
 - Chromium/WebKit CI doit être relancé sur le commit correctif; le précédent run WebKit échouait précisément parce que le second appel roster n’était jamais émis. Le navigateur local de cet environnement ne démarre pas (binaire système incomplet et exécution du navigateur restreinte); cela ne remplace pas la validation CI.
 - Aucun appel personnel Scopely, aucun déploiement et aucune fusion dans cette correction. Le Worker de validation reste au SHA déployé `b4890dc698b8da4dfefc60bd7aa608dfb4b6af6c` / version `42e4f4c9-8e94-4f57-a6de-cac6758d028a`. Le nouveau head demande une nouvelle autorisation de déploiement avant toute validation réelle sur iPhone.
+
+### Résultats CI après correction — 27 novembre 2026
+
+- Head code de la PR #218 : `10ca44ae740c5538faaeff9a8f9995fb9567609a`.
+- Tests Maddoxx, API, accès, ISO-8 et progression : 132/132 réussis (run `46028722581`).
+- Navigateur mobile : Chromium et WebKit réussis (run `46028722598`), avec vérifications sans débordement à 320, 360, 390 et 430 px. Cela ne remplace pas Safari iPhone.
+- Le test WebKit qui échouait au head précédent est maintenant vert : l’actualisation explicitement simulée relit le roster et confirme l’état absent sans collecte.
+- Suite générale Worker OAuth : 904/919; les 15 échecs sont les mêmes cas préexistants de récupération tardive/invitée, DD9, budgets et accès à l’explorateur R2 déjà observés sur la référence. Aucun échec du planificateur n’est présent dans cette suite.
+- La mise à jour documentaire suivante n’altère pas le code testé. Aucun appel personnel Scopely, aucun déploiement ni merge n’a été effectué; l’autorisation demandée concerne un déploiement du nouveau SHA seulement.
