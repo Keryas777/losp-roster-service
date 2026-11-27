@@ -3,7 +3,7 @@
 // One selected alliance and ONE bounded provider phase per invocation.
 // A new approval+WebApp binding queues the catch-up; it never runs Scopely
 // calls in an administrator's approval HTTP request.
-import {readGuestApprovals,setGuestInitialSyncState}
+import {readGuestApprovals,readGuestInitialSyncState,setGuestInitialSyncState}
   from "./guest-alliance-approvals.js";
 import {readApproval} from "./roster-sync-preflight.js";
 import {captainConfigReady} from "./captain-vault.js";
@@ -195,13 +195,28 @@ export async function reconcileGuestInitialSyncRequests(env,now=Date.now()){
     for(const alliance of guest.alliances||[]){
       const {fingerprint:fp,allianceKey:key}=alliance||{};
       if(!FP.test(fp||"")||!KEY.test(key||"")||lospFingerprints.has(fp))continue;
+      const lifecycle=await readGuestInitialSyncState(env,fp,key);
+      if(["invalid-state","storage-unavailable"].includes(lifecycle.status))
+        return {status:"lifecycle-state-unavailable",created:0};
+      if(lifecycle.status==="binding-changed")continue;
       const keyPath=recordKey(fp);
-      if(!["pending","restart-requested"].includes(alliance.initialSyncStatus))continue;
+      const lifecycleStatus=lifecycle.status==="not-found"?null:lifecycle.status;
       if(existing.has(keyPath)){
         const stored=await readStored(bucket,keyPath);
         const saved=stored?.value;
-        if(valid(saved,fp)&&["complete","failed","stopped"].includes(saved.status)){
-          if(alliance.initialSyncStatus==="restart-requested"&&
+        if(!valid(saved,fp)||saved.allianceKey!==key)continue;
+        let intent=lifecycleStatus;
+        if(!intent){
+          const recovered=await setGuestInitialSyncState(env,fp,key,
+            saved.status==="complete"||saved.status==="failed"||saved.status==="stopped"?
+              saved.status:"pending");
+          if(!["pending","complete","failed","stopped","unchanged"]
+            .includes(recovered.status))
+            return {status:"marker-repair-failed",created:0};
+          intent=recovered.status;
+        }
+        if(["complete","failed","stopped"].includes(saved.status)){
+          if(intent==="restart-requested"&&
              saved.status!=="complete"){
             const {claimToken,claimUntil,...record}=saved;
             const resumed={...record,status:"queued",updatedAt:stamp(now),
@@ -213,23 +228,25 @@ export async function reconcileGuestInitialSyncRequests(env,now=Date.now()){
             return {status:["pending","unchanged"].includes(marker.status)?
               "repaired":"marker-repair-failed",created:0};
           }
+          if(intent===saved.status)return {status:"idle",created:0};
           const marker=await setGuestInitialSyncState(env,fp,key,saved.status);
           return {status:[saved.status,"unchanged"].includes(marker.status)?
             "repaired":"marker-repair-failed",created:0};
         }
-        if(alliance.initialSyncStatus==="restart-requested"){
+        if(intent==="restart-requested"){
           const marker=await setGuestInitialSyncState(env,fp,key,"pending");
           return {status:["pending","unchanged"].includes(marker.status)?
             "repaired":"marker-repair-failed",created:0};
         }
         continue;
       }
+      if(!["pending","restart-requested"].includes(lifecycleStatus))continue;
       if(!await isApprovedBound(env,fp,key))
         return {status:"idle",created:0};
       const record=newRequest(fp,key,now);
       const stored=await createRecord(bucket,keyPath,record);
       if(stored){
-        if(alliance.initialSyncStatus==="restart-requested"){
+        if(lifecycleStatus==="restart-requested"){
           const marker=await setGuestInitialSyncState(env,fp,key,"pending");
           if(!["pending","unchanged"].includes(marker.status))
             return {status:"marker-repair-failed",created:1};
@@ -280,7 +297,8 @@ async function recordLockReleaseFailure(env,now,status){
 
 // Called only AFTER successful explicit admin approval AND binding, not on
 // Scopely OAuth alone. Idempotent; never resets an existing completed run.
-export async function enqueueGuestInitialSync(env,fp,key,now=Date.now(),{restart=false}={}){
+export async function enqueueGuestInitialSync(env,fp,key,now=Date.now(),
+    {restart=false,initialEnrollment=false}={}){
   if(!FP.test(fp||"")||!KEY.test(key||"")||!Number.isFinite(now))
     return {status:"invalid-selection"};
   if(!env?.CAPTAIN_BUCKET?.get||!env?.CAPTAIN_BUCKET?.put)
@@ -297,12 +315,23 @@ export async function enqueueGuestInitialSync(env,fp,key,now=Date.now(),{restart
   const approved=approvals.alliances.find(a=>a.fingerprint===fp&&
     a.allianceKey===key);
   if(!approved)return {status:"not-approved-and-bound"};
-  if(approved.initialSyncStatus==="binding-changed")
+  let lifecycle=await readGuestInitialSyncState(env,fp,key);
+  if(["invalid-state","storage-unavailable"].includes(lifecycle.status))
+    return {status:"lifecycle-state-unavailable"};
+  if(lifecycle.status==="binding-changed")
     return {status:"binding-changed-requires-review"};
   if(previous?.value?.allianceKey!==undefined&&previous.value.allianceKey!==key)
     return {status:"binding-changed-requires-review"};
   if(previous){
     const record=previous.value;
+    if(lifecycle.status==="not-found"){
+      const saved=await setGuestInitialSyncState(env,fp,key,
+        ["complete","failed","stopped"].includes(record.status)?
+          record.status:"pending");
+      if(!["pending","complete","failed","stopped","unchanged"]
+        .includes(saved.status))return {status:"storage-write-failed"};
+      lifecycle=await readGuestInitialSyncState(env,fp,key);
+    }
     if(!restart)
       return {status:record.status,progress:publicState(record)};
     if(pending(record.status))
@@ -334,20 +363,26 @@ export async function enqueueGuestInitialSync(env,fp,key,now=Date.now(),{restart
         {status:"storage-conflict"};
     }catch{return {status:"storage-write-failed"};}
   }
-  if(approved.initialSyncStatus==="complete")
+  if(lifecycle.status==="complete")
     return {status:"already-complete",progress:{status:"complete",phase:"done"}};
-  if(approved.initialSyncStatus!=="pending"&&!restart)
-    return {status:approved.initialSyncStatus||"pending-registration"};
-  if(approved.initialSyncStatus!=="pending"){
-    const marked=await setGuestInitialSyncState(env,fp,key,"restart-requested");
-    if(!["restart-requested","unchanged"].includes(marked.status))
+  if(["failed","stopped"].includes(lifecycle.status)&&!restart)
+    return {status:lifecycle.status};
+  if(lifecycle.status==="not-found"&&!restart&&!initialEnrollment)
+    return {status:"pending-registration"};
+  if(lifecycle.status==="not-found"||
+     (restart&&["failed","stopped"].includes(lifecycle.status))){
+    const next=restart&&lifecycle.status!=="not-found"?
+      "restart-requested":"pending";
+    const marked=await setGuestInitialSyncState(env,fp,key,next);
+    if(![next,"unchanged"].includes(marked.status))
       return {status:"storage-write-failed"};
+    lifecycle=await readGuestInitialSyncState(env,fp,key);
   }
   const record=newRequest(fp,key,now);
   try{
     const created=await createRecord(bucket,rkey,record);
     if(created){
-      if(approved.initialSyncStatus==="restart-requested"||restart){
+      if(lifecycle.status==="pending"||lifecycle.status==="restart-requested"||restart){
         let lifecycleMarker;
         try{lifecycleMarker=await setGuestInitialSyncState(env,fp,key,"pending");}
         catch{lifecycleMarker={status:"unavailable"};}
@@ -368,27 +403,27 @@ export async function guestInitialSyncStatus(env,fp){
   try{
     const record=await read(env.CAPTAIN_BUCKET,recordKey(fp));
     if(record&&!valid(record,fp))return {status:"invalid-record"};
-    if(record){
-      const guest=await readGuestApprovals(env);
-      const row=(guest.alliances||[]).find(a=>a.fingerprint===fp);
-      if(row?.initialSyncStatus==="binding-changed")
-        return {status:"binding-changed"};
-      if(row?.initialSyncStatus==="restart-requested")
-        return {...publicState(record),status:"restart-requested"};
-      return publicState(record);
-    }
     const [guest,losp]=await Promise.all([readGuestApprovals(env),readApproval(env)]);
     if(guest.status==="invalid-registry"||losp.status==="invalid-registry")
       return {status:"invalid-approval-registry"};
     const row=(guest.alliances||[]).find(a=>a.fingerprint===fp&&
       KEY.test(a.allianceKey||""));
     const isLosp=(losp.alliances||[]).some(a=>a.fingerprint===fp);
-    if(!row||isLosp)return {status:"not-started"};
-    if(["complete","failed","stopped","binding-changed"]
-      .includes(row.initialSyncStatus))
-      return {status:row.initialSyncStatus,
-        ...(row.initialSyncStatus==="complete"?{phase:"done"}:{})};
-    if(row.initialSyncStatus==="restart-requested")
+    if(!row||isLosp)return record?publicState(record):{status:"not-started"};
+    const lifecycle=await readGuestInitialSyncState(env,fp,row.allianceKey);
+    if(["invalid-state","storage-unavailable"].includes(lifecycle.status))
+      return {status:"lifecycle-state-unavailable"};
+    if(lifecycle.status==="binding-changed")return {status:"binding-changed"};
+    if(record){
+      if(lifecycle.status==="restart-requested")
+        return {...publicState(record),status:"restart-requested"};
+      if(record.allianceKey!==row.allianceKey)return {status:"binding-changed"};
+      return publicState(record);
+    }
+    if(["complete","failed","stopped"].includes(lifecycle.status))
+      return {status:lifecycle.status,
+        ...(lifecycle.status==="complete"?{phase:"done"}:{})};
+    if(lifecycle.status==="restart-requested")
       return {status:"restart-requested"};
     return {status:"pending-registration"};
   }catch{return {status:"unavailable"};}
@@ -536,6 +571,8 @@ export async function runGuestInitialSyncTick(env,now=Date.now(),fetchImpl=fetch
         await write(bucket,recordKey(latest.fingerprint),{
           ...record,status:"stopped",updatedAt:stamp(now),
           lastOutcome:"approval-or-binding-withdrawn"});
+        await setGuestInitialSyncState(env,latest.fingerprint,
+          latest.allianceKey,"stopped",{allowUnbound:true});
         return {status:"stopped",requests:0};
       }
       const fp=latest.fingerprint,key=latest.allianceKey;
@@ -614,7 +651,8 @@ export async function runGuestInitialSyncTick(env,now=Date.now(),fetchImpl=fetch
       await write(bucket,recordKey(fp),saved);
       const lifecycleMarker=saved.status==="complete"||saved.status==="failed"||
         saved.status==="stopped"?
-        await setGuestInitialSyncState(env,fp,key,saved.status):null;
+        await setGuestInitialSyncState(env,fp,key,saved.status,
+          {allowUnbound:saved.status==="stopped"}):null;
       return {status:saved.status,phase:saved.phase,lastOutcome:result.status,
         ...(lifecycleMarker&&! ["complete","failed","stopped","unchanged"].includes(lifecycleMarker.status)?
           {lifecycleMarkerStatus:lifecycleMarker.status}:{}),

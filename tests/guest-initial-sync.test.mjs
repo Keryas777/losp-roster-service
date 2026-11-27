@@ -4,19 +4,28 @@ import {enqueueGuestInitialSync,guestInitialSyncStatus,
   runGuestInitialSyncTick,handleGuestInitialSync,
   reconcileGuestInitialSyncRequests,dispatchInitialGuestDirectory}
   from "../src/guest-initial-sync.js";
-import {GUEST_APPROVAL_KEY} from "../src/guest-alliance-approvals.js";
+import {GUEST_APPROVAL_KEY,GUEST_INITIAL_SYNC_STATE_ROOT}
+  from "../src/guest-alliance-approvals.js";
 import {RosterBatchLock} from "../src/roster-batch-lock.js";
 
 const FP="a".repeat(64),KEY="questionable-propriety";
 const START=Date.parse("2026-11-08T02:00:00Z");
 const URL="https://losp-roster-service.deliriousfan7.workers.dev";
+const stateKey=fp=>GUEST_INITIAL_SYNC_STATE_ROOT+fp+".json";
+function saveState(f,fp,status,key=KEY){
+  const path=stateKey(fp);
+  f.store.set(path,JSON.stringify({version:1,fingerprint:fp,
+    allianceKey:key,status,updatedAt:new Date(START).toISOString()}));
+  f.etags.set(path,"etag-state-"+fp);
+}
 function fixture(){
   const store=new Map(),etags=new Map(),call=[],lockState=new Map();
   const failures={bucketPut:0,bucketPutKey:null,lockDelete:0};
   let etagCounter=0;
   store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,
-    alliances:[{fingerprint:FP,allianceKey:KEY,initialSyncStatus:"pending"}]}));
+    alliances:[{fingerprint:FP,allianceKey:KEY}]}));
   etags.set(GUEST_APPROVAL_KEY,"etag-approval");
+  saveState({store,etags},FP,"pending");
   const bucket={
     get:async key=>store.has(key)?{text:async()=>store.get(key),
       size:store.get(key).length,etag:etags.get(key)}:null,
@@ -101,7 +110,7 @@ test("new approved and bound alliance is queued once; phases finish after restar
   assert.equal((await runGuestInitialSyncTick(f.env,START+6*60000,
     async()=>{throw Error("not called");},deps(steps))).status,"idle");
   assert.equal(steps.length,6);
-  assert.equal([...f.store.keys()].filter(k=>k.endsWith("/"+FP+".json")).length,1);
+  assert.equal([...f.store.keys()].filter(k=>k===queuePath(FP)).length,1);
   assert.equal(f.lockState.has("lease"),false);
 });
 
@@ -239,11 +248,12 @@ test("queue reconciliation remains available if the execution lock binding is mi
 test("cron reconciliation queues only durable pending intents, one per tick",async()=>{
   const f=fixture(),second="b".repeat(64),third="c".repeat(64),now=Date.now();
   f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
-    {fingerprint:FP,allianceKey:KEY,initialSyncStatus:"pending"},
-    {fingerprint:second,allianceKey:"another-guest",initialSyncStatus:"pending"},
+    {fingerprint:FP,allianceKey:KEY},
+    {fingerprint:second,allianceKey:"another-guest"},
     {fingerprint:third}
   ]}));
   f.etags.set(GUEST_APPROVAL_KEY,"etag-approvals-multiple");
+  saveState(f,second,"pending","another-guest");
   assert.deepEqual(await reconcileGuestInitialSyncRequests(f.env,now),
     {status:"queued",created:1});
   assert.deepEqual(await reconcileGuestInitialSyncRequests(f.env,now+60000),
@@ -256,10 +266,11 @@ test("cron reconciliation queues only durable pending intents, one per tick",asy
 test("due alliances share turns fairly instead of letting the oldest queue starve the rest",async()=>{
   const f=fixture(),second="b".repeat(64),now=Date.now(),calls=[];
   f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
-    {fingerprint:FP,allianceKey:KEY,initialSyncStatus:"pending"},
-    {fingerprint:second,allianceKey:"another-guest",initialSyncStatus:"pending"}
+    {fingerprint:FP,allianceKey:KEY},
+    {fingerprint:second,allianceKey:"another-guest"}
   ]}));
   f.etags.set(GUEST_APPROVAL_KEY,"etag-fair-approvals");
+  saveState(f,second,"pending","another-guest");
   saveQueue(f,queueRecord(FP,KEY,{requestedAt:new Date(now-2000).toISOString(),
     updatedAt:new Date(now-2000).toISOString(),deadlineAt:new Date(now+48*3600000).toISOString(),
     nextAt:new Date(now).toISOString()}));
@@ -443,8 +454,7 @@ test("completed onboarding survives queue expiration and is never recreated",asy
     deadlineAt:new Date(now+48*3600000).toISOString(),nextAt:new Date(now).toISOString()});
   saveQueue(f,completed);
   await reconcileGuestInitialSyncRequests(f.env,now);
-  const approval=JSON.parse(f.store.get(GUEST_APPROVAL_KEY));
-  assert.equal(approval.alliances[0].initialSyncStatus,"complete");
+  assert.equal(JSON.parse(f.store.get(stateKey(FP))).status,"complete");
   f.store.delete(queuePath(FP));
   f.etags.delete(queuePath(FP));
   assert.equal((await reconcileGuestInitialSyncRequests(f.env,now+60000)).created,0);
@@ -458,19 +468,20 @@ test("legacy markerless approval is surfaced for one explicit recovery, not bulk
   const f=fixture(),now=Date.now();
   f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,
     alliances:[{fingerprint:FP,allianceKey:KEY}]}));
+  f.store.delete(stateKey(FP));f.etags.delete(stateKey(FP));
   assert.equal((await reconcileGuestInitialSyncRequests(f.env,now)).created,0);
   assert.equal((await guestInitialSyncStatus(f.env,FP)).status,"pending-registration");
   const started=await enqueueGuestInitialSync(f.env,FP,KEY,now,{restart:true});
   assert.equal(started.status,"queued");
-  assert.equal(JSON.parse(f.store.get(GUEST_APPROVAL_KEY))
-    .alliances[0].initialSyncStatus,"pending");
+  assert.equal(JSON.parse(f.store.get(stateKey(FP))).status,"pending");
 });
 
 test("a changed WebApp association requires review before any new queue",async()=>{
   const f=fixture(),now=Date.now();
   f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
-    {fingerprint:FP,allianceKey:KEY,initialSyncStatus:"binding-changed"}
+    {fingerprint:FP,allianceKey:KEY}
   ]}));
+  saveState(f,FP,"binding-changed");
   assert.equal((await guestInitialSyncStatus(f.env,FP)).status,"binding-changed");
   assert.equal((await enqueueGuestInitialSync(f.env,FP,KEY,now,{restart:true})).status,
     "binding-changed-requires-review");
@@ -480,22 +491,21 @@ test("a changed WebApp association requires review before any new queue",async()
 test("an interrupted admin retry is recovered without repeating the relaunch",async()=>{
   const f=fixture(),now=Date.now();
   f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
-    {fingerprint:FP,allianceKey:KEY,initialSyncStatus:"failed"}
+    {fingerprint:FP,allianceKey:KEY}
   ]}));
+  saveState(f,FP,"failed");
   saveQueue(f,queueRecord(FP,KEY,{status:"failed",phase:"roster",
     requestedAt:new Date(now-1000).toISOString(),updatedAt:new Date(now-1000).toISOString(),
     deadlineAt:new Date(now+48*3600000).toISOString(),nextAt:new Date(now).toISOString()}));
   f.failures.bucketPutKey=queuePath(FP);
   assert.equal((await enqueueGuestInitialSync(f.env,FP,KEY,now,{restart:true})).status,
     "storage-write-failed");
-  assert.equal(JSON.parse(f.store.get(GUEST_APPROVAL_KEY))
-    .alliances[0].initialSyncStatus,"restart-requested");
+  assert.equal(JSON.parse(f.store.get(stateKey(FP))).status,"restart-requested");
   f.failures.bucketPutKey=null;
   const recovered=await reconcileGuestInitialSyncRequests(f.env,now+60000);
   assert.equal(recovered.status,"repaired");
   assert.equal(JSON.parse(f.store.get(queuePath(FP))).status,"queued");
-  assert.equal(JSON.parse(f.store.get(GUEST_APPROVAL_KEY))
-    .alliances[0].initialSyncStatus,"pending");
+  assert.equal(JSON.parse(f.store.get(stateKey(FP))).status,"pending");
 });
 
 test("first complete Infos wakes the public guest directory without leaking identities",async()=>{
