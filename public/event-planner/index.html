@@ -51,14 +51,9 @@
     <section id="panel-stock" class="tab-panel" role="tabpanel" aria-labelledby="tab-stock" hidden>
       <h2>Mon inventaire</h2>
       <section class="stock-section stock-section--synced">
-        <div class="section-heading"><div><h3>Inventaire synchronisé</h3><p id="inventory-sync-status" class="muted">Chargement de l’inventaire…</p></div><button type="button" class="button button-secondary" id="refresh-inventory">Réutiliser l’inventaire</button></div>
-        <div class="inventory-controls" role="group" aria-label="Rechercher dans l’inventaire">
-          <label for="inventory-search">Recherche</label><input id="inventory-search" type="search" autocomplete="off" placeholder="Nom français ou catégorie">
-          <label for="inventory-family">Famille</label><select id="inventory-family"><option value="all">Toutes les familles</option><option value="CONSUMABLE">Consommables</option><option value="ISOITEM">ISO-8</option></select>
-        </div>
+        <div class="section-heading"><div><h3>Ressources MSF</h3><p id="inventory-sync-status" class="muted">Chargement…</p></div><button type="button" class="button button-secondary" id="refresh-inventory">Réafficher l’inventaire</button></div>
         <h4>Ressources utiles à la planification</h4><div id="inventory-priority" aria-live="polite"></div>
         <section id="inventory-iso-matrix" class="inventory-iso-matrix" aria-label="Cristaux ISO-8"></section>
-        <div id="synced-inventory"></div>
       </section>
       <section class="stock-section stock-section--manual">
         <div class="section-heading"><div><h3>Quantités ajoutées manuellement</h3><p class="muted">Ces quantités restent séparées de l’inventaire synchronisé. Elles servent uniquement si un objet n’y apparaît pas.</p></div><button type="button" class="small-button" id="refresh-ledger">Mettre à jour les estimations</button></div>

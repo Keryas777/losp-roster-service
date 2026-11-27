@@ -163,5 +163,46 @@ Les tests ciblés couvrent l’exemple observé, les combinaisons dérivées, le
 - La suite ciblée locale du planificateur, de ses API et des parcours personnels passe 128/128. Les vérifications syntaxiques Node et `git diff --check` passent.
 - Les tests navigateur locaux n’ont pas pu démarrer : les binaires Playwright Chromium/WebKit étaient absents; le téléchargement Playwright a reçu HTTP 403. Les dernières exécutions CI avant cette correction restent vertes, mais le parcours Chromium/WebKit après correction doit être confirmé par GitHub Actions. Aucun test réel sur iPhone Safari n’a été fait.
 - Les contrôles Worker OAuth antérieurs restent à 897/912; les 15 échecs correspondent à la même baseline `main` (collecte invitée/tardive, enqueues DD9, budgets et accès R2). Aucun test Maddoxx n’échouait sur le head antérieur.
-- Les archives Maddoxx du 21 et du 25 novembre ne contiennent pas de licence. Aucune confirmation écrite de permission d’adaptation n’est présente dans les documents ou commentaires consultés. Comme l’intégration porte une adaptation de logique et ses tests, le déploiement est suspendu jusqu’à confirmation de l’autorisation de l’auteur ou fourniture d’une licence appropriée.
+- À la date de cet examen, les archives des 21 et 25 novembre ne contenaient pas de licence et les sources alors consultées ne documentaient pas d’autorisation. Le propriétaire a depuis confirmé directement avoir reçu de Maddoxx l’autorisation d’utiliser, adapter et intégrer son travail dans LoSP. Cette collaboration est créditée ici; les captures privées et les ZIP originaux ne sont pas publiés. La redistribution publique autonome de ses sources n’a pas été établie et n’est pas revendiquée.
 - Aucun appel personnel Scopely n’a été effectué à ce stade. La session Cloudflare Access/LoSP n’a pas été ouverte; les quotas autorisés restent inutilisés. Aucun merge, déploiement ou changement de l’adresse Worker n’a eu lieu.
+
+## Corrections après validation iPhone — 27 novembre 2026
+
+### Autorisation et attribution
+
+Le propriétaire confirme avoir reçu de Maddoxx, le 21 novembre puis avec une mise à jour le 25 novembre, l’autorisation d’utiliser, adapter et intégrer son travail au Planificateur d’événements LoSP. Son nom reste crédité dans la documentation technique, sans apparaître dans les libellés joueurs. Les captures de conversation privée et les ZIP originaux ne sont pas ajoutés au dépôt. La redistribution publique autonome des sources Maddoxx n’a pas été explicitement établie; cette intégration ne constitue pas une affirmation de droit de redistribution.
+
+Cette mise à jour remplace, pour le roster et ISO-8, les indications antérieures devenues inexactes. Elle ne contient aucune donnée personnelle issue de l’inventaire.
+
+### Cause racine du roster indisponible
+
+Le planificateur lisait l’objet facultatif `roster-batches/v1/connected-personal-rosters/{session}/latest.json`. Or `captureConnectedPersonalRoster()` retourne explicitement `managed-by-alliance-sync` pour les alliances approuvées, LoSP comme invitées : cet objet n’est donc pas créé pour ces comptes. Le collecteur planifié conserve le roster personnel sous `roster-batches/v1/{fingerprint}/latest-complete.json` et `{runId}/member-self.json`, avec le lien de compte existant `roster-session-hint/v1/{fingerprint}.json`. L’ancien lecteur ne suivait jamais ce parcours.
+
+Le nouveau lecteur suit l’index de l’alliance de la session capitaine, vérifie l’approbation et l’égalité exacte avec le compte indiqué par le collecteur, puis lit et valide uniquement le manifeste et `member-self.json`. Il ne lit aucun autre roster, ne lance aucune collecte et n’écrit rien dans R2. En cas de session différente du compte qui a servi au passage planifié, il échoue fermé; la page de diagnostic administrateur indique alors l’étape manquante. Cette dernière situation devra être confrontée au R2 réel après autorisation de déploiement.
+
+### Convention Scopely ISO-8
+
+Les suffixes sont des niveaux internes continus, et non des niveaux locaux répétés à chaque palier :
+
+| Couleur | Palier | Suffixes internes | Niveaux affichés |
+| --- | --- | --- | --- |
+| GREEN | P1 | 1–5 | 1–5 |
+| BLUE | P2 | 6–10 | 1–5 |
+| PURPLE | P3 | 11–15 | 1–5 |
+| ORANGE | P4 | 16–20 | 1–5 |
+
+Les exemples observés `GREEN_SUPPORT_HEALTH_1`, `BLUE_CONTROLLER_ARMOR_6`, `PURPLE_BLASTER_HEALTH_11` et `ORANGE_BLASTER_DAMAGE_16` corroborent les offsets. Le parseur refuse une incohérence entre couleur et suffixe. Les tests couvrent les 100 combinaisons du premier niveau observé, les 500 combinaisons de classes/statistiques/niveaux possibles et des suffixes incohérents. Ces tests ne constituent pas une affirmation sur les quantités personnelles réelles.
+
+Le nombre d’identifiants de cristaux de niveaux fusionnés, leur forme d’identification et la sémantique des quantités restent à établir depuis une source vérifiable. Aucun niveau supérieur n’est calculé à partir des cristaux de base; les quantités manquantes restent inconnues. Aucun coût de fusion, pose ou amélioration n’est supposé.
+
+### Parcours joueur et administration
+
+Les IDs, objets non classifiés, étapes R2, détails de normalisation et couvertures de catalogue sont déplacés dans `/admin/events-planner/diagnostics`, derrière les contrôles Cloudflare Access et propriétaire existants. Les deux inventaires affichés par cet espace utilisent le cache DO déjà présent en mode lecture seule; cache absent ou expiré ne déclenche aucun appel Scopely. Le parcours joueur n’affiche ni identifiant technique ni diagnostic; les ressources manquantes sont regroupées par famille. La matrice ISO-8 reste partielle, affiche « — » pour inconnu, conserve les classes visibles au défilement horizontal et sépare niveau accessible, amélioration effectuée et coût.
+
+### Tests et statut du déploiement
+
+- Tests ciblés planificateur, API, accès propriétaire, ISO-8 et projections roster R2 : 83/83 réussis.
+- Chromium 141.0.7390.37 : parcours complet réussi aux largeurs 320, 360, 390 et 430 px, sans débordement horizontal. Les fixtures et captures locales sont synthétiques.
+- WebKit n’a pas pu démarrer localement : le système ne fournit pas `libgtk-4`, `libgraphene`, `libharfbuzz-icu`, `libmanette`, `libhyphen` et `libGLESv2`. Le workflow GitHub « Event planner mobile browsers » reste la validation WebKit prévue après publication de ce commit; aucune validation iPhone Safari n’est revendiquée.
+- Deux échecs de `tests/automatic-roster-scheduler.test.mjs` (rattrapage PM tardif et publication LoSP pendant une collecte invitée) se reproduisent à l’identique sur `main` au SHA de référence `5af430a10cd636badb0f18d9055e44693a96ef90`. Aucun de ces fichiers n’a été modifié.
+- Aucune donnée personnelle n’a été chargée depuis Cloudflare ou Scopely dans cette intervention. Aucun nouvel appel Scopely, aucun déploiement et aucune fusion n’ont eu lieu. Le déploiement de la PR #218 reste en attente d’autorisation explicite. La version de référence actuellement connue reste le déploiement `7c082c73-ff57-41c6-89a6-22ed3cfd0545`, version `42e4f4c9-8e94-4f57-a6de-cac6758d028a`; le rollback du prochain déploiement devra revenir à cette version.

@@ -1,10 +1,10 @@
 // Parse ISO-8 crystal inventory IDs and build a partial, evidence-aware matrix.
 // Names follow the confirmed MSF client terminology; unknown IDs stay unclassified.
 const TIERS = Object.freeze({
-  GREEN: { tier: "P1", color: "green" },
-  BLUE: { tier: "P2", color: "blue" },
-  PURPLE: { tier: "P3", color: "purple" },
-  ORANGE: { tier: "P4", color: "orange" },
+  GREEN: { tier: "P1", color: "green", offset: 0 },
+  BLUE: { tier: "P2", color: "blue", offset: 5 },
+  PURPLE: { tier: "P3", color: "purple", offset: 10 },
+  ORANGE: { tier: "P4", color: "orange", offset: 15 },
 });
 const CHARACTER_CLASSES = Object.freeze({
   BRAWLER: "Cogneur",
@@ -32,16 +32,22 @@ export function parseIsoCrystalId(rawId) {
   const tierToken = rawTier.toUpperCase();
   const classToken = rawClass.toUpperCase();
   const categoryToken = rawCategory.toUpperCase();
-  const level = Number(rawLevel);
+  const internalLevel = Number(rawLevel);
   if (!TIERS[tierToken]) return { status: "unknown", id, reason: "tier" };
   if (!CHARACTER_CLASSES[classToken]) return { status: "unknown", id, reason: "character-class" };
   if (!CRYSTAL_CATEGORIES[categoryToken]) return { status: "unknown", id, reason: "category" };
-  if (!Number.isInteger(level) || level < 1 || level > 5) return { status: "unknown", id, reason: "level" };
+  if (!Number.isInteger(internalLevel) || internalLevel < 1 || internalLevel > 20)
+    return { status: "unknown", id, reason: "level" };
+  const tier = TIERS[tierToken];
+  if (internalLevel <= tier.offset || internalLevel > tier.offset + 5)
+    return { status: "unknown", id, reason: "tier-level-mismatch" };
+  const level = internalLevel - tier.offset;
   return {
     status: OBSERVED_IDS.has(id.toUpperCase()) ? "observed-example" : "nomenclature-derived",
     id,
-    tier: TIERS[tierToken].tier,
-    color: TIERS[tierToken].color,
+    tier: tier.tier,
+    color: tier.color,
+    internalLevel,
     characterClass: CHARACTER_CLASSES[classToken],
     characterClassCode: classToken,
     category: CRYSTAL_CATEGORIES[categoryToken],
