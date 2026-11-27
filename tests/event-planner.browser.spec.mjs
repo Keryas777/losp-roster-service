@@ -286,11 +286,13 @@ try{
   await page.getByRole("button",{name:"Actualiser"}).click();
   await page.locator(".planner-event-card").first().waitFor();
   assert.ok(await page.evaluate(()=>Object.keys(localStorage).includes("losp-event-planner-v1:"+"a".repeat(64))),`${browserName} previous account preferences remain partitioned`);
+  const rosterCallsBeforeMissingRefresh=apiCalls.filter(call=>call.resource==="roster").length;
   await page.evaluate(async()=>fetch("/__test/roster?missing=true"));
   await page.getByRole("tab",{name:"Événements"}).click();
   await page.getByRole("button",{name:"Actualiser"}).click();
   await page.locator(".planner-event-card").first().waitFor();
   await page.getByText("Aucune équipe récente n’est disponible dans les données LoSP. Aucune collecte supplémentaire n’a été lancée.",{exact:true}).waitFor();
+  assert.equal(apiCalls.filter(call=>call.resource==="roster").length,rosterCallsBeforeMissingRefresh+1,`${browserName} explicit refresh re-reads only the existing R2 roster route`);
   await page.locator('button[data-action="select"][data-event-id="planner-test"]').click();
   await page.locator("#selected-event").getByText("Personnages : indisponible",{exact:true}).waitFor();
   await page.getByRole("tab",{name:"Objectifs"}).click();

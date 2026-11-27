@@ -782,6 +782,10 @@ function renderConnection(status){
 async function loadOverview(){
   state.refreshing=false;
   state.rosterResolved=false;
+  // Re-read the scheduled R2 snapshot when the player explicitly refreshes.
+  // This only calls the same-origin read-only roster route; it never collects
+  // from Scopely. Keep the event and inventory request memoization intact.
+  state.personalRequests.delete(new URLSearchParams({resource:"roster",lang:"fr"}).toString());
   $("refresh").disabled=true;$("event-count").textContent="Chargement des événements personnels…";
   const session=await api({resource:"status"}).catch(error=>({status:"disconnected",reason:error?.body?.reason||error?.body?.error||"session-unavailable"}));
   const namespace=typeof session.storageNamespace==="string"&&SESSION_NAMESPACE_RX.test(session.storageNamespace)?session.storageNamespace:null;
