@@ -475,6 +475,7 @@ async function loadConnectedAlliances(bindingFeedback=null){
               "rate-limited":"Limite Scopely atteinte ; reprise différée",
               unavailable:"Erreur technique temporaire",
               "approval-or-binding-withdrawn":"Arrêt après retrait ou modification d'autorisation",
+              "initial-sync-lock-deadline-exceeded":"Délai maximal d'attente du verrou atteint",
               "initial-sync-deadline-exceeded":"Délai maximal du rattrapage atteint",
               "admin-restart":"Relance administrative enregistrée"};
             const readable=value=>statusLabels[value]||outcomeLabels[value]||value;

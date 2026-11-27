@@ -11,7 +11,8 @@ const origin="https://losp-roster-service.deliriousfan7.workers.dev";
 const hash=s=>createHash("sha256").update(s).digest("hex");
 const guest=hash("outside-aid"),losp=hash("losp-aid");
 function fixture(role="captain",options={}){
-  const store=options.store||new Map(),etags=options.etags||new Map(),calls=[];
+  const store=options.store||new Map(),etags=options.etags||new Map(),
+    calls=[],bucketWrites=[],failures={writeKey:null};
   const state={role};
   state.aid=options.aid||"outside-aid";
   if(!store.has(ROSTER_APPROVAL_KEY)){
@@ -25,6 +26,9 @@ function fixture(role="captain",options={}){
     CAPTAIN_BUCKET:{
       get:async k=>store.has(k)?{text:async()=>store.get(k),etag:etags.get(k)}:null,
       put:async(k,v,options={})=>{
+        bucketWrites.push(k);
+        if(failures.writeKey===k){failures.writeKey=null;
+          throw Error("simulated-r2-write-failure");}
         const onlyIf=options.onlyIf||{};
         if(onlyIf.etagDoesNotMatch==="*"&&store.has(k))return null;
         if(onlyIf.etagMatches&&onlyIf.etagMatches!==etags.get(k))return null;
@@ -66,7 +70,7 @@ function fixture(role="captain",options={}){
       body:JSON.stringify({fingerprint,action,
         ...(override.allianceKey?{allianceKey:override.allianceKey}:{})})
     });
-  return {env,store,etags,calls,state,provider,request};
+  return {env,store,etags,calls,bucketWrites,failures,state,provider,request};
 }
 test("a captain can explicitly enroll her own current guest alliance, without altering LoSP",async()=>{
   const f=fixture();
@@ -216,6 +220,9 @@ test("admin approval records the guest WebApp key atomically",async()=>{
   const lifecycle=JSON.parse(f.store.get(
     GUEST_INITIAL_SYNC_STATE_ROOT+guest+".json"));
   assert.equal(lifecycle.status,"pending");
+  assert.ok(f.bucketWrites.indexOf(GUEST_INITIAL_SYNC_STATE_ROOT+guest+".json")<
+    f.bucketWrites.indexOf(GUEST_APPROVAL_KEY),
+    "durable intent is saved before the approval CAS");
   assert.deepEqual(Object.keys(JSON.parse(f.store.get(GUEST_APPROVAL_KEY))
     .alliances[0]).sort(),["allianceKey","fingerprint"]);
   assert.ok(f.calls.every(url=>!url.includes("/roster")));
@@ -242,6 +249,46 @@ test("previously approved unbound alliance can be bound without new Scopely call
   assert.equal(f.calls.length,before);
   assert.deepEqual((await readGuestApprovals(f.env)).alliances,
     [{fingerprint:guest,allianceKey:"marines"}]);
+});
+test("failed lifecycle-marker write prevents a silent approval without durable intent",async()=>{
+  const f=fixture(),stateKey=GUEST_INITIAL_SYNC_STATE_ROOT+guest+".json";
+  f.failures.writeKey=stateKey;
+  const request=()=>new Request(origin+"/admin/api/guest-alliance-approval",{
+    method:"POST",headers:{Origin:origin,"Content-Type":"application/json"},
+    body:JSON.stringify({fingerprint:guest,action:"approve",
+      allianceKey:"french-legion"})
+  });
+  const failed=await handleGuestAllianceApproval(request(),f.env,f.provider);
+  assert.equal(failed.status,503);
+  assert.equal(f.store.has(GUEST_APPROVAL_KEY),false);
+  assert.equal(f.store.has(stateKey),false);
+  const retry=await handleGuestAllianceApproval(request(),f.env,f.provider);
+  assert.equal(retry.status,200);
+  assert.equal(JSON.parse(f.store.get(stateKey)).status,"pending");
+  assert.ok([...f.store.keys()].some(k=>k.startsWith(
+    "roster-batches/v1/guest-initial-sync/")));
+});
+test("interruption after intent write but before approval CAS is recovered by retry",async()=>{
+  const f=fixture(),stateKey=GUEST_INITIAL_SYNC_STATE_ROOT+guest+".json";
+  const request=()=>new Request(origin+"/admin/api/guest-alliance-approval",{
+    method:"POST",headers:{Origin:origin,"Content-Type":"application/json"},
+    body:JSON.stringify({fingerprint:guest,action:"approve",
+      allianceKey:"french-legion"})
+  });
+  const originalPut=f.env.CAPTAIN_BUCKET.put;
+  f.env.CAPTAIN_BUCKET.put=async(key,...args)=>{
+    if(key===GUEST_APPROVAL_KEY)throw Error("simulated-worker-interruption");
+    return originalPut(key,...args);
+  };
+  assert.equal((await handleGuestAllianceApproval(request(),f.env,f.provider)).status,503);
+  assert.equal(JSON.parse(f.store.get(stateKey)).status,"pending");
+  assert.equal(f.store.has(GUEST_APPROVAL_KEY),false);
+  f.env.CAPTAIN_BUCKET.put=originalPut;
+  const retried=await handleGuestAllianceApproval(request(),f.env,f.provider);
+  assert.equal(retried.status,200);
+  assert.equal(JSON.parse(f.store.get(stateKey)).status,"pending");
+  assert.ok([...f.store.keys()].some(k=>k.startsWith(
+    "roster-batches/v1/guest-initial-sync/")));
 });
 test("atomic binding refuses a duplicate or malformed guest key",async()=>{
   const f=fixture(),other=hash("another-aid");

@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {enqueueGuestInitialSync,guestInitialSyncStatus,
   runGuestInitialSyncTick,handleGuestInitialSync,
-  reconcileGuestInitialSyncRequests,dispatchInitialGuestDirectory}
+  reconcileGuestInitialSyncRequests,dispatchInitialGuestDirectory,
+  GUEST_INITIAL_SYNC_LOCK_ID}
   from "../src/guest-initial-sync.js";
 import {GUEST_APPROVAL_KEY,GUEST_INITIAL_SYNC_STATE_ROOT}
   from "../src/guest-alliance-approvals.js";
@@ -19,7 +20,8 @@ function saveState(f,fp,status,key=KEY){
   f.etags.set(path,"etag-state-"+fp);
 }
 function fixture(){
-  const store=new Map(),etags=new Map(),call=[],lockState=new Map();
+  const store=new Map(),etags=new Map(),call=[],lockStores=new Map(),
+    locks=new Map();
   const failures={bucketPut:0,bucketPutKey:null,lockDelete:0};
   let etagCounter=0;
   store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,
@@ -45,23 +47,32 @@ function fixture(){
       objects:[...store.keys()].filter(key=>key.startsWith(prefix))
         .slice(0,limit).map(key=>({key}))})
   };
-  const lock=new RosterBatchLock({storage:{
-    get:async key=>lockState.get(key),
-    put:async (key,value)=>lockState.set(key,value),
-    delete:async key=>{
-      if(failures.lockDelete>0){failures.lockDelete--;throw Error("simulated-lock-delete-failure");}
-      lockState.delete(key);
-    }
-  }});
+  const lockFor=id=>{
+    if(locks.has(id))return locks.get(id);
+    let state=lockStores.get(id);
+    if(!state){state=new Map();lockStores.set(id,state);}
+    const lock=new RosterBatchLock({storage:{
+      get:async key=>state.get(key),
+      put:async (key,value)=>state.set(key,value),
+      delete:async key=>{
+        if(failures.lockDelete>0){failures.lockDelete--;throw Error("simulated-lock-delete-failure");}
+        state.delete(key);
+      }
+    }});
+    locks.set(id,lock);
+    return lock;
+  };
+  const lock=lockFor(GUEST_INITIAL_SYNC_LOCK_ID),
+    lockState=lockStores.get(GUEST_INITIAL_SYNC_LOCK_ID);
   const env={CAPTAIN_BUCKET:bucket,
     CAPTAIN_SESSIONS_ENABLED:"true",CAPTAIN_ENCRYPTION_KEY_HEX:"ab".repeat(32),
     ROSTER_AUTO_ENABLED:"true",ROSTER_RETENTION_CONFIRMED:"true",
     MEMBER_INFO_AUTO_ENABLED:"true",
     CAPTAIN_REFRESH_COORDINATOR:{idFromName:key=>key},
     ROSTER_BATCH_LOCK:{idFromName:key=>key,
-      get:()=>({fetch:req=>lock.fetch(req)})}
+      get:id=>({fetch:req=>lockFor(id).fetch(req)})}
   };
-  return {store,etags,env,call,lock,lockState,failures};
+  return {store,etags,env,call,lock,lockFor,lockState,failures};
 }
 function deps(calls){
   return {
@@ -124,15 +135,59 @@ test("a genuine RosterBatchLock 409 is reported as temporary contention",async()
       action:"acquire",holder:"123e4567-e89b-12d3-a456-426614174000",
       fingerprint:"e".repeat(64)})}));
   assert.equal(held.status,200);
+  const seen=[],realFetch=f.lock.fetch.bind(f.lock);
+  f.lock.fetch=async request=>{
+    seen.push({url:request.url,method:request.method,
+      contentType:request.headers.get("Content-Type"),body:await request.clone().json()});
+    return realFetch(request);
+  };
   const result=await runGuestInitialSyncTick(f.env,now,async()=>{
     throw Error("Scopely must not run when the lock is busy");
   },deps([]));
   assert.equal(result.status,"lock-busy");
   assert.equal(result.httpStatus,409);
+  assert.deepEqual(seen[0].body.action,"acquire");
+  assert.equal(seen[0].url,"https://guest-initial-lock.internal/");
+  assert.equal(seen[0].method,"POST");
+  assert.equal(seen[0].contentType,"application/json");
+  assert.deepEqual(Object.keys(seen[0].body).sort(),
+    ["action","fingerprint","holder"]);
+  assert.match(seen[0].body.holder,/^[a-f0-9-]{36}$/);
+  assert.equal(seen[0].body.fingerprint,GUEST_INITIAL_SYNC_LOCK_ID);
   const record=JSON.parse(f.store.get(queuePath(FP)));
   assert.equal(record.status,"queued");
   assert.equal(record.lastOutcome,"lock-busy");
   assert.equal(Date.parse(record.nextAt),now+2*60000);
+  const released=await f.lock.fetch(new Request("https://lock.test/",{method:"POST",
+    headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      action:"release",holder:"123e4567-e89b-12d3-a456-426614174000",
+      fingerprint:"e".repeat(64)})}));
+  assert.equal(released.status,200);
+  assert.deepEqual(await released.json(),{status:"released"});
+  const retried=await runGuestInitialSyncTick(f.env,now+2*60000,
+    async()=>{throw Error("Scopely disabled in contention recovery test");},
+    {...deps([]),ranks:async()=>({status:"captured",requests:1})});
+  assert.equal(retried.status,"queued");
+  assert.equal((await guestInitialSyncStatus(f.env,FP)).phase,"infos",
+    "a formerly blocked durable request progresses after the real lease is released");
+});
+
+test("guest catch-up is isolated from unrelated work holding the shared game lock",async()=>{
+  const f=fixture(),now=Date.now();
+  saveQueue(f,queueRecord(FP,KEY,{requestedAt:new Date(now).toISOString(),
+    updatedAt:new Date(now).toISOString(),deadlineAt:new Date(now+48*3600000).toISOString(),
+    nextAt:new Date(now).toISOString()}));
+  const other=f.lockFor("e".repeat(64)),holder="123e4567-e89b-12d3-a456-426614174000";
+  const held=await other.fetch(new Request("https://lock.test/",{method:"POST",
+    headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      action:"acquire",holder,fingerprint:"e".repeat(64)})}));
+  assert.equal(held.status,200);
+  assert.notEqual(GUEST_INITIAL_SYNC_LOCK_ID,"e".repeat(64));
+  const result=await runGuestInitialSyncTick(f.env,now,
+    async()=>{throw Error("Scopely disabled in lock-isolation test");},
+    {...deps([]),ranks:async()=>({status:"captured",requests:1})});
+  assert.equal(result.status,"queued");
+  assert.equal((await guestInitialSyncStatus(f.env,FP)).phase,"infos");
 });
 
 test("HTTP 400, HTTP 503, malformed and unexpected lock replies stay distinct",async()=>{
@@ -165,8 +220,10 @@ test("the real Durable Object reports storage failures as internal lock errors",
   saveQueue(f,queueRecord(FP,KEY,{requestedAt:new Date(now).toISOString(),
     updatedAt:new Date(now).toISOString(),deadlineAt:new Date(now+48*3600000).toISOString(),
     nextAt:new Date(now).toISOString()}));
+  let failRead=true;
   const broken=new RosterBatchLock({storage:{
-    get:async()=>{throw Error("simulated-do-storage-read-failure");},
+    get:async key=>{if(failRead)throw Error("simulated-do-storage-read-failure");
+      return f.lockState.get(key);},
     put:async()=>{},delete:async()=>{}
   }});
   f.env.ROSTER_BATCH_LOCK={idFromName:key=>key,get:()=>({fetch:req=>broken.fetch(req)})};
@@ -176,6 +233,12 @@ test("the real Durable Object reports storage failures as internal lock errors",
   assert.equal(result.status,"lock-internal-error");
   assert.equal(result.httpStatus,503);
   assert.equal(JSON.parse(f.store.get(queuePath(FP))).status,"queued");
+  failRead=false;
+  const resumed=await runGuestInitialSyncTick(f.env,now+2*60000,
+    async()=>{throw Error("Scopely disabled in temporary outage recovery test");},
+    {...deps([]),ranks:async()=>({status:"captured",requests:1})});
+  assert.equal(resumed.status,"queued");
+  assert.equal((await guestInitialSyncStatus(f.env,FP)).phase,"infos");
 });
 
 test("an expired Durable Object lease can be acquired and released",async()=>{
@@ -285,6 +348,44 @@ test("due alliances share turns fairly instead of letting the oldest queue starv
   assert.equal((await runAt(now)).status,"queued");
   assert.equal((await runAt(now+60000)).status,"queued");
   assert.deepEqual(calls,[FP,second]);
+});
+
+test("a lock-delayed queue gets the next equal-time turn ahead of the last-served queue",async()=>{
+  const f=fixture(),second="b".repeat(64),now=Date.now(),calls=[];
+  f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
+    {fingerprint:FP,allianceKey:KEY},
+    {fingerprint:second,allianceKey:"another-guest"}
+  ]}));
+  f.etags.set(GUEST_APPROVAL_KEY,"etag-equal-time-approvals");
+  saveState(f,second,"pending","another-guest");
+  saveQueue(f,queueRecord(FP,KEY,{requestedAt:new Date(now-120000).toISOString(),
+    updatedAt:new Date(now-60000).toISOString(),deadlineAt:new Date(now+48*3600000).toISOString(),
+    nextAt:new Date(now).toISOString()}));
+  saveQueue(f,queueRecord(second,"another-guest",{
+    requestedAt:new Date(now-60000).toISOString(),
+    updatedAt:new Date(now-120000).toISOString(),
+    deadlineAt:new Date(now+48*3600000).toISOString(),nextAt:new Date(now).toISOString()}));
+  const result=await runGuestInitialSyncTick(f.env,now,
+    async()=>{throw Error("No provider calls in fairness tie-break test");},
+    {...deps(calls),ranks:async(_env,fp)=>{calls.push(fp);
+      return {status:"captured",requests:1};}});
+  assert.equal(result.status,"queued");
+  assert.deepEqual(calls,[second],
+    "the older last-update timestamp outranks first-requested order after lock delay");
+});
+
+test("lock waits fail visibly at the saved request deadline instead of staying queued forever",async()=>{
+  const f=fixture(),now=Date.now();
+  saveQueue(f,queueRecord(FP,KEY,{requestedAt:new Date(now-48*3600000).toISOString(),
+    updatedAt:new Date(now-48*3600000).toISOString(),deadlineAt:new Date(now-1).toISOString(),
+    nextAt:new Date(now).toISOString()}));
+  delete f.env.ROSTER_BATCH_LOCK;
+  const result=await runGuestInitialSyncTick(f.env,now,
+    async()=>{throw Error("Scopely disabled while lock binding is unavailable");},deps([]));
+  assert.equal(result.status,"lock-unavailable");
+  const saved=JSON.parse(f.store.get(queuePath(FP)));
+  assert.equal(saved.status,"failed");
+  assert.equal(saved.lastOutcome,"initial-sync-lock-deadline-exceeded");
 });
 
 test("cron and the admin enqueue can race without losing or resetting a request",async()=>{
