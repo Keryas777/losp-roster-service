@@ -385,10 +385,21 @@ export default {
       if(!(info.requests>0)&&!(reward.requests>0)&&!recoveryRequests&&
          !(parts.minute===17&&[20,22].includes(parts.hour))){
         const initial=await runGuestInitialSyncTick(env,scheduled);
-        if(!["idle","disabled","cooldown"].includes(initial.status))
+        if(!["idle","disabled","cooldown"].includes(initial.status)||
+           (initial.reconciliationStatus&&
+             !["idle","queued"].includes(initial.reconciliationStatus)))
           console.info("guest-initial-sync-cron",JSON.stringify({
             status:initial.status,phase:initial.phase||null,
-            outcome:initial.lastOutcome||null,requests:initial.requests||0
+            outcome:initial.lastOutcome||null,requests:initial.requests||0,
+            ...(initial.reconciliationStatus&&
+              !["idle","queued"].includes(initial.reconciliationStatus)?
+              {reconciliationStatus:initial.reconciliationStatus}:{}),
+            ...(initial.lockReleaseStatus?
+              {lockReleaseStatus:initial.lockReleaseStatus}:{}),
+            ...(initial.lockReleaseHttpStatus?
+              {lockReleaseHttpStatus:initial.lockReleaseHttpStatus}:{}),
+            ...(initial.lifecycleMarkerStatus?
+              {lifecycleMarkerStatus:initial.lifecycleMarkerStatus}:{})
           }));
       }
     }

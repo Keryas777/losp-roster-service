@@ -9,18 +9,36 @@ import {GUEST_APPROVAL_KEY,readGuestApprovals,readCollectibleApprovals,
 const origin="https://losp-roster-service.deliriousfan7.workers.dev";
 const hash=s=>createHash("sha256").update(s).digest("hex");
 const guest=hash("outside-aid"),losp=hash("losp-aid");
-function fixture(role="captain"){
-  const store=new Map(),calls=[];
+function fixture(role="captain",options={}){
+  const store=options.store||new Map(),etags=options.etags||new Map(),calls=[];
   const state={role};
-  store.set(ROSTER_APPROVAL_KEY,JSON.stringify({version:1,
-    alliances:[{fingerprint:losp,name:"Zeus"}]}));
+  state.aid=options.aid||"outside-aid";
+  if(!store.has(ROSTER_APPROVAL_KEY)){
+    store.set(ROSTER_APPROVAL_KEY,JSON.stringify({version:1,
+      alliances:[{fingerprint:losp,name:"Zeus"}]}));
+    etags.set(ROSTER_APPROVAL_KEY,"etag-losp");
+  }
+  let etagCounter=0;
   const env={
     CAPTAIN_SESSIONS_ENABLED:"true",CAPTAIN_ENCRYPTION_KEY_HEX:"ac".repeat(32),
     CAPTAIN_BUCKET:{
-      get:async k=>store.has(k)?{text:async()=>store.get(k)}:null,
-      put:async(k,v)=>store.set(k,v),
-      delete:async k=>store.delete(k),
-      list:async()=>({objects:[{key:CAPTAIN_PREFIX+"a".repeat(64)}],truncated:false})
+      get:async k=>store.has(k)?{text:async()=>store.get(k),etag:etags.get(k)}:null,
+      put:async(k,v,options={})=>{
+        const onlyIf=options.onlyIf||{};
+        if(onlyIf.etagDoesNotMatch==="*"&&store.has(k))return null;
+        if(onlyIf.etagMatches&&onlyIf.etagMatches!==etags.get(k))return null;
+        store.set(k,v);
+        const etag="etag-"+(++etagCounter);
+        etags.set(k,etag);
+        return {etag};
+      },
+      delete:async k=>{store.delete(k);etags.delete(k);},
+      list:async({prefix,limit=1000}={})=>{
+        const objects=prefix===CAPTAIN_PREFIX?
+          [{key:CAPTAIN_PREFIX+(options.sessionKey||"a".repeat(64))}]:
+          [...store.keys()].filter(key=>key.startsWith(prefix)).map(key=>({key}));
+        return {objects:objects.slice(0,limit),truncated:objects.length>limit};
+      }
     },
     CAPTAIN_REFRESH_COORDINATOR:{
       idFromName:k=>k,
@@ -30,7 +48,7 @@ function fixture(role="captain"){
   const provider=async(uri)=>{
     calls.push(uri);
     if(uri.endsWith("/alliance/card"))
-      return Response.json({data:{id:"outside-aid:v1",name:"Invités de test"}});
+      return Response.json({data:{id:state.aid+":v1",name:"Invités de test"}});
     if(uri.endsWith("/alliance/members"))
       return Response.json({data:[
         {id:"self",isSelf:true,rank:state.role,
@@ -44,9 +62,10 @@ function fixture(role="captain"){
     "/admin/api/guest-alliance-approval",{
       method:"POST",headers:{Origin:override.origin||origin,
         "Content-Type":"application/json"},
-      body:JSON.stringify({fingerprint,action})
+      body:JSON.stringify({fingerprint,action,
+        ...(override.allianceKey?{allianceKey:override.allianceKey}:{})})
     });
-  return {env,store,calls,state,provider,request};
+  return {env,store,etags,calls,state,provider,request};
 }
 test("a captain can explicitly enroll her own current guest alliance, without altering LoSP",async()=>{
   const f=fixture();
@@ -153,7 +172,8 @@ test("an approved guest can be bound to exactly one stable WebApp key",async()=>
   assert.equal((await response.json()).status,"bound");
   assert.equal(f.calls.length,beforeCalls,"binding needs no new Scopely scan");
   assert.deepEqual((await readGuestApprovals(f.env)).alliances,
-    [{fingerprint:guest,allianceKey:"endgame-revolution-red"}]);
+    [{fingerprint:guest,allianceKey:"endgame-revolution-red",
+      initialSyncStatus:"pending"}]);
   const second=hash("another-invited-aid");
   f.store.set(GUEST_APPROVAL_KEY,JSON.stringify({version:1,alliances:[
     {fingerprint:guest,allianceKey:"endgame-revolution-red"},
@@ -167,11 +187,13 @@ test("an approved guest can be bound to exactly one stable WebApp key",async()=>
   assert.equal((await response.json()).status,"bound");
   assert.equal((await readGuestApprovals(f.env)).alliances[0].allianceKey,
     "endgame-revolution-orange");
+  assert.equal((await readGuestApprovals(f.env)).alliances[0].initialSyncStatus,
+    "binding-changed");
   response=await handleGuestAllianceApproval(
     action(guest,"unbind"),f.env,f.provider);
   assert.equal((await response.json()).status,"unbound");
   assert.deepEqual((await readGuestApprovals(f.env)).alliances[0],
-    {fingerprint:guest});
+    {fingerprint:guest,initialSyncStatus:"stopped"});
   assert.equal((await handleGuestAllianceApproval(
     action(second,"bind","zeus !!"),f.env,f.provider)).status,400);
   assert.deepEqual((await readApproval(f.env)).alliances,
@@ -190,7 +212,8 @@ test("admin approval records the guest WebApp key atomically",async()=>{
   assert.equal(response.status,200);
   assert.equal((await response.json()).status,"approved");
   assert.deepEqual((await readGuestApprovals(f.env)).alliances,
-    [{fingerprint:guest,allianceKey:"endgame-revolution-orange"}]);
+    [{fingerprint:guest,allianceKey:"endgame-revolution-orange",
+      initialSyncStatus:"pending"}]);
   assert.ok(f.calls.every(url=>!url.includes("/roster")));
   const repeat=await handleGuestAllianceApproval(
     req(guest,"endgame-revolution-orange"),f.env,f.provider);
@@ -214,7 +237,8 @@ test("previously approved unbound alliance can be bound without new Scopely call
   assert.equal((await response.json()).status,"already-approved");
   assert.equal(f.calls.length,before);
   assert.deepEqual((await readGuestApprovals(f.env)).alliances,
-    [{fingerprint:guest,allianceKey:"marines"}]);
+    [{fingerprint:guest,allianceKey:"marines",
+      initialSyncStatus:"pending"}]);
 });
 test("atomic binding refuses a duplicate or malformed guest key",async()=>{
   const f=fixture(),other=hash("another-aid");
@@ -231,4 +255,31 @@ test("atomic binding refuses a duplicate or malformed guest key",async()=>{
   assert.equal(response.status,400);
   assert.deepEqual((await readGuestApprovals(f.env)).alliances,
     [{fingerprint:other,allianceKey:"marines"}]);
+});
+
+test("simultaneous guest approvals retain every binding and queue each tenant once",async()=>{
+  const store=new Map(),etags=new Map();
+  const aidA="concurrent-guest-aid-a",aidB="concurrent-guest-aid-b";
+  const fpA=hash(aidA),fpB=hash(aidB);
+  const a=fixture("captain",{store,etags,aid:aidA,sessionKey:"b".repeat(64)});
+  const b=fixture("captain",{store,etags,aid:aidB,sessionKey:"c".repeat(64)});
+  const [responseA,responseB]=await Promise.all([
+    handleGuestAllianceApproval(a.request(fpA,"approve",{
+      allianceKey:"new-age-of-pymps"}),a.env,a.provider),
+    handleGuestAllianceApproval(b.request(fpB,"approve",{
+      allianceKey:"french-legion"}),b.env,b.provider)
+  ]);
+  assert.equal(responseA.status,200);
+  assert.equal(responseB.status,200);
+  const registry=await readGuestApprovals(a.env);
+  assert.deepEqual(new Map(registry.alliances.map(row=>[
+    row.fingerprint,row.allianceKey])),new Map([
+      [fpA,"new-age-of-pymps"],[fpB,"french-legion"]
+    ]));
+  for(const fp of [fpA,fpB]){
+    const raw=store.get("roster-batches/v1/guest-initial-sync/"+fp+".json");
+    assert.ok(raw,"both concurrent approvals must leave a durable request");
+    assert.equal(JSON.parse(raw).status,"queued");
+  }
+  assert.ok([...a.calls,...b.calls].every(uri=>!uri.includes("/roster")));
 });

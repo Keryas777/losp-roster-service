@@ -4,11 +4,13 @@ Le chemin `/admin#rosters` permet d'approuver une alliance **invitée** et de lu
 
 ## Déclenchement
 
-Lorsque **l'approbation ET la liaison `allianceKey` sont présentes**, `handleGuestAllianceApproval` enregistre une file `roster-batches/v1/guest-initial-sync/<fingerprint>.json` dans le R2 privé (même règle de rétention de 7 jours).
+Lorsque **l'approbation ET la liaison `allianceKey` sont présentes**, `handleGuestAllianceApproval` inscrit d'abord une intention `initialSyncStatus: "pending"` dans le registre d'approbation, puis crée la file `roster-batches/v1/guest-initial-sync/<fingerprint>.json` dans le R2 privé (règle de rétention existante de 7 jours). Le marqueur durable empêche de recréer une demande terminée après l'expiration de sa file courte.
 
 - Aucun appel Scopely supplémentaire n'est effectué par ce déclencheur.
-- Le Cron Cloudflare **déjà existant** (`* * * * *`) reprend une alliance à la fois, même après fermeture du navigateur.
+- Le Cron Cloudflare **déjà existant** (`* * * * *`) récupère les intentions `pending` dont la file manque et traite une seule alliance par passage, même après fermeture du navigateur.
 - Une réapprobation sans changement ne relance pas une collecte achevée. La relance explicite est accessible dans l'administration.
+- Les anciennes associations sans marqueur durable ne sont pas rejouées en masse : si leur file manque, l'administration affiche « En attente d'enregistrement ». Une relance unique vérifiée inscrit alors l'intention durable et la file.
+- Les états `complete`, `failed` et `stopped` sont conservés dans le registre d'approbation au-delà de la rétention de la file. Une demande terminée ou arrêtée n'est donc pas recréée par le cron.
 - À chaque tick, l'autorisation **et** la liaison de l'alliance sont revérifiées ; leur retrait stoppe la file.
 - Une seule phase consomme des appels fournisseur par tick. Si les collecteurs AM/PM, récompenses ou reprises de rosters ont déjà utilisé le quota de la minute, le rattrapage cède leur priorité.
 - Le rattrapage expire au bout de 48 heures ou 160 tentatives. Les erreurs/rate limits entraînent des pauses bornées ; le suivi explique l'échec.
@@ -29,7 +31,7 @@ Dans **Rosters → Alliances connectées**, après l'association WebApp confirm�
 
 - `GET /admin/api/guest-initial-sync?fingerprint=<sha256>` : statut et phase, aucune donnée privée.
 - `POST /admin/api/guest-initial-sync?fingerprint=<sha256>` avec `{"action":"restart"}` : relance **après validation Cloudflare Access** et vérification des approbations.
-- État : `queued`, `running`, `complete`, `stopped`, `failed` ; phase `infos`, `roster`, `ranks`, `arena`, `trophies`, `done` ; le statut expose aussi l’envoi éventuel du workflow d’annuaire invité.
+- État : `not-started`, `pending-registration`, `queued`, `running`, `complete`, `stopped`, `failed` ; phase `infos`, `roster`, `ranks`, `arena`, `trophies`, `done`. Le diagnostic distingue aussi `lock-busy` (HTTP 409 réel), indisponibilité, erreur interne, requête/réponse invalide et échec de libération. Le statut expose l'envoi éventuel du workflow d'annuaire invité.
 
 Aucune URL de capture non authentifiée n'est créée. Les endpoints invités WebApp continuent d'exiger une session Discord signée, l'association `allianceKey` et les autorisations R2 actuelles.
 

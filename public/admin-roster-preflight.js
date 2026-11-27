@@ -447,6 +447,37 @@ async function loadConnectedAlliances(bindingFeedback=null){
               ranks:"Rangs Guerre / Raid de la saison précédente",
               trophies:"Trophées rattachés au dernier relevé groupé",
               arena:"Premier relevé d'Arène",done:"Terminé"};
+            const statusLabels={"not-started":"Non démarré",
+              "pending-registration":"En attente d'enregistrement",
+              "restart-requested":"Enregistrement de la relance en attente",
+              "binding-changed":"Association modifiée — vérification requise",
+              "invalid-approval-registry":"Erreur technique : registre d'approbation invalide",
+              queued:"En attente",
+              running:"Collecte en cours",complete:"Collecte terminée",
+              stopped:"Arrêtée après retrait ou modification d'autorisation",
+              failed:"Erreur technique",unavailable:"État temporairement indisponible",
+              "already-pending":"Collecte déjà en attente",
+              "already-complete":"Collecte déjà terminée",
+              "not-restartable":"État non relançable"};
+            const outcomeLabels={
+              "campaign-not-open":"Attente d'une fenêtre de collecte",
+              "lock-busy":"Attente temporaire du verrou",
+              "lock-unavailable":"Verrou indisponible",
+              "lock-invalid-request":"Requête invalide pour le verrou (HTTP 400)",
+              "lock-invalid-response":"Réponse invalide du verrou",
+              "lock-internal-error":"Erreur interne du verrou",
+              "lock-unexpected-response":"Réponse inattendue du verrou",
+              "lock-transport-error":"Verrou inaccessible",
+              "lock-release-failed":"Échec de libération du verrou",
+              "roster-lock-busy":"Attente temporaire du verrou des rosters",
+              "storage-write-failed":"Échec d'écriture R2",
+              "storage-read-failed":"Échec de lecture R2",
+              "rate-limited":"Limite Scopely atteinte ; reprise différée",
+              unavailable:"Erreur technique temporaire",
+              "approval-or-binding-withdrawn":"Arrêt après retrait ou modification d'autorisation",
+              "initial-sync-deadline-exceeded":"Délai maximal du rattrapage atteint",
+              "admin-restart":"Relance administrative enregistrée"};
+            const readable=value=>statusLabels[value]||outcomeLabels[value]||value;
             const update=async()=>{
               check.disabled=true;
               try{
@@ -456,9 +487,19 @@ async function loadConnectedAlliances(bindingFeedback=null){
                   headers:{Accept:"application/json"}});
                 const body=await res.json();
                 if(!res.ok)throw Error(body.status||"unavailable");
-                progress.textContent="État : "+body.status+
+                restart.disabled=["queued","running","complete","binding-changed",
+                  "restart-requested"]
+                  .includes(body.status);
+                restart.textContent=body.status==="pending-registration"?
+                  "Enregistrer le rattrapage initial":
+                  "Relancer les collectes initiales";
+                progress.textContent="État : "+readable(body.status)+
                   (body.phase?" — "+(labels[body.phase]||body.phase):"")+
-                  (body.lastOutcome?" ("+body.lastOutcome+")":"")+
+                  (body.lastOutcome?" — "+readable(body.lastOutcome):"")+
+                  (body.lockReleaseStatus?" — "+readable(body.lockReleaseStatus):"")+
+                  (body.lifecycleMarkerStatus?" — registre : "+readable(body.lifecycleMarkerStatus):"")+
+                  (body.nextAt&&["queued","running"].includes(body.status)?
+                    " — prochaine vérification : "+body.nextAt:"")+
                   (body.updatedAt?" — "+body.updatedAt:"");
               }catch(error){
                 progress.textContent="Impossible de lire la progression : "+
@@ -482,7 +523,7 @@ async function loadConnectedAlliances(bindingFeedback=null){
                 await update();
               }catch(error){
                 progress.textContent="Relance impossible : "+
-                  (error.message||"indisponible");
+                  readable(error.message||"unavailable");
               }finally{restart.disabled=false;}
             });
             parent.append(title,progress,check,restart);
