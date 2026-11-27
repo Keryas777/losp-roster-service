@@ -8,6 +8,7 @@ on:
       - "src/guest-webapp-onboarding.js"
       - "src/guest-initial-sync.js"
       - "src/guest-alliance-approvals.js"
+      - "src/roster-batch-lock.js"
       - "src/member-info-campaign.js"
       - "src/automatic-roster-scheduler.js"
       - "tests/guest-initial-sync.test.mjs"
@@ -67,6 +68,8 @@ jobs:
           node --check src/player-identity-links.js
           node --check src/guest-webapp-onboarding.js
           node --check src/guest-initial-sync.js
+          node --check src/guest-alliance-approvals.js
+          node --check src/roster-batch-lock.js
           node --check src/member-info-campaign.js
           node --check src/automatic-roster-scheduler.js
           node --check public/admin-player-links.js
