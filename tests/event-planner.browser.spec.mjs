@@ -290,6 +290,7 @@ try{
   await page.getByRole("tab",{name:"Événements"}).click();
   await page.getByRole("button",{name:"Actualiser"}).click();
   await page.locator(".planner-event-card").first().waitFor();
+  await page.getByText("Aucune équipe récente n’est disponible dans les données LoSP. Aucune collecte supplémentaire n’a été lancée.",{exact:true}).waitFor();
   await page.locator('button[data-action="select"][data-event-id="planner-test"]').click();
   await page.locator("#selected-event").getByText("Personnages : indisponible",{exact:true}).waitFor();
   await page.getByRole("tab",{name:"Objectifs"}).click();
