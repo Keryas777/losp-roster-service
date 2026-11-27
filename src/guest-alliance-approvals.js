@@ -230,6 +230,24 @@ export async function handleGuestAllianceApproval(request,env,fetchImpl=fetch){
         written=true;
         break;
       }
+      const candidate=alliances.find(a=>a.fingerprint===fingerprint);
+      const newEnrollment=Boolean(candidate?.allianceKey&&
+        !previousAllianceKey&&["approve","bind"].includes(action));
+      if(newEnrollment){
+        const lifecycle=await readGuestInitialSyncState(env,fingerprint,
+          candidate.allianceKey);
+        if(["invalid-state","storage-unavailable"].includes(lifecycle.status))
+          return reply({error:"initial-sync-state-unavailable"},503);
+        if(lifecycle.status==="not-found"){
+          // Persist the intent first. If the Worker stops after the approval
+          // CAS, the existing cron can still create the queue from this marker.
+          const prepared=await setGuestInitialSyncState(env,fingerprint,
+            candidate.allianceKey,"pending",{allowUnbound:true});
+          if(!["pending","unchanged","already-complete"]
+            .includes(prepared.status))
+            return reply({error:"initial-sync-intent-write-failed"},503);
+        }
+      }
       const saved=await env.CAPTAIN_BUCKET.put(GUEST_APPROVAL_KEY,
         JSON.stringify({version:1,approvedAt:new Date().toISOString(),alliances}),{
           onlyIf:guest.etag?{etagMatches:guest.etag}:{etagDoesNotMatch:"*"},

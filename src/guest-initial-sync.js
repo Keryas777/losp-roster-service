@@ -18,7 +18,11 @@ import {archiveGuestInitialArena} from "./public-arena-history.js";
 const ROOT="roster-batches/v1/guest-initial-sync/";
 const FP=/^[a-f0-9]{64}$/;
 const KEY=/^[a-z][a-z0-9-]{1,63}$/;
-const LOCK="e".repeat(64);
+// Keep guest catch-up work serialized among guest alliances while isolating it
+// from the unrelated global game archive lock (SHA-256 of this domain label).
+export const GUEST_INITIAL_SYNC_LOCK_ID=
+  "623f42da32d73b48807b7454291c8215637aad3c9e3478ec89b4f6a99bc0ad53";
+const LOCK=GUEST_INITIAL_SYNC_LOCK_ID;
 const MAX_ATTEMPTS=160,DEADLINE_MS=48*60*60*1000;
 const LOCK_LEASE_MS=8*60*1000,LOCK_RETRY_MS=2*60*1000;
 const QUEUE_LIST_LIMIT=1000;
@@ -273,12 +277,15 @@ async function recordLockWait(env,record,lockStatus,now){
           Date.parse(latest.value.claimUntil)<=now))||
        latest.value.updatedAt!==record.updatedAt||
        latest.value.phase!==record.phase)return;
-    const terminal=["lock-invalid-request","lock-invalid-response",
-      "lock-unexpected-response"].includes(lockStatus);
+    const deadlineExceeded=Date.parse(latest.value.deadlineAt)<=now||
+      latest.value.attempts>=MAX_ATTEMPTS;
+    const terminal=deadlineExceeded||["lock-invalid-request",
+      "lock-invalid-response","lock-unexpected-response"].includes(lockStatus);
     const {claimToken,claimUntil,...previous}=latest.value;
     const saved={...previous,status:terminal?"failed":"queued",
       updatedAt:stamp(now),nextAt:stamp(now+(terminal?0:LOCK_RETRY_MS)),
-      lastOutcome:lockStatus};
+      lastOutcome:deadlineExceeded?"initial-sync-lock-deadline-exceeded":
+        lockStatus};
     await replaceRecord(bucket,key,saved,latest.item.etag);
     return terminal;
   }catch{}
@@ -536,7 +543,8 @@ export async function runGuestInitialSyncTick(env,now=Date.now(),fetchImpl=fetch
     }
     const due=states.filter(x=>Date.parse(x.nextAt)<=now)
       .sort((a,b)=>Date.parse(a.nextAt)-Date.parse(b.nextAt)||
-        a.requestedAt.localeCompare(b.requestedAt))[0];
+        Date.parse(a.updatedAt)-Date.parse(b.updatedAt)||
+        a.fingerprint.localeCompare(b.fingerprint))[0];
     if(!due){
       const status=states.length?"cooldown":
         ["idle","repaired"].includes(reconciliation.status)?
