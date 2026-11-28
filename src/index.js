@@ -498,13 +498,10 @@ export default {
     // No player or roster information is fetched or logged.
     try {
       const result=await renewCaptainGrants(env);
-      // Global counts only: never log token values, player names, IDs or grants.
+      // Scheduled refresh responses are not retained as OAuth observations.
       const report={version:1,checkedAt:new Date().toISOString(),
         status:result.status,checked:result.checked,failed:result.failed||0,
-        rotated:result.rotated||0,
-        idTokensReceived:result.idTokensReceived||0,
-        subjectClaimsObserved:result.subjectClaimsObserved||0,
-        verifiedTokens:result.verifiedTokens||0};
+        rotated:result.rotated||0};
       console.info("captain-refresh-cron",JSON.stringify(report));
       if(result.status!=="disabled" && env?.CAPTAIN_BUCKET?.put){
         // One private aggregate record, overwritten on every scheduled check.
