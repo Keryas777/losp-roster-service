@@ -218,7 +218,7 @@ export async function handleCaptainCoverage(request,env,fetchImpl=fetch){
 }
 export async function renewCaptainGrants(env){
   if(!captainConfigReady(env))return {status:"disabled",checked:0};
-  let cursor,checked=0,failed=0,rotated=0,idTokensReceived=0,subjectClaimsObserved=0,more=true;
+  let cursor,checked=0,failed=0,rotated=0,more=true;
   // Capped per run; refresh only the encrypted token material, never rosters.
   for(let page=0;page<8 && more;page++){
     const batch=await env.CAPTAIN_BUCKET.list({
@@ -232,14 +232,11 @@ export async function renewCaptainGrants(env){
         if(s.status==="retry-later")failed++;
         if(s.rotated===true && s.status==="active"){
           rotated++;
-          if(s.oauthObservation?.idTokenReceived==="yes")idTokensReceived++;
-          if(s.oauthObservation?.subjectPresent===true)subjectClaimsObserved++;
         }
       }catch{failed++;}
     }
     more=!!batch.truncated && !!batch.cursor;
     cursor=batch.cursor;
   }
-  return {status:failed?"partial":"ok",checked,failed,rotated,
-    idTokensReceived,subjectClaimsObserved,verifiedTokens:0};
+  return {status:failed?"partial":"ok",checked,failed,rotated};
 }
