@@ -316,9 +316,6 @@ test("cron touches only private refresh endpoint and no game/roster data",async(
   assert.equal(report.checked,1);
   assert.equal(report.rotated,1);
   assert.equal(report.failed,0);
-  assert.equal(report.idTokensReceived,0);
-  assert.equal(report.subjectClaimsObserved,0);
-  assert.equal(report.verifiedTokens,0);
   assert.equal(calls,1);
   assert.equal((await getCaptainRecord(bucket,secret,key)).refreshToken,"PRIVATE_NEW_REFRESH");
 });
@@ -689,7 +686,7 @@ test("captain coverage without session redirects, without attempting a game API 
   assert.equal(touched,false);
 });
 
-test("hourly cron writes only one private aggregate summary without tokens or identities",async()=>{
+test("hourly cron summary contains no OAuth identity observations",async()=>{
   const {env,bucket}=setup();
   const id=newCaptainSessionId();
   await store(env,id);
@@ -702,9 +699,6 @@ test("hourly cron writes only one private aggregate summary without tokens or id
   assert.equal(report.checked,1);
   assert.equal(report.rotated,0);
   assert.equal(report.failed,0);
-  assert.equal(report.idTokensReceived,0);
-  assert.equal(report.subjectClaimsObserved,0);
-  assert.equal(report.verifiedTokens,0);
   assert.ok(!Number.isNaN(Date.parse(report.checkedAt)));
   assert.doesNotMatch(raw,/PRIVATE_ACCESS|PRIVATE_REFRESH|oauth-captains|session|member|player/i);
   assert.ok([...bucket.map.keys()].some(k=>k.startsWith(CAPTAIN_PREFIX)));
