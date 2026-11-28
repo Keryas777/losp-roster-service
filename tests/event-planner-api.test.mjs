@@ -6,6 +6,7 @@ import {PersonalEventProgressCache} from "../src/personal-event-progress.js";
 import {captainSessionKey} from "../src/captain-vault.js";
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 import {GUEST_APPROVAL_KEY} from "../src/guest-alliance-approvals.js";
+import {observeIdToken,attachOAuthObservationCookie} from "../src/oauth-identity-observation.js";
 
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const OWNER_JWT=await accessJwt(ACCESS_OWNER);
@@ -132,6 +133,25 @@ test("admin diagnostics read only the already valid inventory cache and expose n
   assert.equal(body.roster.characterCount,1);
   assert.equal(body.inventories.find(row=>row.itemType==="ISOITEM").rows[0].id,"ISOITEM_BLUE_SUPPORT_HEALTH_6");
   assert.equal(f.calls.length,0);assert.equal(f.internalCalls,2);
+});
+
+test("admin diagnostics consume signed OAuth observation metadata without exposing claims or tokens",async()=>{
+  const f=setup(()=>{throw Error("OAuth diagnostics must not call Scopely");}),now=Date.now();
+  await seedScheduledRoster(f,now);
+  const token=`${Buffer.from(JSON.stringify({alg:"RS256",kid:"private-key"})).toString("base64url")}.${Buffer.from(JSON.stringify({iss:"private-issuer",sub:"private-subject",aud:"private-client"})).toString("base64url")}.synthetic-signature`;
+  const signed=await attachOAuthObservationCookie(new Response(null),observeIdToken(token),f.env,ID);
+  const cookie=signed.headers.getSetCookie().find(value=>value.startsWith("__Host-losp_oidc_observation="))
+    .split(";",1)[0];
+  const response=await handleEventPlannerApi(f.request(
+    "/admin/api/event-planner?resource=diagnostics",ORIGIN,COOKIE+"; "+cookie),f.env,accessFetcher,now);
+  const body=await response.json(),serialized=JSON.stringify(body);
+  assert.equal(body.oauthObservation.idTokenReceived,"yes");
+  assert.equal(body.oauthObservation.identityAvailable,"claims-present-unverified");
+  assert.equal(body.oauthObservation.cryptographicallyVerified,false);
+  assert.equal(body.oauthObservation.stability,"not-verifiable");
+  assert.match(response.headers.getSetCookie().join(" "),/__Host-losp_oidc_observation=; Max-Age=0/);
+  assert.doesNotMatch(serialized,/private-key|private-issuer|private-subject|private-client|synthetic-signature|accessToken/);
+  assert.equal(f.calls.length,0);
 });
 
 test("event list follows Maddoxx's default first page and Scopely pagination metadata",async()=>{

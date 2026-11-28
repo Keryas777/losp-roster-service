@@ -225,3 +225,33 @@ La correction invalide uniquement cette entrée de mémorisation à chaque actua
 - Le test WebKit qui échouait au head précédent est maintenant vert : l’actualisation explicitement simulée relit le roster et confirme l’état absent sans collecte.
 - Suite générale Worker OAuth : 904/919; les 15 échecs sont les mêmes cas préexistants de récupération tardive/invitée, DD9, budgets et accès à l’explorateur R2 déjà observés sur la référence. Aucun échec du planificateur n’est présent dans cette suite.
 - La mise à jour documentaire suivante n’altère pas le code testé. Aucun appel personnel Scopely, aucun déploiement ni merge n’a été effectué; l’autorisation demandée concerne un déploiement du nouveau SHA seulement.
+
+### Préparation de l’observation OAuth — 28 novembre 2026
+
+L’instrumentation est portée par la PR #218 existante. Elle observe uniquement les réponses OAuth normales du code d’autorisation et du renouvellement existant. Elle ne change ni les scopes, ni l’URL/token exchange, ni le calendrier de renouvellement, ni la collecte.
+
+- `id_token` est inspecté localement comme chaîne compacte. Seuls la présence de l’ID token, la forme JSON, l’algorithme annoncé et la présence booléenne de `iss`/`sub` sont conservés dans l’indicateur. Les valeurs des claims, `kid`, signature et jetons ne sont jamais retournés, écrits dans les logs ou persistés.
+- Les seuls algorithmes de signature candidats observés sont RS256, PS256 et ES256. Ils ne sont pas acceptés sur cette base : la signature reste explicitement non vérifiée.
+- L’indicateur transitoire est signé par HMAC avec une sous-clé HKDF dédiée dérivée de la clé existante `CAPTAIN_ENCRYPTION_KEY_HEX`, limité à 15 minutes, lié à la session navigateur courante et consommé puis supprimé par l’API de diagnostic. Il ne contient aucun identifiant de compte ni empreinte d’identité. Aucun stockage R2, binding, secret, Durable Object, migration ou Worker supplémentaire n’est ajouté.
+- Une rotation déclenchée par une requête de session porte le même indicateur temporaire. Le cron ne conserve que des compteurs globaux (ID tokens reçus, sujets présents, tokens vérifiés — toujours zéro), dans l’objet de monitoring global déjà écrasé à chaque passage. Il n’enregistre aucune observation par compte.
+- L’interface réservée à l’administration affiche la présence/non-présence des champs, l’algorithme et le motif technique. Elle précise que tout claim vu est non vérifié. Aucun diagnostic OAuth n’est ajouté à l’interface joueur.
+- Aucune source Scopely d’émetteur ou de clés n’est actuellement configurée ou établie dans le projet. Le candidat ne consulte aucune URL découverte dans le token et n’effectue aucune requête de découverte/JWKS. La signature, l’émetteur, l’audience, `azp`, le nonce et les fenêtres temporelles restent non vérifiés; le diagnostic indique l’absence de source d’émetteur/clés de confiance.
+- Aucun `iss + sub` brut ni HMAC d’identité n’est conservé. La stabilité entre sessions et la distinction de comptes restent non vérifiables. Il faudra d’abord établir une configuration OIDC de confiance, puis comparer uniquement des HMAC serveur calculés depuis `iss + sub` après validation cryptographique. La durée et le stockage de ces empreintes restent à proposer avant toute activation.
+
+Tests synthétiques ciblés : absence/format malformé, champs manquants, algorithme hors liste, signatures factices, émetteur/audience/expiration factices, claims de sujets différents, altération du cookie HMAC et liaison à une autre session. Ces tests prouvent que le candidat ne fait pas confiance aux claims; ils ne démontrent aucune propriété réelle de Scopely.
+
+### Références au point de reprise du 28 novembre
+
+- PR #218 reste ouverte/en brouillon, head initial `82ddc5a0cd461fee22dc54f2b4b8232fc19bc3c2`, base `main` `5af430a10cd636badb0f18d9055e44693a96ef90`. Les changements OAuth de ce checkpoint sont ajoutés sur cette branche existante.
+- PR #739 reste ouverte/en brouillon, head `3bf2758baeaf3ce104c354bc337ac17a8299bd2b` au début de cette reprise.
+- La production Cloudflare a été relue : déploiement actif `b99ceaa6-a9f8-4076-b450-358ec96f5895`, à 100 % sur la version 239 `4dd8bc00-f1ea-45a7-b32c-3517a5f7a6dd`; configuration vérifiée avec les trois Durable Objects existants, le bucket R2 existant et la migration `personal-event-cache-v1`.
+- La branche `integration/guest-initial-sync-production` est au SHA `fe5d00899732026a624ca157ab65c2a6d2cafe81`. Elle contient aussi des modifications dans `src/oauth-callback.js`, `src/captain-session-routes.js`, `src/captain-refresh-coordinator.js` et `src/index.js`. Aucun de ces changements invités ne doit être perdu lors d’une future convergence. La PR #218 n’est pas réécrite ou déployée par ce checkpoint.
+- Le test ne lance aucun nouvel appel personnel Scopely, aucune nouvelle collecte, aucune actualisation forcée et aucune lecture de roster autre que les lectures R2 existantes. Aucun merge ni déploiement n’a été effectué.
+
+### Procédure de validation réelle après autorisation de déploiement
+
+1. Déployer uniquement après vérification du candidat commun avec les changements production de la PR #219, de ses bindings, migrations et rollback.
+2. Depuis Safari iPhone, ouvrir l’entrée propriétaire et effectuer une authentification OAuth normale. La redirection aboutit au diagnostic administrateur; elle ne déclenche pas de collecte nouvelle par l’instrumentation.
+3. Relever seulement les indicateurs affichés. Ne pas copier de jeton ou de claim. La lecture du diagnostic consomme l’indicateur HMAC de 15 minutes.
+4. Observer un renouvellement seulement lorsqu’il se produit naturellement lors d’une visite normale. Aucun renouvellement n’est provoqué artificiellement. Un renouvellement cron n’est visible que sous forme de compteurs agrégés.
+5. Ne pas conclure à la stabilité ou à l’unicité d’un compte sur la base des fixtures. Les essais avec deux comptes indépendants attendent la validation cryptographique et une méthode de comparaison à durée limitée.

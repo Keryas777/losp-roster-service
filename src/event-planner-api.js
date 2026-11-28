@@ -3,6 +3,7 @@ import { captainSessionKey } from "./captain-vault.js";
 import { readEventPlannerRoster } from "./event-planner-roster.js";
 import { getPersonalEventGrant } from "./personal-event-progress.js";
 import {eventPlannerAccessStatus,eventPlannerAccessResponse} from "./event-planner-auth.js";
+import {safeOAuthObservation,readOAuthObservationCookie,clearOAuthObservationCookie} from "./oauth-identity-observation.js";
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const COOKIE="__Host-losp_captain_session";
 const COOKIE_RX=/^[A-Za-z0-9_-]{43}$/;
@@ -67,10 +68,14 @@ export async function handleEventPlannerApi(request,env,fetchImpl=fetch,now=Date
           })).filter(row=>row.id):[]};
       }catch{return {itemType,status:"cache-unavailable",retrievedAt:null,rows:[]};}
     }));
-    return json({status:"ok",resource,roster:{status:roster.status,
+    const oauthObservation=safeOAuthObservation(grant.oauthObservation)||
+      await readOAuthObservationCookie(request,env);
+    return clearOAuthObservationCookie(json({status:"ok",resource,
+      oauthObservation,
+      roster:{status:roster.status,
       stage:roster.stage||"available",retrievedAt:roster.capturedAt||null,
       expiresAt:roster.expiresAt||null,characterCount:roster.characters?.length??0},
-      inventories:cached});
+      inventories:cached}));
   }
   const lang=url.searchParams.get("lang")||"fr";
   const eventId=url.searchParams.get("eventId");

@@ -7,6 +7,7 @@ import { renderLiveRosterViewer } from "./roster-viewer.js";
 import { discoverAlliance, readAllianceCoverage } from "./alliance-coverage.js";
 import {registerConnectedAlliance,saveConnectedAlliance,removeConnectedAlliance} from "./connected-alliance-index.js";
 import {captureConnectedPersonalRoster} from "./connected-personal-rosters.js";
+import {attachOAuthObservationCookie} from "./oauth-identity-observation.js";
 
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const COOKIE="__Host-losp_captain_session";
@@ -77,8 +78,9 @@ export async function handleCaptainSession(request,env){
   if(!id)return response({status:"disconnected"});
   try{
     const s=await coordinate(env,await captainSessionKey(id),"status");
-    const result=response({status:s.status==="active"?"connected":
+    let result=response({status:s.status==="active"?"connected":
       ["absent","revoked","reconnect-required"].includes(s.status)?"disconnected":"temporarily-unavailable"});
+    if(s.oauthObservation)result=await attachOAuthObservationCookie(result,s.oauthObservation,env,id);
     return s.status==="active"?renewBrowserCookie(result,id):result;
   }catch{return response({status:"temporarily-unavailable"},503);}
 }
@@ -216,7 +218,7 @@ export async function handleCaptainCoverage(request,env,fetchImpl=fetch){
 }
 export async function renewCaptainGrants(env){
   if(!captainConfigReady(env))return {status:"disabled",checked:0};
-  let cursor,checked=0,failed=0,rotated=0,more=true;
+  let cursor,checked=0,failed=0,rotated=0,idTokensReceived=0,subjectClaimsObserved=0,more=true;
   // Capped per run; refresh only the encrypted token material, never rosters.
   for(let page=0;page<8 && more;page++){
     const batch=await env.CAPTAIN_BUCKET.list({
@@ -228,11 +230,16 @@ export async function renewCaptainGrants(env){
       try{
         const s=await coordinate(env,item.key,"refresh");
         if(s.status==="retry-later")failed++;
-        if(s.rotated===true && s.status==="active")rotated++;
+        if(s.rotated===true && s.status==="active"){
+          rotated++;
+          if(s.oauthObservation?.idTokenReceived==="yes")idTokensReceived++;
+          if(s.oauthObservation?.subjectPresent===true)subjectClaimsObserved++;
+        }
       }catch{failed++;}
     }
     more=!!batch.truncated && !!batch.cursor;
     cursor=batch.cursor;
   }
-  return {status:failed?"partial":"ok",checked,failed,rotated};
+  return {status:failed?"partial":"ok",checked,failed,rotated,
+    idTokensReceived,subjectClaimsObserved,verifiedTokens:0};
 }

@@ -1,4 +1,5 @@
 import {auditCaptainEvent} from "./captain-audit.js";
+import {observeIdToken,safeOAuthObservation} from "./oauth-identity-observation.js";
 import {
   CAPTAIN_MAX_AGE, validCaptainKey, getCaptainRecord, putCaptainRecord,
   deleteCaptainRecord
@@ -120,6 +121,9 @@ export class CaptainRefreshCoordinator {
         await auditCaptainEvent(this.env,payload.key,"failed","provider-error");
         return safeResponse({status:"retry-later"},503);
       }
+      const oauthObservation=safeOAuthObservation({
+        ...observeIdToken(data?.id_token),source:"refresh-response"
+      });
       if(!isToken(data?.access_token) || !isToken(data?.refresh_token) ||
         !validExpiry(data?.expires_in) || String(data?.token_type).toLowerCase()!=="bearer"){
         // Provider might have rotated away the prior single-use token.
@@ -127,7 +131,7 @@ export class CaptainRefreshCoordinator {
         await auditCaptainEvent(this.env,payload.key,"failed","invalid-response");
         await deleteCaptainRecord(bucket,payload.key);
         await auditCaptainEvent(this.env,payload.key,"deleted","invalid-response");
-        return safeResponse({status:"reconnect-required"});
+        return safeResponse({status:"reconnect-required",oauthObservation});
       }
       const issuedScope=typeof data.scope==="string" ? data.scope : record.scope;
       const scopes=new Set(issuedScope.trim().split(/\s+/));
@@ -135,7 +139,7 @@ export class CaptainRefreshCoordinator {
         await auditCaptainEvent(this.env,payload.key,"failed","missing-scope");
         await deleteCaptainRecord(bucket,payload.key);
         await auditCaptainEvent(this.env,payload.key,"deleted","missing-scope");
-        return safeResponse({status:"reconnect-required"});
+        return safeResponse({status:"reconnect-required",oauthObservation});
       }
       await putCaptainRecord(bucket,key,payload.key,{
         version:2,createdAt:now,expiresAt:now+CAPTAIN_MAX_AGE,
@@ -148,6 +152,7 @@ export class CaptainRefreshCoordinator {
       return safeResponse({status:"active",accessExpiresAt:now+data.expires_in*1000,scope:issuedScope,
         observedRotations:Math.min(1000000000,(Number.isSafeInteger(record.observedRotations)
           ?record.observedRotations:0)+1),lastRotatedAt:now,rotated:true,
+        oauthObservation,
         ...(payload.action==="access"?{accessToken:data.access_token}:{})});
     }catch{
       await auditCaptainEvent(this.env,payload.key,"failed","storage-error");

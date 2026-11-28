@@ -51,7 +51,8 @@ export async function getPersonalEventGrant(request,env,requiredScope=EVENT_SCOP
       status:grant.status==="revoked"||grant.status==="absent"?401:503};
   if(requiredScope&&!scopes(grant.scope).has(requiredScope))
     return {error:"scope-insufficient",requiredScope,status:403};
-  return {accessToken:grant.accessToken,scope:grant.scope};
+  return {accessToken:grant.accessToken,scope:grant.scope,
+    ...(grant.oauthObservation?{oauthObservation:grant.oauthObservation}:{})};
 }
 
 export function numericProgressFacts(event){

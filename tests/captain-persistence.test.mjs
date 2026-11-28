@@ -13,6 +13,7 @@ import {readConnectedPersonalRoster} from "../src/connected-personal-rosters.js"
 import {ROSTER_APPROVAL_KEY} from "../src/roster-sync-preflight.js";
 import {createHash} from "node:crypto";
 import {CONNECTED_ALLIANCE_PREFIX,listConnectedAlliances,handleConnectedAlliances} from "../src/connected-alliance-index.js";
+import {readOAuthObservationCookie} from "../src/oauth-identity-observation.js";
 import {
   saveCaptainConsent, handleCaptainSession, handleCaptainLogout,
   handleCaptainLanding, handleCaptainRosters, handleCaptainCoverage, renewCaptainGrants
@@ -151,9 +152,10 @@ test("planner reauthorization is owner-only and round-trips only opaque session 
     if(url.endsWith("/player/v1/alliance/members"))return fakeResponse({data:[]});
     throw Error("Unexpected provider request");
   });
-  assert.equal(callback.status,303);assert.equal(callback.headers.get("location"),origin+"/admin/events-planner");
+  assert.equal(callback.status,303);assert.equal(callback.headers.get("location"),origin+"/admin/events-planner/diagnostics");
   const responseCookies=callback.headers.getSetCookie();
   assert.ok(responseCookies.some(value=>value.startsWith("__Host-losp_captain_session=")));
+  assert.ok(responseCookies.some(value=>value.startsWith("__Host-losp_oidc_observation=")&&/Max-Age=900; Path=\/; Secure; HttpOnly; SameSite=Strict/.test(value)));
   assert.ok(responseCookies.some(value=>value.startsWith("__Host-losp_oauth_captain_return=; Max-Age=0")));
   assert.doesNotMatch(JSON.stringify([...callback.headers]),/PRIVATE_PLANNER_(ACCESS|REFRESH)|PRIVATE_CODE/);
   assert.equal(captainSessionCount(bucket),1); // replacement keeps one active consent
@@ -241,8 +243,18 @@ test("refresh token rotates once under concurrent browser and scheduled requests
   assert.equal(calls,1);
   release();
   const [a,b]=await Promise.all([status1,status2]);
-  assert.deepEqual(await a.json(),{status:"connected"});
-  assert.deepEqual(await b.json(),{status:"connected"});
+  let observationCookie=null;
+  for(const response of [a,b]){
+    assert.deepEqual(await response.json(),{status:"connected"});
+    const cookie=response.headers.getSetCookie().find(value=>value.startsWith("__Host-losp_oidc_observation="));
+    if(cookie)observationCookie=cookie.split(";",1)[0];
+  }
+  assert.ok(observationCookie,"the response that performed the refresh carries its observation");
+  const observed=await readOAuthObservationCookie(new Request(origin+"/admin/api/event-planner",{
+    headers:{Cookie:"__Host-losp_captain_session="+id+"; "+observationCookie}}),env);
+  assert.equal(observed.source,"refresh-response");
+  assert.equal(observed.idTokenReceived,"no");
+  assert.equal(observed.cryptographicallyVerified,false);
   assert.equal(calls,1);
   const updated=await getCaptainRecord(bucket,secret,key);
   assert.equal(updated.refreshToken,"PRIVATE_REFRESH_B");
@@ -304,6 +316,9 @@ test("cron touches only private refresh endpoint and no game/roster data",async(
   assert.equal(report.checked,1);
   assert.equal(report.rotated,1);
   assert.equal(report.failed,0);
+  assert.equal(report.idTokensReceived,0);
+  assert.equal(report.subjectClaimsObserved,0);
+  assert.equal(report.verifiedTokens,0);
   assert.equal(calls,1);
   assert.equal((await getCaptainRecord(bucket,secret,key)).refreshToken,"PRIVATE_NEW_REFRESH");
 });
@@ -687,6 +702,9 @@ test("hourly cron writes only one private aggregate summary without tokens or id
   assert.equal(report.checked,1);
   assert.equal(report.rotated,0);
   assert.equal(report.failed,0);
+  assert.equal(report.idTokensReceived,0);
+  assert.equal(report.subjectClaimsObserved,0);
+  assert.equal(report.verifiedTokens,0);
   assert.ok(!Number.isNaN(Date.parse(report.checkedAt)));
   assert.doesNotMatch(raw,/PRIVATE_ACCESS|PRIVATE_REFRESH|oauth-captains|session|member|player/i);
   assert.ok([...bucket.map.keys()].some(k=>k.startsWith(CAPTAIN_PREFIX)));
