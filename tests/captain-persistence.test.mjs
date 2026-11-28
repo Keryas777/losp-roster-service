@@ -699,6 +699,9 @@ test("hourly cron summary contains no OAuth identity observations",async()=>{
   assert.equal(report.checked,1);
   assert.equal(report.rotated,0);
   assert.equal(report.failed,0);
+  assert.equal(Object.hasOwn(report,"idTokensReceived"),false);
+  assert.equal(Object.hasOwn(report,"subjectClaimsObserved"),false);
+  assert.equal(Object.hasOwn(report,"verifiedTokens"),false);
   assert.ok(!Number.isNaN(Date.parse(report.checkedAt)));
   assert.doesNotMatch(raw,/PRIVATE_ACCESS|PRIVATE_REFRESH|oauth-captains|session|member|player/i);
   assert.ok([...bucket.map.keys()].some(k=>k.startsWith(CAPTAIN_PREFIX)));
