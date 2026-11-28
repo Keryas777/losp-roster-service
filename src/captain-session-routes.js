@@ -7,6 +7,7 @@ import { renderLiveRosterViewer } from "./roster-viewer.js";
 import { discoverAlliance, readAllianceCoverage } from "./alliance-coverage.js";
 import {registerConnectedAlliance,saveConnectedAlliance,removeConnectedAlliance} from "./connected-alliance-index.js";
 import {captureConnectedPersonalRoster} from "./connected-personal-rosters.js";
+import {attachOAuthObservationCookie} from "./oauth-identity-observation.js";
 
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const COOKIE="__Host-losp_captain_session";
@@ -77,8 +78,9 @@ export async function handleCaptainSession(request,env){
   if(!id)return response({status:"disconnected"});
   try{
     const s=await coordinate(env,await captainSessionKey(id),"status");
-    const result=response({status:s.status==="active"?"connected":
+    let result=response({status:s.status==="active"?"connected":
       ["absent","revoked","reconnect-required"].includes(s.status)?"disconnected":"temporarily-unavailable"});
+    if(s.oauthObservation)result=await attachOAuthObservationCookie(result,s.oauthObservation,env,id);
     return s.status==="active"?renewBrowserCookie(result,id):result;
   }catch{return response({status:"temporarily-unavailable"},503);}
 }
@@ -228,7 +230,9 @@ export async function renewCaptainGrants(env){
       try{
         const s=await coordinate(env,item.key,"refresh");
         if(s.status==="retry-later")failed++;
-        if(s.rotated===true && s.status==="active")rotated++;
+        if(s.rotated===true && s.status==="active"){
+          rotated++;
+        }
       }catch{failed++;}
     }
     more=!!batch.truncated && !!batch.cursor;

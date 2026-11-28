@@ -182,3 +182,67 @@ footer a{color:var(--muted)}
 .stock-card .inventory-icon{width:30px;height:30px}
 @media(min-width:610px){.ev-calendar-group .ev-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.planner-detail-content{padding:1rem}.plan-score-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.inventory-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:390px){.stock-section{padding:9px}.stock-section .section-heading{align-items:flex-start;flex-direction:column}.inventory-row{grid-template-columns:32px minmax(0,1fr) auto;gap:7px}.inventory-icon{width:30px;height:30px}.plan-score{padding:8px}.plan-score strong{font-size:16px}}
+
+/* Objectifs compacts : un portrait par personnage, les objectifs restent indépendants. */
+.objective-group{margin:.45rem 0;border:1px solid var(--border);border-radius:12px;background:rgba(0,0,0,.12);overflow:hidden}
+.objective-group-summary{display:flex;align-items:center;gap:.55rem;min-height:54px;padding:.55rem .65rem;flex-wrap:wrap}
+.objective-group-summary strong{flex:1;min-width:120px;overflow-wrap:anywhere}
+.objective-group-count{color:var(--muted);font-size:11px}
+.objective-group-portrait{width:42px;height:42px;flex:0 0 42px;object-fit:cover;border-radius:8px}
+.objective-group-content{padding:0 .55rem .55rem;border-top:1px solid var(--border)}
+.objective-completed{margin:.4rem 0}
+.objective-completed-summary{font-size:12px;color:var(--muted);padding:.4rem 0}
+.objective-progress{height:6px;margin-top:7px;border-radius:6px;background:var(--panel2);overflow:hidden}
+.objective-progress span{display:block;height:100%;border-radius:inherit;background:var(--planner-blue,#75baff)}
+.inventory-controls{display:grid;grid-template-columns:1fr;gap:5px;margin:.6rem 0}
+.inventory-controls label{font-size:11px;color:var(--muted)}
+.inventory-controls input,.inventory-controls select{width:100%;min-height:38px;padding:8px 10px;border:1px solid var(--border);border-radius:9px;background:var(--panel);color:var(--text)}
+.inventory-family{margin:8px 0;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:rgba(0,0,0,.1)}
+.inventory-family-summary{display:flex;align-items:flex-start;justify-content:space-between;gap:6px 10px;padding:10px;flex-wrap:wrap;cursor:pointer}
+.inventory-family-summary strong{font-size:13px}
+.inventory-family-date{font-size:10px;color:var(--muted)}
+.inventory-family>.inventory-list{padding:0 8px 8px}
+.inventory-family .inventory-row{grid-template-columns:32px minmax(0,1fr) auto;padding:6px;gap:7px}
+.inventory-family .inventory-icon{width:30px;height:30px}
+.inventory-technical{margin-top:4px;color:var(--muted);font-size:10px}
+.inventory-technical summary{display:inline-block;cursor:pointer}
+.inventory-technical code{display:block;overflow-wrap:anywhere;font-size:10px}
+@media(min-width:610px){.inventory-controls{grid-template-columns:auto minmax(200px,1fr) auto minmax(160px,.5fr);align-items:center}}
+@media(max-width:390px){.objective-group-summary{gap:5px}.objective-group-portrait{width:38px;height:38px;flex-basis:38px}.inventory-family .inventory-row{grid-template-columns:28px minmax(0,1fr) auto;gap:5px}.inventory-family .inventory-icon{width:26px;height:26px}}
+
+/* Stock prioritaire : aperçu compact, valeurs absentes distinctes de zéro. */
+.inventory-summary-group{margin:.55rem 0;padding:.55rem;border:1px solid var(--border);border-radius:10px;background:var(--panel2)}
+.inventory-summary-group h4{margin:0 0 .45rem;font-size:12px}
+.inventory-priority-list{display:grid;gap:4px}
+.inventory-row--priority{grid-template-columns:28px minmax(0,1fr) auto;gap:7px;padding:5px 7px;border-radius:8px}
+.inventory-row--priority .inventory-icon{width:26px;height:26px}
+.inventory-row--priority .inventory-name{font-size:12px}
+.inventory-row--priority .inventory-quantity{font-size:13px}
+.inventory-family-summary{position:sticky;top:0;z-index:1;background:var(--panel)}
+.inventory-list{gap:3px}
+.inventory-row{grid-template-columns:26px minmax(0,1fr) auto;gap:6px;padding:5px 7px;border-radius:8px}
+.inventory-icon{width:24px;height:24px}
+.inventory-iso-matrix{margin:.7rem 0;padding:.65rem;border:1px solid var(--border);border-radius:10px;background:var(--panel)}
+.iso-matrix-group{margin:.4rem 0}
+.iso-matrix-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.6rem;margin:.5rem 0}
+.iso-matrix-field{display:grid;gap:.22rem;min-width:0}
+.iso-matrix-field label{font-size:11px;color:var(--muted)}
+.iso-matrix-select{min-height:2.4rem;max-width:9rem;padding:.35rem;color:var(--text);background:var(--panel);border:1px solid var(--border);border-radius:8px}
+.iso-matrix-scroll{width:100%;overflow-x:auto;overscroll-behavior-inline:contain;border:1px solid var(--border);border-radius:8px}
+.iso-matrix{width:760px;min-width:760px;table-layout:fixed;border-collapse:collapse;font-size:10px}
+.iso-matrix th,.iso-matrix td{padding:4px 2px;border-bottom:1px solid var(--border);text-align:center;overflow-wrap:anywhere}
+.iso-matrix th:first-child,.iso-matrix td:first-child{position:sticky;left:0;z-index:1;width:14%;text-align:left;background:var(--panel);box-shadow:2px 0 5px rgba(0,0,0,.22)}
+.iso-matrix thead th:first-child{z-index:2}
+.iso-matrix[data-tier="P1"] thead{color:#83d88d}
+.iso-matrix[data-tier="P2"] thead{color:#8ec4ff}
+.iso-matrix[data-tier="P3"] thead{color:#d1a1f5}
+.iso-matrix[data-tier="P4"] thead{color:#ffb66d}
+.iso-matrix-cell--unknown{color:var(--muted)}
+@media(min-width:610px){.inventory-priority-list{grid-template-columns:repeat(2,minmax(0,1fr))}.inventory-summary-group{padding:.7rem}}
+.admin-diagnostics{max-width:900px;margin:0 auto;padding:16px}
+.admin-diagnostics h1{font-size:1.35rem}
+.admin-diagnostics section{margin:1rem 0;padding:1rem;border:1px solid var(--border);border-radius:12px;background:var(--panel)}
+.admin-diagnostics .diag-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.5rem;padding:.45rem 0;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+.admin-diagnostics code{font-size:.78rem;overflow-wrap:anywhere}
+.admin-diag-inventory{margin:.5rem 0;padding:.75rem;border:1px solid var(--border);border-radius:10px}
+@media(max-width:390px){.admin-diagnostics{padding:10px}.admin-diagnostics .diag-row{grid-template-columns:1fr;gap:.15rem}}

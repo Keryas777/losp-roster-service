@@ -31,6 +31,22 @@ jobs:
       - name: Install browser
         run: npx playwright install --with-deps ${{ matrix.browser }}
       - name: Test the served planner on a mobile viewport
+        if: always()
         run: node tests/event-planner.browser.spec.mjs
         env:
           BROWSER: ${{ matrix.browser }}
+      - name: Capture the four mobile tabs with LoSP styles
+        if: always() && matrix.browser == 'chromium'
+        run: node tests/event-planner.browser.spec.mjs
+        env:
+          BROWSER: chromium
+          CAPTURE_SCREENSHOTS: "1"
+          LIVE_LOSP_STYLES: "1"
+      - name: Upload mobile tab captures
+        if: always() && matrix.browser == 'chromium'
+        uses: actions/upload-artifact@v4
+        with:
+          name: maddoxx-planner-mobile-tabs
+          path: artifacts/planner-tabs/*.png
+          if-no-files-found: warn
+          retention-days: 14

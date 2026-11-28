@@ -61,7 +61,8 @@ const unknown = (reasonCode) => ({ kind: 'unknown', reasonCode });
 
 // « Play / Battle … » : combat (avec sujet) ou mode de jeu seul
 function parseFight(rest) {
-    const body = rest.replace(/^a Battle\s+/i, '');
+    // Les objectifs Maddoxx peuvent employer Battle, a Battle ou Battles au pluriel.
+    const body = rest.replace(/^(?:a\s+)?Battles?\s+/i, '');
     const withMatch = body.match(/^(?<pre>.*?)\bwith\s+(?<subject>.+)$/i);
     const pre = (withMatch ? withMatch.groups.pre : body).trim().replace(/^in\s+/i, '').replace(/^1\s+/, '').replace(/\s*Battle$/i, '').trim();
     const modes = pre ? parseModes(pre) : [];

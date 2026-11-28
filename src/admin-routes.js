@@ -359,7 +359,7 @@ export async function handleAdmin(request,env,fetchImpl=fetch){
   const pathname=new URL(request.url).pathname;
   if(pathname==="/admin"||pathname==="/admin/"){
     const plannerEntry=await eventPlannerAccessStatus(request,env,fetchImpl)==="allowed"
-      ?html.replace("<main>","<main><section id=\"event-planner-entry\"><h2>Planificateur personnel</h2><p>Analyse privée des événements avec les données de ton compte.</p><p><a href=\"/admin/events-planner\" role=\"button\">Planifier avec mon roster</a></p></section>")
+      ?html.replace("<main>","<main><section id=\"event-planner-entry\"><h2>Planificateur d’événements LoSP</h2><p>Analyse privée des événements avec les données de ton compte.</p><p><a href=\"/admin/events-planner\" role=\"button\">Planifier mes événements</a></p><p><a href=\"/admin/events-planner/diagnostics\">Diagnostics administrateur</a></p></section>")
       :html;
     return new Response(plannerEntry,{headers:{
       "Content-Type":"text/html; charset=utf-8",

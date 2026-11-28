@@ -1,7 +1,9 @@
 // Same-origin, session-bound routes for on-demand Maddoxx planner data.
 import { captainSessionKey } from "./captain-vault.js";
+import { readEventPlannerRoster } from "./event-planner-roster.js";
 import { getPersonalEventGrant } from "./personal-event-progress.js";
 import {eventPlannerAccessStatus,eventPlannerAccessResponse} from "./event-planner-auth.js";
+import {safeOAuthObservation,readOAuthObservationCookie,clearOAuthObservationCookie} from "./oauth-identity-observation.js";
 const ORIGIN="https://losp-roster-service.deliriousfan7.workers.dev";
 const COOKIE="__Host-losp_captain_session";
 const COOKIE_RX=/^[A-Za-z0-9_-]{43}$/;
@@ -17,6 +19,11 @@ function sessionId(request){
   const id=rows[0].slice(COOKIE.length+1);
   return COOKIE_RX.test(id)?id:null;
 }
+async function localStorageNamespace(id){
+  if(!id)return null;
+  const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode("losp-event-planner-local-v1:"+id));
+  return [...new Uint8Array(digest)].map(value=>value.toString(16).padStart(2,"0")).join("");
+}
 export async function handleEventPlannerApi(request,env,fetchImpl=fetch,now=Date.now()){
   const access=await eventPlannerAccessStatus(request,env,fetchImpl);
   if(access!=="allowed")return eventPlannerAccessResponse(access);
@@ -25,25 +32,74 @@ export async function handleEventPlannerApi(request,env,fetchImpl=fetch,now=Date
   if(url.origin!==ORIGIN||(request.headers.get("Origin")&&request.headers.get("Origin")!==ORIGIN))return json({error:"forbidden"},403);
   const resource=url.searchParams.get("resource");
   const allowed=resource==="status"?new Set(["resource"]):resource==="events"?new Set(["resource","lang","refresh"]):
-    resource==="detail"?new Set(["resource","lang","eventId","refresh"]):resource==="roster"?new Set(["resource","lang","refresh"]):
-    resource==="inventory"?new Set(["resource","itemType","refresh"]):null;
+    resource==="detail"?new Set(["resource","lang","eventId","refresh"]):resource==="roster"?new Set(["resource","lang"]):
+    resource==="diagnostics"?new Set(["resource"]):
+    resource==="inventory"?new Set(["resource","itemType","lang","refresh"]):null;
   if(!allowed||[...url.searchParams.keys()].some(key=>!allowed.has(key)))return json({error:"invalid-request"},400);
   const id=sessionId(request);
   const grant=await getPersonalEventGrant(request,env,null);
   if(grant.error)return json({status:"disconnected",reason:grant.error},grant.status);
   const granted=new Set((grant.scope||"").split(/\s+/).filter(Boolean));
-  if(resource==="status")return json({status:"connected",scopes:[...granted]});
+  if(resource==="status")return json({status:"connected",scopes:[...granted],storageNamespace:await localStorageNamespace(id)});
+  if(resource==="diagnostics"){
+    const missing=["m3p.f.pr.ros","m3p.f.pr.inv"].filter(scope=>!granted.has(scope));
+    if(missing.length)return json({error:"scope-insufficient",requiredScope:missing[0]},403);
+    if(!id)return json({error:"not-configured"},503);
+    const key=await captainSessionKey(id);
+    let roster;
+    try{roster=await readEventPlannerRoster(env,key,now);}
+    catch{roster={status:"unavailable",stage:"r2-read"};}
+    if(!env?.PERSONAL_EVENT_CACHE?.idFromName||!env?.PERSONAL_EVENT_CACHE?.get)
+      return json({error:"not-configured"},503);
+    const stub=env.PERSONAL_EVENT_CACHE.get(env.PERSONAL_EVENT_CACHE.idFromName(key));
+    const cached=await Promise.all(["CONSUMABLE","ISOITEM"].map(async itemType=>{
+      try{
+        const response=await stub.fetch(new Request("https://personal-event-cache.internal/planner",{
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({token:grant.accessToken,resource:"inventory",lang:"fr",
+            itemType,refresh:false,cacheOnly:true,requestedAt:now})
+        }));
+        const body=await response.json();
+        return {itemType,status:response.ok?"available":body.error||"unavailable",
+          retrievedAt:body.retrievedAt||null,rows:Array.isArray(body.data)?body.data.map(row=>({
+            id:typeof row?.item==="string"?row.item:typeof row?.item?.id==="string"?row.item.id:
+              typeof row?.id==="string"?row.id:null,
+            quantity:row?.quantity??null
+          })).filter(row=>row.id):[]};
+      }catch{return {itemType,status:"cache-unavailable",retrievedAt:null,rows:[]};}
+    }));
+    const oauthObservation=safeOAuthObservation(grant.oauthObservation)||
+      await readOAuthObservationCookie(request,env);
+    return clearOAuthObservationCookie(json({status:"ok",resource,
+      oauthObservation,
+      roster:{status:roster.status,
+      stage:roster.stage||"available",retrievedAt:roster.capturedAt||null,
+      expiresAt:roster.expiresAt||null,characterCount:roster.characters?.length??0},
+      inventories:cached}));
+  }
   const lang=url.searchParams.get("lang")||"fr";
   const eventId=url.searchParams.get("eventId");
   const itemType=url.searchParams.get("itemType");
   const refresh=url.searchParams.get("refresh")==="1";
-  if(["events","detail","roster"].includes(resource)&&!['en','fr'].includes(lang))return json({error:"invalid-request"},400);
+  if(["events","detail","roster","inventory"].includes(resource)&&lang!=="fr")return json({error:"invalid-request"},400);
   if(resource==="detail"&&(!eventId||!/^[A-Za-z0-9_-]{1,128}$/.test(eventId)))return json({error:"invalid-request"},400);
   if(resource==="inventory"&&!['CONSUMABLE','ISOITEM'].includes(itemType))return json({error:"invalid-request"},400);
   if([...url.searchParams.keys()].some(key=>key==="refresh")&&!refresh)return json({error:"invalid-request"},400);
   const scope=requiredScope[resource];
   if(!granted.has(scope))return json({error:"scope-insufficient",requiredScope:scope},403);
-  if(!id||!env?.PERSONAL_EVENT_CACHE?.idFromName||!env?.PERSONAL_EVENT_CACHE?.get)return json({error:"not-configured"},503);
+  if(!id)return json({error:"not-configured"},503);
+  if(resource==="roster"){
+    if(!env?.CAPTAIN_BUCKET?.get)return json({error:"not-configured"},503);
+    let saved;
+    try{saved=await readEventPlannerRoster(env,await captainSessionKey(id),now);}
+    catch{return json({error:"cache-unavailable",calls:0},503);}
+    if(saved.status!=="ok")return json({error:"roster-unavailable",calls:0},404);
+    return json({status:"ok",resource,lang,retrievedAt:saved.capturedAt,
+      cache:{hit:true,expiresAt:saved.expiresAt},
+      upstream:{calls:0,asOf:saved.asOf??null},
+      data:saved.characters});
+  }
+  if(!env?.PERSONAL_EVENT_CACHE?.idFromName||!env?.PERSONAL_EVENT_CACHE?.get)return json({error:"not-configured"},503);
   const key=await captainSessionKey(id);
   const stub=env.PERSONAL_EVENT_CACHE.get(env.PERSONAL_EVENT_CACHE.idFromName(key));
   try{

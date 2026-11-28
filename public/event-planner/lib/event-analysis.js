@@ -18,8 +18,13 @@ const cleanText = (value = '') => String(value).replace(/<[^>]*>/g, '').replace(
 // Niveau ISO continu d'un personnage du roster : niveau de sa classe active (0 sans classe)
 function isoValue(rosterEntry) {
     const iso8 = rosterEntry?.iso8;
-    const value = iso8 && typeof iso8 === 'object' ? Number(iso8[iso8.active]) : NaN;
-    return Number.isFinite(value) ? value : 0;
+    if (!iso8 || typeof iso8 !== 'object' || Array.isArray(iso8)) return null;
+    const active = typeof iso8.active === 'string' ? iso8.active.trim() : '';
+    if (!active) return null;
+    const raw = iso8[active];
+    if (raw === 0 || raw === '0') return 0;
+    const value = typeof raw === 'number' ? raw : (typeof raw === 'string' && /^\\d+$/.test(raw.trim()) ? Number(raw) : NaN);
+    return Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 const ROSTER_FIELDS = { yellowStars: 'activeYellow', redStars: 'activeRed', gearTier: 'gearTier', level: 'level' };
@@ -122,7 +127,9 @@ export function analyzeMilestoneEvent({ eventEn, eventFr, roster = [], rosterKno
         const remaining = capKnown && progressKnown ? Math.max(0, cap - progressSoFar) : null;
         const parsed = mergeClassified(entryMethods.map((method) => classifyObjective(method.description)));
         const pointsPerAction = Math.max(0, ...entryMethods.map((method) => Number(method.points) || 0));
-        const skip = (reason) => unparsed.push({ source: 'capped', index, label, labelEn, reason });
+        // Maddoxx expose isPremium comme indication de la ligne; cela ne décide pas si elle est faisable gratuitement.
+        const premium = Boolean(entry.isPremium);
+        const skip = (reason) => unparsed.push({ source: 'capped', index, label, labelEn, reason, premium });
         if (parsed.kind === 'unknown') return skip(parsed.reasonCode);
         if (['earn', 'meta', 'upgrade'].includes(parsed.kind)) return skip(parsed.kind === 'upgrade' ? 'unknownForm' : parsed.kind);
 
@@ -164,7 +171,7 @@ export function analyzeMilestoneEvent({ eventEn, eventFr, roster = [], rosterKno
             soFarUnits: Math.floor(progressSoFar / pointsPerAction), capUnits: Math.ceil(cap / pointsPerAction), remainingUnits: Math.ceil(remaining / pointsPerAction)
         } : {};
         actions.push({
-            index, kind: parsed.kind, mode: parsed.mode || null, modes: parsed.modes || [], label, labelEn, character, subject, progressState: progressKnown && capKnown ? 'available' : 'unknown',
+            index, kind: parsed.kind, mode: parsed.mode || null, modes: parsed.modes || [], label, labelEn, premium, character, subject, progressState: progressKnown && capKnown ? 'available' : 'unknown',
             requirements: parsed.requirements || {}, ...resourceFields(parsed.resource), pointsPerAction, cap, progress: progressSoFar, remaining, ...units,
             fightsLeft: remaining !== null && pointsPerAction > 0 && !isSpend ? Math.ceil((status === 'doable' ? doablePoints : remaining) / pointsPerAction) : null,
             doablePoints, status, reason: ['blocked', 'unknown'].includes(status) ? unmet : null,
@@ -231,7 +238,9 @@ export function analyzeMilestoneEvent({ eventEn, eventFr, roster = [], rosterKno
         let best = null;
         rosterById.forEach((rosterEntry, id) => {
             const current = rosterValue(kind, rosterEntry);
-            if (current >= threshold || !charactersById.has(id)) return;
+            // An absent active class/level is unknown, not ISO level 0. Do not
+            // turn that missing data into a free upgrade recommendation.
+            if (current === null || current >= threshold || !charactersById.has(id)) return;
             // Toutes les sources du même type franchies entre la valeur actuelle et le seuil
             const crossed = thresholds
                 .filter((other) => other.kind === kind && other.threshold > current && other.threshold <= threshold)

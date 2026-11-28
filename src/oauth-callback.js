@@ -14,6 +14,7 @@ import { discoverAlliance } from "./alliance-coverage.js";
 import { readApproval } from "./roster-sync-preflight.js";
 import { ALLIANCE_SCOPE_PROBES, auditAllianceScopeProbe, renderAllianceScopeProbe } from "./alliance-scope-probes.js";
 import { getPlayerCard, showEphemeralPlayerCard } from "./player-card.js";
+import { observeIdToken, attachOAuthObservationCookie } from "./oauth-identity-observation.js";
 
 // First OAuth callback validation: tokens are deliberately not persisted.
 // This allows an end-to-end authorization test without a token database.
@@ -240,6 +241,7 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
     // Full captain consent. Persist only after R2 + serialized refresh are
     // explicitly enabled. All old ephemeral diagnostics remain unchanged.
     if (captainMode) {
+      const oauthObservation=observeIdToken(result.id_token);
       const scopeAudit = auditCaptainScopes(result.scope);
       const rosterAllowed = scopeAudit.scopes.find(row =>
         row.scope === "m3p.f.ar.ros")?.granted === true;
@@ -261,12 +263,16 @@ export async function handleCallback(request, env, fetchImpl = fetch) {
       }
       if(eventPlannerReturn&&saveToken){
         try{
-          const redirect=new Response(null,{status:303,headers:{Location:APP_ORIGIN+"/admin/events-planner",
+          const redirect=new Response(null,{status:303,headers:{Location:APP_ORIGIN+"/admin/events-planner/diagnostics",
             "Cache-Control":"no-store","Referrer-Policy":"no-referrer","X-Robots-Tag":"noindex"}});
           const saved=await saveCaptainConsent(redirect,result,env,request,fetchImpl);
-          const headers=new Headers(saved.headers);
+          const sessionCookie=saved.headers.getSetCookie().find(value=>
+            value.startsWith("__Host-losp_captain_session="));
+          const sessionId=sessionCookie?.split(";",1)[0].slice("__Host-losp_captain_session=".length);
+          const observed=await attachOAuthObservationCookie(saved,oauthObservation,env,sessionId);
+          const headers=new Headers(observed.headers);
           clearOAuthCookies(headers,true);
-          return new Response(null,{status:saved.status,headers});
+          return new Response(null,{status:observed.status,headers});
         }catch{
           return backToStatus("captain-session-unavailable");
         }

@@ -38,7 +38,7 @@ test("planner shell requires owner Access and an existing captain session before
   const noCaptain=await handleEventPlannerPage(new Request(ORIGIN+"/admin/events-planner",{
     headers:{"Cf-Access-Jwt-Assertion":OWNER_JWT}}),f.env,accessFetch());
   assert.equal(noCaptain.status,200);
-  const noCaptainText=await noCaptain.text();assert.match(noCaptainText,/Aucune session Scopely active/);
+  const noCaptainText=await noCaptain.text();assert.match(noCaptainText,/Aucun compte MSF n’est connecté/);assert.match(noCaptainText,/<title>Planificateur d’événements LoSP<\/title>/);assert.doesNotMatch(noCaptainText,/Scopely|OAuth|jeton/i);
   assert.match(noCaptainText,/admin\/login\/captain\?returnTo=events-planner/);
   assert.equal(f.assetCalls(),0);
   assert.equal(noCaptain.headers.get("Cache-Control"),"private, no-store, max-age=0");
@@ -90,12 +90,12 @@ test("every shipped planner JavaScript module is served through the authenticate
     if(!file.startsWith(PLANNER_ASSET_ROOT+"/"))return new Response("Not Found",{status:404});
     try{
       const body=await readFile(file),type=asset.endsWith(".js")?"text/javascript; charset=utf-8":
-        asset.endsWith(".css")?"text/css; charset=utf-8":"text/html; charset=utf-8";
+        asset.endsWith(".css")?"text/css; charset=utf-8":asset.endsWith(".json")?"application/json; charset=utf-8":"text/html; charset=utf-8";
       return new Response(body,{headers:{"Content-Type":type}});
     }catch{return new Response("Not Found",{status:404});}
   }};
 
-  const paths=["index.html","styles.css",...modules];
+  const paths=["index.html","styles.css",...modules,"data/msf-resource-catalog.json"];
   for(const asset of paths){
     const response=await handleEventPlannerPage(new Request(ORIGIN+"/admin/events-planner/"+asset,{headers}),f.env,accessFetch());
     assert.equal(response.status,200,"Worker planner route serves "+asset);

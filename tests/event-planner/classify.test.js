@@ -26,6 +26,11 @@ test('combats : « Play » et « Battle », mode, exigences', () => {
     assert.equal(classifyObjective('Battle in War with Shadow Conclave').mode, 'war');
     assert.equal(classifyObjective('Battle in Cosmic Crucible with Daring Warriors').mode, 'crucible');
     assert.deepEqual(classifyObjective('Play a Battle with Vision').subject, { type: 'named', name: 'Vision' });
+    for (const text of ['Play Battle with Tech Characters', 'Play a Battle with Tech Characters', 'Play Battles with Tech Characters']) {
+        assert.deepEqual(classifyObjective(text), {
+            kind: 'fight', mode: 'any', modes: [], subject: { type: 'trait', name: 'Tech' }, requirements: {}
+        }, text);
+    }
 });
 
 test('sujets : n’importe quel personnage, trait, équipe', () => {
